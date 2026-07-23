@@ -1,0 +1,63 @@
+{
+  "firestore": {
+    "rules": "firestore.rules",
+    "indexes": "firestore.indexes.json"
+  },
+  "functions": [
+    {
+      "source": "functions",
+      "codebase": "default",
+      "ignore": [
+        "node_modules",
+        ".git"
+      ]
+    }
+  ],
+  "hosting": [
+    {
+      "target": "website",
+      "public": "website",
+      "ignore": [
+        "firebase.json",
+        "**/.*",
+        "!.well-known/**",
+        "**/node_modules/**"
+      ],
+      "cleanUrls": true,
+      "rewrites": [
+        {
+          "source": "/party/**",
+          "function": {
+            "functionId": "partyLandingPage",
+            "region": "asia-northeast3"
+          }
+        }
+      ],
+      "headers": [
+        {
+          "source": "/.well-known/apple-app-site-association",
+          "headers": [{ "key": "Content-Type", "value": "application/json" }]
+        },
+        {
+          "source": "/.well-known/assetlinks.json",
+          "headers": [{ "key": "Content-Type", "value": "application/json" }]
+        }
+      ]
+    },
+    {
+      "target": "admin",
+      "public": "admin_app/build/web",
+      "ignore": [
+        "firebase.json",
+        "**/.*",
+        "**/node_modules/**"
+      ],
+      "rewrites": [
+        {
+          "source": "**",
+          "destination": "/index.html"
+        }
+      ]
+    }
+  ]
+}

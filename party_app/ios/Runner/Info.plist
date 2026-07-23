@@ -1,0 +1,107 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+	<dict>
+		<key>NSLocationWhenInUseUsageDescription</key>
+		<string>현재 위치를 지도에 표시하기 위해 위치 권한이 필요합니다.</string>
+		<key>NSLocationAlwaysUsageDescription</key>
+		<string>현재 위치를 지도에 표시하기 위해 위치 권한이 필요합니다.</string>
+		<key>NSCameraUsageDescription</key>
+		<string>프로필 사진을 촬영하기 위해 카메라 접근 권한이 필요합니다.</string>
+		<key>NSPhotoLibraryUsageDescription</key>
+		<string>프로필 사진을 선택하기 위해 사진 보관함 접근 권한이 필요합니다.</string>
+		<key>NSPhotoLibraryAddUsageDescription</key>
+		<string>촬영한 사진을 저장하기 위해 사진 보관함 접근 권한이 필요합니다.</string>
+		<key>NSMicrophoneUsageDescription</key>
+		<string>동영상을 편집하고 미리보기 재생하기 위해 마이크(오디오) 접근 권한이 필요합니다.</string>
+		<key>CADisableMinimumFrameDurationOnPhone</key>
+		<true/>
+		<key>CFBundleDevelopmentRegion</key>
+		<string>$(DEVELOPMENT_LANGUAGE)</string>
+		<key>CFBundleDisplayName</key>
+		<string>Party App</string>
+		<key>CFBundleExecutable</key>
+		<string>$(EXECUTABLE_NAME)</string>
+		<key>CFBundleIdentifier</key>
+		<string>$(PRODUCT_BUNDLE_IDENTIFIER)</string>
+		<key>CFBundleInfoDictionaryVersion</key>
+		<string>6.0</string>
+		<key>CFBundleName</key>
+		<string>party_app</string>
+		<key>CFBundlePackageType</key>
+		<string>APPL</string>
+		<key>CFBundleShortVersionString</key>
+		<string>$(FLUTTER_BUILD_NAME)</string>
+		<key>CFBundleSignature</key>
+		<string>????</string>
+		<key>CFBundleVersion</key>
+		<string>$(FLUTTER_BUILD_NUMBER)</string>
+		<key>LSRequiresIPhoneOS</key>
+		<true/>
+		<key>LSApplicationQueriesSchemes</key>
+		<array>
+			<string>kakaokompassauth</string>
+			<string>kakaolink</string>
+			<string>instagram</string>
+			<string>instagram-stories</string>
+		</array>
+		<!-- 커스텀 스킴 폴백(partychu://party/{id}) — 공식 Universal Links가
+		     항상 우선이며, 이건 카카오톡 인앱 브라우저 등 일부 환경이 Universal
+		     Links를 존중하지 않을 때만 쓰이는 보조 경로다. Universal Links
+		     자체(https://partychu.co.kr/party/{id})는 여기가 아니라 Xcode의
+		     Associated Domains 설정으로 등록해야 한다 — ios/README_UNIVERSAL_LINKS.md 참고. -->
+		<key>CFBundleURLTypes</key>
+		<array>
+			<dict>
+				<key>CFBundleURLName</key>
+				<string>kr.co.partychu.app</string>
+				<key>CFBundleURLSchemes</key>
+				<array>
+					<string>partychu</string>
+				</array>
+			</dict>
+		</array>
+		<key>UIApplicationSceneManifest</key>
+		<dict>
+			<key>UIApplicationSupportsMultipleScenes</key>
+			<false/>
+			<key>UISceneConfigurations</key>
+			<dict>
+				<key>UIWindowSceneSessionRoleApplication</key>
+				<array>
+					<dict>
+						<key>UISceneClassName</key>
+						<string>UIWindowScene</string>
+						<key>UISceneConfigurationName</key>
+						<string>flutter</string>
+						<key>UISceneDelegateClassName</key>
+						<string>$(PRODUCT_MODULE_NAME).SceneDelegate</string>
+						<key>UISceneStoryboardFile</key>
+						<string>Main</string>
+					</dict>
+				</array>
+			</dict>
+		</dict>
+		<key>UIApplicationSupportsIndirectInputEvents</key>
+		<true/>
+		<key>UILaunchStoryboardName</key>
+		<string>LaunchScreen</string>
+		<key>UIMainStoryboardFile</key>
+		<string>Main</string>
+		<key>UISupportedInterfaceOrientations</key>
+		<array>
+			<string>UIInterfaceOrientationPortrait</string>
+			<string>UIInterfaceOrientationLandscapeLeft</string>
+			<string>UIInterfaceOrientationLandscapeRight</string>
+		</array>
+		<key>UISupportedInterfaceOrientations~ipad</key>
+		<array>
+			<string>UIInterfaceOrientationPortrait</string>
+			<string>UIInterfaceOrientationPortraitUpsideDown</string>
+			<string>UIInterfaceOrientationLandscapeLeft</string>
+			<string>UIInterfaceOrientationLandscapeRight</string>
+		</array>
+		<key>UIStatusBarHidden</key>
+		<false/>
+	</dict>
+</plist>

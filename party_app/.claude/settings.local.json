@@ -1,0 +1,18 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(flutter build *)",
+      "Bash(flutter clean *)",
+      "Bash(dart analyze *)",
+      "Bash(curl -s -X GET \"https://api.cloudflare.com/client/v4/accounts/0010035a696042d03abfd8926e3d4a77/stream\" -H \"Authorization: Bearer cfut_HmTuGskJ5qaps7HtxqeUBnFRm7JxRMOFUA2JGWJT405facc2\" -H \"Content-Type: application/json\")",
+      "Bash(curl -s -X GET \"https://api.cloudflare.com/client/v4/accounts/0010035a696042d03abfd8926e3d4a77\" -H \"Authorization: Bearer cfut_HmTuGskJ5qaps7HtxqeUBnFRm7JxRMOFUA2JGWJT405facc2\")",
+      "Bash(curl -s -X GET \"https://api.cloudflare.com/client/v4/accounts/0010035a696042d03abfd8926e3d4a77/r2/buckets\" -H \"Authorization: Bearer cfut_HmTuGskJ5qaps7HtxqeUBnFRm7JxRMOFUA2JGWJT405facc2\")",
+      "Bash(curl -s -X GET \"https://api.cloudflare.com/client/v4/accounts/0010035a696042d03abfd8926e3d4a77/stream\" -H \"Authorization: Bearer cfut_HmTuGskJ5qaps7HtxqeUBnFRm7JxRMOFUA2JGWJT405facc2\")",
+      "Bash(firebase deploy *)",
+      "PowerShell(npx firebase deploy --only firestore:rules --project partychu 2>&1)",
+      "Bash(dart run *)",
+      "PowerShell(Add-Type -AssemblyName System.Drawing; $img = [System.Drawing.Image]::FromFile\\('C:\\\\partychu\\\\partymap\\\\party_app\\\\assets\\\\images\\\\header_logo_last.png'\\); \"Width: $\\($img.Width\\), Height: $\\($img.Height\\)\"; $img.Dispose\\(\\))",
+      "PowerShell(Add-Type -AssemblyName System.Drawing; $img = [System.Drawing.Image]::FromFile\\('C:\\\\partychu\\\\partymap\\\\party_app\\\\assets\\\\images\\\\header_logo_last.png'\\); \"Width: $\\($img.Width\\), Height: $\\($img.Height\\), Ratio: $\\([math]::Round\\($img.Width / $img.Height, 3\\)\\)\"; $img.Dispose\\(\\))"
+    ]
+  }
+}

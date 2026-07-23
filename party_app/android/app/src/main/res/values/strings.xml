@@ -1,0 +1,7 @@
+<resources>
+    <string name="app_name">파티츄</string>
+
+    <string name="naver_client_id">tBOknHSARfVEHyCuRYT2</string>
+    <string name="naver_client_secret">ddmdtebOFi</string>
+    <string name="naver_client_name">party_app</string>
+</resources>

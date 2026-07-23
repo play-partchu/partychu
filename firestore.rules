@@ -1,0 +1,572 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // ── 헬퍼 함수 ──────────────────────────────────────────────────────
+
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function uid() {
+      return request.auth.uid;
+    }
+
+    function userDoc(userId) {
+      return get(/databases/$(database)/documents/users/$(userId));
+    }
+
+    function isVerified() {
+      return isSignedIn() && (
+        userDoc(uid()).data.identityVerified == true ||
+        userDoc(uid()).data.isVerified == true   // 하위 호환
+      );
+    }
+
+    function isAdmin() {
+      return isSignedIn() && userDoc(uid()).data.role == 'admin';
+    }
+
+    function passesAgeRestriction(partyData) {
+      let restricted = partyData.get('ageRestrictionEnabled', false);
+      let userBirth = userDoc(uid()).data.get('birthYear', null);
+      return !restricted ||
+             (userBirth != null &&
+              userBirth >= partyData.get('minBirthYear', 0) &&
+              userBirth <= partyData.get('maxBirthYear', 9999));
+    }
+
+    // 신청자가 수정 가능한 필드 목록 (applicants + 참가자 수 필드)
+    function isApplicantUpdateOnly() {
+      return request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+        'applicants', 'currentParticipants', 'currentMaleCount',
+        'currentFemaleCount', 'people'
+      ]);
+    }
+
+    // 신청자가 applicants 배열에 자신의 uid만 추가하는지 검증
+    // → 타인 uid를 대신 추가하는 변조 방지
+    // resource.data에 applicants 필드가 없는 경우(구 데이터)를 위해 .get() 사용
+    function onlyAddsSelfToApplicants() {
+      let prev = resource.data.get('applicants', []);
+      let added = request.resource.data.applicants.toSet().difference(prev.toSet());
+      return added.hasOnly([uid()]);
+    }
+
+    // ── users 컬렉션 ───────────────────────────────────────────────────
+    // 정책:
+    //   - 본인 또는 관리자만 전체 조회 가능
+    //   - 본인확인 완료 후 인증 잠금 필드(gender, birthYear 등) 수정 불가
+    //
+    // TODO: party_applicants_screen.dart가 파티장 자격으로 신청자 name/gender를
+    //       읽어야 하므로 Firebase Functions getApplicants(partyId) 엔드포인트 구현 후
+    //       해당 화면을 Function 호출로 전환하면 이 규칙은 그대로 유지 가능.
+    match /users/{userId} {
+      allow read: if isSignedIn() && (uid() == userId || isAdmin());
+
+      // 관리자 웹 검색/정렬·통계 전용 파생 필드 — Functions(onUserCreated,
+      // onUserFieldsWrite, onApplicationStatusWrite, onPartyCreated,
+      // onPlaceCreated, memberManagement.js의 각종 트리거/adminUpdateMember)만
+      // 기록한다. 클라이언트가 직접 쓸 수 있게 두면 검색 결과를 스스로
+      // 조작하거나 이용 통계·호스트 여부·계정 상태·활동 배지를 위조할 수
+      // 있어 본인확인 여부와 무관하게 항상 막는다.
+      function isDerivedFieldOnlyChange() {
+        return !request.resource.data.diff(resource.data).affectedKeys().hasAny([
+          'nicknameLower', 'nameLower', 'emailLower', 'stats',
+          'isHost', 'hostSince',
+          'activityRoles',
+          'accountStatus', 'accountStatusUpdatedAt', 'accountStatusUpdatedBy', 'accountStatusReason',
+          'adminMemo', 'adminMemoUpdatedAt', 'adminMemoUpdatedBy',
+          'isTestAccount', 'lastLoginAt'
+        ]);
+      }
+
+      // 관리자 웹 "가입 경로" 통계용 — 최초 로그인 시 클라이언트가 한 번만
+      // 쓸 수 있다(값이 아직 없고, 정해진 3개 값 중 하나이며, 이 필드
+      // 하나만 바뀌는 요청일 때만). 이미 값이 있으면 이후 어떤 로그인
+      // 시도로도 덮어쓸 수 없다 — 최초 가입 경로를 그대로 보존한다.
+      function isSignupProviderFirstWrite() {
+        return request.resource.data.diff(resource.data).affectedKeys().hasOnly(['signupProvider']) &&
+          !('signupProvider' in resource.data) &&
+          request.resource.data.signupProvider in ['google', 'kakao', 'naver'];
+      }
+
+      // 인증 잠금 필드는 클라이언트가 최초 생성 시에도 쓸 수 없음
+      // → Firebase Functions Admin SDK (niceIntcResult)에서만 저장 가능
+      allow create: if isSignedIn() && uid() == userId &&
+        !request.resource.data.keys().hasAny([
+          'isVerified', 'identityVerified', 'identityVerifiedAt',
+          'gender', 'birthYear', 'birthMonth', 'birthDay',
+          'name', 'di', 'ci',
+          'verifiedAt', 'verificationProvider', 'phoneNumber',
+          'profileCompleted',
+          'nicknameLower', 'nameLower', 'emailLower', 'stats',
+          'isHost', 'hostSince',
+          'activityRoles',
+          'accountStatus', 'accountStatusUpdatedAt', 'accountStatusUpdatedBy', 'accountStatusReason',
+          'adminMemo', 'adminMemoUpdatedAt', 'adminMemoUpdatedBy',
+          'isTestAccount', 'lastLoginAt'
+        ]);
+
+      // 본인확인 전: 인증 잠금 필드 외 모든 필드 수정 가능
+      // 본인확인 후: 인증 잠금 필드는 추가로 수정 불가 (실명·생년월일·성별 등 위변조 방지)
+      // 파생 필드(nicknameLower 등)는 인증 여부와 무관하게 항상 수정 불가
+      // signupProvider 최초 1회 기록은 위 두 경로와 별개로 항상 허용한다.
+      allow update: if isSignedIn() && uid() == userId && (
+        isSignupProviderFirstWrite() ||
+        (
+          isDerivedFieldOnlyChange() && (
+          (!resource.data.get('isVerified', false) &&
+           !resource.data.get('identityVerified', false)) ||
+          !request.resource.data.diff(resource.data).affectedKeys().hasAny([
+            'isVerified', 'identityVerified', 'identityVerifiedAt',
+            'gender', 'birthYear', 'birthMonth', 'birthDay',
+            'name', 'di', 'ci',
+            'verifiedAt', 'verificationProvider', 'phoneNumber',
+            'profileCompleted'
+          ])
+        )
+      ));
+
+      allow delete: if isAdmin();
+    }
+
+    // ── parties 컬렉션 ─────────────────────────────────────────────────
+    // 파라미터 변조 방지 설계:
+    //
+    //   [읽기]
+    //   - 비로그인 사용자도 목록·상세 조회 가능 (공개 컬렉션)
+    //
+    //   [생성]
+    //   - 로그인된 사용자만 생성 가능
+    //   - hostId는 반드시 자신의 auth.uid와 일치해야 함 (타인 사칭 방지)
+    //
+    //   [수정 — 2가지 경로]
+    //   a) 파티장: hostId·createdAt 제외 모든 필드 수정 가능
+    //      (승인/거절, 모집상태, 파티 정보 수정)
+    //   b) 비파티장(신청자): applicants·참가자 수 필드만 수정 가능,
+    //      AND applicants에 자신의 uid만 추가 가능
+    //      → approvedApplicants, rejectedApplicants, recruitStatus 등 무단 수정 불가
+    //
+    //   [삭제]
+    //   - 파티장 또는 관리자만 가능
+    //
+    // NOTE: isVerified() 대신 isSignedIn() 사용
+    //       → 본인확인이 아직 Mock 상태 (Step 6 완료 후 isVerified()로 교체 예정)
+    match /parties/{partyId} {
+      allow read: if true;
+
+      allow create: if isSignedIn() &&
+        request.resource.data.hostId == uid();
+
+      allow update: if isSignedIn() && (
+        // [a] 파티장 경로: hostId·createdAt은 변경 불가
+        (resource.data.hostId == uid() &&
+         !request.resource.data.diff(resource.data).affectedKeys()
+           .hasAny(['hostId', 'createdAt'])) ||
+        // [b] 신청자 경로 (심층 방어): applyToParty Functions 배포 후 제거 가능.
+        //     Functions Admin SDK가 이미 서버에서 적격성 검증 + 업데이트를 처리하므로
+        //     클라이언트 직접 쓰기는 이 경로에 도달하지 않음.
+        //     단, 배포 전 전환 기간 또는 Functions 장애 시 fallback으로 유지.
+        (isApplicantUpdateOnly() && onlyAddsSelfToApplicants())
+      );
+
+      allow delete: if isSignedIn() &&
+        (resource.data.hostId == uid() || isAdmin());
+    }
+
+    // ── favorites 컬렉션 (찜) ────────────────────────────────────────
+    // 문서 id: "{userId}_{type}_{itemId}" (favorites_service.dart 참고)
+    // [읽기] 본인 또는 관리자만 (관리자 웹의 회원 상세 "찜 목록"에서도 사용)
+    // [생성] 본인 userId로만, 문서 id가 반드시 "본인uid_type_itemId" 형식이어야 함
+    // [삭제] 본인 또는 관리자만
+    // [수정] 없음 — 찜은 생성/삭제만 존재, 필드 변경 개념이 없음
+    //
+    // read/delete는 resource.data를 절대 참조하지 않고 문서 id(favoriteId)
+    // 자체로 소유권을 판별한다 — 아직 존재하지 않는 문서를 get()/snapshots()로
+    // 읽으면 resource가 null이 되는데, 그 상태에서 resource.data에 접근하면
+    // 규칙 평가 자체가 실패해 존재 여부와 무관하게 항상 PERMISSION_DENIED가
+    // 난다. toggleFavorite()이 매번 get()으로 존재 여부를 먼저 확인하므로,
+    // 이전 버전(resource.data.userId 참조) 규칙에서는 모든 최초 찜 시도가
+    // 이 이유로 항상 실패했다.
+    match /favorites/{favoriteId} {
+      allow read: if isSignedIn() &&
+        (favoriteId.matches(uid() + '_.*') || isAdmin());
+
+      allow create: if isSignedIn() &&
+        request.resource.data.userId == uid() &&
+        favoriteId == uid() + '_' + request.resource.data.type + '_' + request.resource.data.itemId;
+
+      allow update: if false;
+
+      allow delete: if isSignedIn() &&
+        (favoriteId.matches(uid() + '_.*') || isAdmin());
+    }
+
+    // ── parties/{partyId}/applications 서브컬렉션 (신청 상태 추적) ─────
+    // 문서 id: 신청자 uid (파티당 1인 1문서).
+    // applyToParty Cloud Function이 신청 시점에 status='applied'로 생성하고,
+    // 이후 승인/거절/실제참석/취소/노쇼 전환은 관리자 전용 Functions
+    // 콜러블에서만 처리한다 (2단계에서 구현).
+    // [읽기] 신청자 본인, 해당 파티 호스트, 관리자
+    // [쓰기] 클라이언트 직접 쓰기 전면 차단 — Functions Admin SDK 전용
+    //        (verificationSessions 컬렉션과 동일한 보호 패턴)
+    match /parties/{partyId}/applications/{applicationId} {
+      allow read: if isSignedIn() && (
+        resource.data.uid == uid() ||
+        get(/databases/$(database)/documents/parties/$(partyId)).data.hostId == uid() ||
+        isAdmin()
+      );
+      allow write: if false;
+    }
+
+    // ── reports 컬렉션 (신고) ────────────────────────────────────────
+    // 파티/사용자/장소/파티샵/크루 신고 — feedbackRequests(의견 보내기)와는
+    // 별개의 전용 컬렉션. 현재는 제출 UI가 없어 스키마·권한만 선반영한다.
+    // [읽기] 작성자 본인 또는 관리자
+    // [생성] 로그인된 사용자가 자신의 reporterId로만, 초기 상태는 'received'
+    // [수정] 관리자만, status/adminMemo/updatedAt/resolvedAt 외 필드 변경 불가
+    // [삭제] 관리자만
+    match /reports/{reportId} {
+      allow read: if isSignedIn() &&
+        (resource.data.reporterId == uid() || isAdmin());
+
+      allow create: if isSignedIn() &&
+        request.resource.data.reporterId == uid() &&
+        request.resource.data.status == 'received';
+
+      allow update: if isAdmin() &&
+        request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+          'status', 'adminMemo', 'updatedAt', 'resolvedAt'
+        ]);
+
+      allow delete: if isAdmin();
+    }
+
+    // ── userStats 컬렉션 (사용자별 요약 이용 통계) ──────────────────────
+    // 문서 id = uid. 원본 기록(parties/{id}/applications, favorites,
+    // analyticsEvents)과 분리된 집계 전용 문서 — Functions만 기록한다.
+    // [읽기] 본인 또는 관리자만 (일반 사용자는 자신의 통계만 조회 가능)
+    // [쓰기] 클라이언트 직접 불가 — onApplicationStatusWrite/onFavoriteWrite/
+    //        onAnalyticsEventCreated/onUserFieldsWrite Functions에서만 갱신
+    match /userStats/{userId} {
+      allow read: if isSignedIn() && (uid() == userId || isAdmin());
+      allow write: if false;
+    }
+
+    // ── systemFunctionErrors 컬렉션 (스케줄 함수 실패 기록) ──────────────
+    // logScheduledFunctionError(memberActivityHelpers.js)가 Admin SDK로만
+    // 기록한다 — 관리자 웹 대시보드/시스템 오류 화면에서 조회용.
+    // [읽기] 관리자만 [쓰기] 클라이언트 직접 불가
+    match /systemFunctionErrors/{errorId} {
+      allow read: if isAdmin();
+      allow write: if false;
+    }
+
+    // ── analyticsEvents 컬렉션 (행동 로그) ──────────────────────────────
+    // 사업적으로 의미 있는 조회/행동 이벤트만 기록하는 불변 로그.
+    // CI/DI/휴대폰번호 등 민감정보는 이 컬렉션에 절대 저장하지 않는다.
+    // 실시간 위치는 저장하지 않고, 사용자가 실제로 본 파티/장소의 지역만 담는다.
+    // [읽기] 본인 또는 관리자만
+    // [생성] 로그인된 사용자가 자신의 userId로만, 정의된 이벤트 타입만,
+    //        occurredAt은 서버 타임스탬프여야 함(클라이언트가 시각 위조 불가)
+    // [수정·삭제] 불가 — 불변 로그
+    match /analyticsEvents/{eventId} {
+      allow read: if isSignedIn() && (resource.data.userId == uid() || isAdmin());
+
+      allow create: if isSignedIn() &&
+        request.resource.data.userId == uid() &&
+        request.resource.data.occurredAt == request.time &&
+        request.resource.data.eventType in [
+          'app_open', 'party_view', 'party_search', 'party_favorite_add',
+          'party_favorite_remove', 'party_apply', 'party_cancel', 'party_attended',
+          'party_create', 'party_share', 'place_view', 'place_reservation'
+        ];
+
+      allow update, delete: if false;
+    }
+
+    // ── dailyStats / regionStats / hourlyStats (전역 집계) ──────────────
+    // 관리자 전용 통계 문서 — 본인확인 정보와 마찬가지로 관리자만 조회 가능.
+    // 전부 Functions가 FieldValue.increment()로만 갱신한다.
+    match /dailyStats/{dateId} {
+      allow read: if isAdmin();
+      allow write: if false;
+    }
+    match /regionStats/{regionId} {
+      allow read: if isAdmin();
+      allow write: if false;
+    }
+    match /hourlyStats/{hourId} {
+      allow read: if isAdmin();
+      allow write: if false;
+    }
+
+    // ── userActivityLogs (통합 활동 타임라인) ───────────────────────────
+    // 회원 상세 페이지의 "통합 활동 타임라인"용 — 가입/로그인/파티·플레이스
+    // ·상품·크루 등록/신청·승인·취소/찜/공유/관리자 상태변경 등을 uid와
+    // 함께 기록한다. 전부 memberManagement.js의 트리거/onCall이 Admin SDK로만
+    // 기록하며, 클라이언트는 본인 것 또는 관리자만 읽을 수 있다.
+    match /userActivityLogs/{logId} {
+      allow read: if isSignedIn() && (resource.data.uid == uid() || isAdmin());
+      allow write: if false;
+    }
+
+    // ── reservations 컬렉션 ───────────────────────────────────────────
+    // 파라미터 변조 방지 설계:
+    //
+    //   [읽기] 본인 예약만 조회 가능
+    //
+    //   [생성] 클라이언트 생성 허용 (장소 예약 기능), 단 아래 조건 강제:
+    //   - userId 반드시 자신의 auth.uid와 일치 (타인 위장 방지)
+    //   - paymentStatus는 반드시 'pending' (결제 완료 상태 위조 방지)
+    //   - reservationStatus는 반드시 'pending'
+    //   - totalPrice는 장소의 pricePerHour × durationHours와 일치해야 함
+    //     (클라이언트에서 임의 금액 저장 방지)
+    //
+    //   [수정·삭제] 클라이언트 직접 불가
+    //   - paymentStatus 업데이트는 결제 연동 후 Firebase Functions에서만 처리
+    //   - 예약 취소는 별도 Functions 엔드포인트에서 처리
+    match /reservations/{reservationId} {
+      allow read: if isSignedIn() && resource.data.userId == uid();
+
+      allow create: if isSignedIn() &&
+        // 본인 예약만 생성 가능
+        request.resource.data.userId == uid() &&
+        // 결제 완료 상태 위조 방지
+        request.resource.data.paymentStatus == 'pending' &&
+        request.resource.data.reservationStatus == 'pending' &&
+        // totalPrice 변조 방지: places 컬렉션의 실제 가격으로 검증
+        request.resource.data.totalPrice ==
+          get(/databases/$(database)/documents/places/$(request.resource.data.placeId))
+            .data.pricePerHour * request.resource.data.durationHours;
+
+      allow update, delete: if false;
+    }
+
+    // ── verificationSessions 컬렉션 ──────────────────────────────────
+    // 재사용 방지(Replay Prevention) 세션 저장소.
+    // 문서 경로: verificationSessions/{uid} (uid당 1개 세션)
+    //
+    // 쓰기: Functions Admin SDK에서만 (niceIntcRequestUrl, niceIntcResult)
+    //       클라이언트 직접 쓰기 차단 → sessionId 위조 불가
+    // 읽기: 본인만 자신의 세션 상태(used, expiresAt) 확인 가능
+    match /verificationSessions/{userId} {
+      allow read: if isSignedIn() && uid() == userId;
+      allow write: if false;
+    }
+
+    // ── places 컬렉션 ─────────────────────────────────────────────────
+    // [읽기] 비로그인 사용자도 목록·상세 조회 가능 (공개 컬렉션)
+    // [생성] 로그인된 사용자가 자신의 hostId로만 등록 가능
+    // [수정·삭제] 장소 호스트 또는 관리자만 가능
+    match /places/{placeId} {
+      allow read: if true;
+
+      allow create: if isSignedIn() &&
+        request.resource.data.hostId == uid();
+
+      allow update: if isSignedIn() && (
+        resource.data.hostId == uid() || isAdmin()
+      );
+
+      allow delete: if isSignedIn() && (
+        resource.data.hostId == uid() || isAdmin()
+      );
+    }
+
+    // ── placeRooms 컬렉션 ────────────────────────────────────────────
+    // [읽기] 비로그인 사용자도 조회 가능 (장소 상세에서 룸 목록 표시)
+    // [생성] 장소 호스트만 자신의 hostId로 등록 가능
+    // [수정·삭제] 호스트 또는 관리자만 가능
+    match /placeRooms/{roomId} {
+      allow read: if true;
+
+      allow create: if isSignedIn() &&
+        request.resource.data.hostId == uid();
+
+      allow update, delete: if isSignedIn() && (
+        resource.data.hostId == uid() || isAdmin()
+      );
+    }
+
+    // ── partyServices 컬렉션 ─────────────────────────────────────────
+    // [읽기] 비로그인 사용자도 조회 가능 (공개 컬렉션)
+    // [생성] 로그인된 사용자가 자신의 hostId로만 등록 가능
+    // [수정·삭제] 호스트 또는 관리자만 가능
+    match /partyServices/{serviceId} {
+      allow read: if true;
+
+      allow create: if isSignedIn() &&
+        request.resource.data.hostId == uid();
+
+      allow update, delete: if isSignedIn() && (
+        resource.data.hostId == uid() || isAdmin()
+      );
+    }
+
+    // ── crews 컬렉션 ──────────────────────────────────────────────────
+    // [읽기] 비로그인 사용자도 조회 가능 (공개 컬렉션)
+    // [생성] 로그인된 사용자가 자신의 hostId로만 등록 가능
+    // [수정·삭제] 호스트 또는 관리자만 가능
+    match /crews/{crewId} {
+      allow read: if true;
+
+      allow create: if isSignedIn() &&
+        request.resource.data.hostId == uid();
+
+      allow update, delete: if isSignedIn() && (
+        resource.data.hostId == uid() || isAdmin()
+      );
+    }
+
+    // ── partyShops 컬렉션 (파티샵) + products 서브컬렉션 ─────────────────
+    // [읽기] 비로그인 사용자도 조회 가능 (공개 컬렉션)
+    // [생성] 로그인된 사용자가 자신의 hostId로만 등록 가능
+    // [수정·삭제] 샵 호스트 또는 관리자만 가능
+    match /partyShops/{shopId} {
+      allow read: if true;
+
+      allow create: if isSignedIn() &&
+        request.resource.data.hostId == uid();
+
+      allow update, delete: if isSignedIn() && (
+        resource.data.hostId == uid() || isAdmin()
+      );
+
+      match /products/{productId} {
+        allow read: if true;
+
+        allow create: if isSignedIn() &&
+          request.resource.data.hostId == uid();
+
+        allow update, delete: if isSignedIn() && (
+          resource.data.hostId == uid() || isAdmin()
+        );
+      }
+    }
+
+    // ── events 컬렉션 (이벤트) ────────────────────────────────────────
+    // [읽기] 비로그인 사용자도 조회 가능 (공개 컬렉션)
+    // [생성] 로그인된 사용자가 자신의 hostId로만 등록 가능
+    // [수정·삭제] 이벤트 호스트 또는 관리자만 가능
+    match /events/{eventId} {
+      allow read: if true;
+
+      allow create: if isSignedIn() &&
+        request.resource.data.hostId == uid();
+
+      allow update, delete: if isSignedIn() && (
+        resource.data.hostId == uid() || isAdmin()
+      );
+    }
+
+    // ── feedbackRequests 컬렉션 (의견 보내기) ──────────────────────────
+    // 파티/사용자 신고, 환불 요청, 결제 분쟁, 긴급 문의와는 완전히 분리된
+    // 전용 컬렉션 — 서비스 개선 제안·버그 신고·일반 문의 전용.
+    //
+    // [읽기] 본인이 작성한 의견 또는 관리자만 조회 가능
+    // [생성] 로그인된 사용자가 자신의 userId로만 생성, 초기 상태는 반드시
+    //        status='received', userReply/adminMemo는 빈 문자열이어야 함
+    //        (접수 전부터 답변이 달린 것처럼 위조하는 것 방지)
+    // [수정] 일반 사용자는 절대 불가(본인 것이라도 수정 불가) — 관리자만 가능,
+    //        관리자도 status/userReply/adminMemo/updatedAt 외 필드는 변경 불가
+    //        (작성자·원문 내용 위변조 방지)
+    // [삭제] 관리자만 가능
+    match /feedbackRequests/{feedbackId} {
+      allow read: if isSignedIn() &&
+        (resource.data.userId == uid() || isAdmin());
+
+      allow create: if isSignedIn() &&
+        request.resource.data.userId == uid() &&
+        request.resource.data.status == 'received' &&
+        request.resource.data.userReply == '' &&
+        request.resource.data.adminMemo == '' &&
+        request.resource.data.title is string &&
+        request.resource.data.content is string &&
+        request.resource.data.type in ['improvement', 'bug', 'inquiry', 'other'];
+
+      allow update: if isAdmin() &&
+        request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+          'status', 'userReply', 'adminMemo', 'updatedAt'
+        ]);
+
+      allow delete: if isAdmin();
+    }
+
+    // ── appConfig 컬렉션 ──────────────────────────────────────────────
+    // 앱 업데이트 정책(appConfig/version 등) 저장소.
+    // [읽기] 로그인 여부와 무관하게 앱 실행 즉시(로그인 전에도) 버전을 확인해야
+    //        하므로 전체 공개 읽기 허용 — 민감정보 없음(버전/스토어 URL뿐).
+    // [쓰기] 관리자만 — 코드 배포 없이 값만 바꿔 정책을 바꾸는 용도이므로
+    //        일반 사용자가 조작할 수 없어야 한다.
+    match /appConfig/{configId} {
+      allow read: if true;
+      allow write: if isAdmin();
+    }
+
+    // ── places/{placeId}/reservationSlots 서브컬렉션 (장소대여 예약 — 공개) ──
+    // 개인정보를 절대 담지 않는 "예약 가능 여부 확인용" 문서다 — 필드는
+    // roomId/groupId/startAt/endAt/status/expiresAt 뿐(placeReservations.js
+    // createPendingReservation 참고). 예약자 이름·연락처·인원·가격 등은 전부
+    // placeReservationGroups(비공개)에만 있다.
+    // [읽기] 개인정보가 없으므로 누구나 조회 가능(비로그인 이용자도 장소
+    //        상세를 볼 수 있는 것과 동일한 공개 수준 — places 컬렉션 규칙 참고).
+    // [쓰기] createPendingReservation/verifyAndConfirmReservation/
+    //        cancelReservation/expireStalePlaceReservations Admin SDK 전용.
+    match /places/{placeId}/reservationSlots/{slotId} {
+      allow read: if true;
+      allow write: if false;
+    }
+
+    // ── placeReservationGroups 컬렉션 (장소대여 예약 1건 단위 — 비공개) ─────
+    // 시간제(여러 슬롯)/패키지/하루단위 예약 1건을 대표하는 그룹 문서 —
+    // 포트원 paymentId로 그대로 쓰인다. 예약자 이름·연락처·인원·결제금액 등
+    // 개인정보/영업정보를 전부 담고 있으므로 본인·해당 장소 호스트·관리자만
+    // 읽을 수 있다.
+    // [읽기] 예약자 본인(requesterId), 해당 장소 호스트(hostId), 관리자만.
+    // [쓰기] 클라이언트 직접 불가 — placeReservations.js Admin SDK 전용
+    //        (결제 검증 없이 확정 상태를 위조할 수 없도록 전면 차단).
+    match /placeReservationGroups/{groupId} {
+      allow read: if isSignedIn() &&
+        (resource.data.requesterId == uid() ||
+         resource.data.hostId == uid() ||
+         isAdmin());
+      allow write: if false;
+    }
+
+    // ── packageBookings 컬렉션 (숙박+파티 패키지 예약 1건 단위 — 비공개) ────
+    // placeReservationGroups와 동일한 보호 패턴 — 방 예약 + 파티 신청을
+    // 하나로 묶은 패키지 예약 문서. 예약자 이름·연락처·인원·결제금액 등
+    // 개인정보/영업정보를 전부 담고 있으므로 본인·해당 장소 호스트·관리자만
+    // 읽을 수 있다.
+    // [읽기] 예약자 본인(requesterId), 해당 장소 호스트(hostId), 관리자만.
+    // [쓰기] 클라이언트 직접 불가 — packageBookings.js Admin SDK 전용
+    //        (결제 검증 없이 확정 상태를 위조할 수 없도록 전면 차단).
+    match /packageBookings/{bookingId} {
+      allow read: if isSignedIn() &&
+        (resource.data.requesterId == uid() ||
+         resource.data.hostId == uid() ||
+         isAdmin());
+      allow write: if false;
+    }
+
+    // ── placeBookings 컬렉션 ──────────────────────────────────────────
+    // [읽기] 로그인된 사용자라면 예약 슬롯 현황 조회 가능
+    //        (placeId 기준 쿼리로 예약된 시간대 확인)
+    //        개인정보(requesterName 등)는 추후 Functions 엔드포인트로 분리 예정
+    // [생성] 본인 예약만 생성 가능, 초기 상태 위조 방지
+    // [수정·삭제] 클라이언트 직접 불가 (취소·상태 변경은 Functions에서 처리)
+    match /placeBookings/{bookingId} {
+      allow read: if isSignedIn();
+
+      allow create: if isSignedIn() &&
+        request.resource.data.userId == uid() &&
+        request.resource.data.paymentStatus == 'pending' &&
+        request.resource.data.bookingStatus == 'pending';
+
+      allow update, delete: if false;
+    }
+  }
+}

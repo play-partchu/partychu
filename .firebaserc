@@ -1,0 +1,18 @@
+{
+  "projects": {
+    "default": "partychu-30c24"
+  },
+  "targets": {
+    "partychu-30c24": {
+      "hosting": {
+        "admin": [
+          "partychu-admin"
+        ],
+        "website": [
+          "partychu-30c24"
+        ]
+      }
+    }
+  },
+  "etags": {}
+}

@@ -1,0 +1,17 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(dart pub *)",
+      "Bash(dart run *)",
+      "Bash(python -c \"from PIL import Image; print\\('PIL OK'\\)\")",
+      "Bash(magick --version)",
+      "Bash(convert --version)",
+      "PowerShell(python --version)",
+      "PowerShell(python -c \"from PIL import Image; print\\('PIL OK'\\)\")",
+      "PowerShell(Get-Command python3, py, python -ErrorAction SilentlyContinue)",
+      "PowerShell(Get-Command node -ErrorAction SilentlyContinue)",
+      "PowerShell(node -e \"require\\('sharp'\\); console.log\\('sharp OK'\\)\" 2>&1)",
+      "PowerShell($scratchpad = \"C:\\\\Users\\\\야옹\\\\AppData\\\\Local\\\\Temp\\\\claude\\\\h--partychu-partymap\\\\68784796-49c3-4b4a-8885-520a64abd182\\\\scratchpad\"; node \"$scratchpad\\\\flatten_white.js\" 2>&1)"
+    ]
+  }
+}

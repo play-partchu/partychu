@@ -1,0 +1,63 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>본인확인</title>
+  <style>
+    body {
+      margin: 0;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      min-height: 100vh;
+      background: #FFF4F8;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      color: #555;
+    }
+    .msg { text-align: center; }
+    .spinner {
+      width: 36px; height: 36px;
+      border: 3px solid #FFD6E4;
+      border-top-color: #FF6FA0;
+      border-radius: 50%;
+      animation: spin 0.8s linear infinite;
+      margin: 0 auto 16px;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+  </style>
+</head>
+<body>
+  <div class="msg">
+    <div class="spinner"></div>
+    <p>본인확인 처리 중입니다...</p>
+  </div>
+  <script>
+    // Flutter WebView의 onNavigationRequest 가 먼저 인터셉트하는 것이 primary 경로입니다.
+    // 이 페이지가 실제로 로드된 경우 JavaScript 채널로 enc_data를 전달합니다 (fallback).
+    (function () {
+      var params           = new URLSearchParams(window.location.search);
+      var webTransactionId = params.get('web_transaction_id') || '';
+
+      if (!webTransactionId) return;
+
+      // webview_flutter 가 주입하는 JavaScript 채널 (메인 프레임에서 로드된 경우)
+      if (typeof NiceChannel !== 'undefined' && NiceChannel.postMessage) {
+        NiceChannel.postMessage(webTransactionId);
+      }
+
+      // 이 페이지가 iframe 안에서 로드된 경우 대비 — window.parent로 postMessage 전달.
+      // webview_flutter_android는 서브프레임(iframe) 내비게이션을 onNavigationRequest로
+      // 전달하지 않으므로(메인 프레임 전용), postMessage로 최상위 프레임에 직접 알림.
+      if (window.parent && window.parent !== window) {
+        try {
+          window.parent.postMessage(
+            { source: 'nice_callback', webTransactionId: webTransactionId },
+            '*'
+          );
+        } catch (e) { /* no-op */ }
+      }
+    })();
+  </script>
+</body>
+</html>

@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  TODO: /terms, /privacy, /refund 등은 아직 Flutter Web 앱 내부 라우트로
+  구현되지 않아 의도적으로 제외했다(존재하지 않는 URL을 sitemap에 올리면 안 됨).
+  해당 라우트를 실제로 추가한 뒤 여기에 <url> 항목을 추가할 것.
+-->
+<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
+  <url>
+    <loc>https://partychu.co.kr/</loc>
+    <changefreq>daily</changefreq>
+    <priority>1.0</priority>
+  </url>
+</urlset>

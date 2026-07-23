@@ -1,0 +1,13 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(cd /tmp)",
+      "Bash(node /c/partymap/party_app/assets/icon/resize_icon.js)",
+      "Bash(flutter analyze *)",
+      "PowerShell(curl.exe -s -w \"\\\\nHTTP_STATUS:%{http_code}\" -H \"X-NCP-APIGW-API-KEY-ID: 1lperbh427\" -H \"X-NCP-APIGW-API-KEY: fHWuKiZwpyUDXRQkwE8T4IK7jch7f1XmUNza3q23\" \"https://naveropenapi.apigw.ntruss.com/map-geocode/v2/geocode?query=%EC%84%9C%EC%9A%B8%EC%8B%9C%EC%B2%AD&count=3\")",
+      "PowerShell(curl.exe -s -w \"\\\\nHTTP_STATUS:%{http_code}\" -H \"X-NCP-APIGW-API-KEY-ID: tdehle93zg\" -H \"X-NCP-APIGW-API-KEY: pwSETBtlTAIMkylWv2lpAlIYLffo85B5f934cfJJ\" \"https://naveropenapi.apigw.ntruss.com/map-geocode/v2/geocode?query=%EC%84%9C%EC%9A%B8%EC%8B%9C%EC%B2%AD&count=3\")",
+      "PowerShell(if \\(-not \\(Test-Path \"c:\\\\partymap\\\\party_app\\\\lib\\\\services\"\\)\\) { New-Item -ItemType Directory -Path \"c:\\\\partymap\\\\party_app\\\\lib\\\\services\" })",
+      "Bash(dir)"
+    ]
+  }
+}
