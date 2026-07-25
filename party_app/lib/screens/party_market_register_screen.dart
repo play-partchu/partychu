@@ -11,6 +11,7 @@ import 'package:party_app/utils/format_utils.dart';
 import 'package:party_app/utils/register_return_signal.dart';
 import 'package:party_app/utils/user_session.dart';
 import 'package:party_app/widgets/single_video_picker.dart';
+import 'package:party_app/widgets/web_frame.dart';
 
 class PartyMarketRegisterScreen extends StatefulWidget {
   const PartyMarketRegisterScreen({super.key});
@@ -377,8 +378,7 @@ class _PartyMarketRegisterScreenState
           onTap: () async {
             final result = await Navigator.push<AddressResult>(
               context,
-              MaterialPageRoute(
-                  builder: (_) => const AddressSearchScreen()),
+              webFramedRoute((_) => const AddressSearchScreen()),
             );
             if (result != null) setState(() => _selectedAddress = result);
           },

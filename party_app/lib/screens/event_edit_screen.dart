@@ -7,6 +7,7 @@ import 'package:party_app/models/listing_constants.dart';
 import 'package:party_app/screens/address_search_screen.dart';
 import 'package:party_app/services/cloudflare_service.dart';
 import 'package:party_app/widgets/single_video_picker.dart';
+import 'package:party_app/widgets/web_frame.dart';
 
 class EventEditScreen extends StatefulWidget {
   final String eventId;
@@ -568,7 +569,7 @@ class _EventEditScreenState extends State<EventEditScreen> {
           onTap: () async {
             final result = await Navigator.push<AddressResult>(
               context,
-              MaterialPageRoute(builder: (_) => const AddressSearchScreen()),
+              webFramedRoute((_) => const AddressSearchScreen()),
             );
             if (result != null) {
               setState(() {

@@ -26,6 +26,7 @@ import 'package:party_app/widgets/party_form/party_title_field.dart';
 import 'package:party_app/widgets/party_form/party_type_vibe_sheet.dart';
 import 'package:party_app/widgets/party_form/section_summary_row.dart';
 import 'package:party_app/widgets/party_media_editor.dart' show PartyCoverPick;
+import 'package:party_app/widgets/web_frame.dart';
 
 class PartyEditScreen extends StatefulWidget {
   final String docId;
@@ -676,8 +677,7 @@ class _PartyEditScreenState extends State<PartyEditScreen> {
   Future<void> _openRefundPolicy() async {
     await Navigator.push(
       context,
-      MaterialPageRoute(
-        builder: (_) => PartyRefundPolicyScreen(
+      webFramedRoute((_) => PartyRefundPolicyScreen(
           initialTiers: _refundTiers,
           onChanged: (tiers) {
             _refundTiers = tiers;
@@ -749,8 +749,7 @@ class _PartyEditScreenState extends State<PartyEditScreen> {
   Future<void> _openIntroScreen() async {
     final result = await Navigator.push<PartyIntroSelection>(
       context,
-      MaterialPageRoute(
-        builder: (_) => PartyIntroScreen(
+      webFramedRoute((_) => PartyIntroScreen(
           initialIntro: _descController.text,
           initialTags: _tags,
           initialTheme: _autoDescriptionStyle.theme,
@@ -794,8 +793,7 @@ class _PartyEditScreenState extends State<PartyEditScreen> {
     }
     final result = await Navigator.push<PartyDetailBlockEditorResult>(
       context,
-      MaterialPageRoute(
-        builder: (_) => PartyDetailBlockEditorScreen(
+      webFramedRoute((_) => PartyDetailBlockEditorScreen(
           initialBlocks: initialBlocks,
           initialTheme: _detailTheme,
           initialIntensity: _detailDecorationIntensity,
@@ -826,8 +824,7 @@ class _PartyEditScreenState extends State<PartyEditScreen> {
   Future<void> _openMediaPicker() async {
     final result = await Navigator.push<PartyMediaSelection>(
       context,
-      MaterialPageRoute(
-        builder: (_) => PartyMediaPickerScreen(
+      webFramedRoute((_) => PartyMediaPickerScreen(
           existingImageUrls: _mediaExistingImageUrls,
           existingVideoUrl: _mediaExistingVideoUrl,
           existingVideoUid: _mediaExistingVideoUid,

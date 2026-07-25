@@ -301,6 +301,47 @@ class RoomCardState extends State<RoomCard> {
     };
   }
 
+  /// 임시저장용 — 업로드 없이 현재 룸 상태를 [initialData]와 같은 Firestore
+  /// 형태의 순수 JSON 맵으로 반환한다. 아직 업로드되지 않은 새 로컬 사진
+  /// (_images)은 담지 못하므로 기존 URL(_existingImages)만 넣고, 새 로컬
+  /// 사진이 있었으면 `_hasUnsavedImages: true`로 알려 호출측이 "다시 선택"
+  /// 안내를 띄우게 한다(이 키는 initialData 복원 시 무시된다).
+  Map<String, dynamic> getDraftData() => {
+        'roomName': _nameCtrl.text,
+        'roomDescription': _descCtrl.text,
+        'roomImages': [..._existingImages],
+        '_hasUnsavedImages': _images.isNotEmpty,
+        'capacityMin': int.tryParse(_capacityMinCtrl.text.trim()) ?? 1,
+        'capacityMax': int.tryParse(_capacityMaxCtrl.text.trim()) ?? 0,
+        'pricePerHour': int.tryParse(_priceCtrl.text.trim()) ?? 0,
+        'reservationMode': _reservationMode,
+        'bookingUnitMinutes': _bookingUnitMinutes,
+        'minBookingMinutes': _minBookingMinutes,
+        'maxBookingMinutes': _maxBookingMinutes,
+        'packages': [
+          for (int i = 0; i < _packages.length; i++) _packages[i].toMap(i),
+        ],
+        'availableDays': _availableDays.toList(),
+        'isOpen24Hours': _isOpen24Hours,
+        if (!_isOpen24Hours) ...{
+          if (_openTime != null) 'openTime': _fmtTime(_openTime!),
+          if (_closeTime != null) 'closeTime': _fmtTime(_closeTime!),
+        } else ...{
+          'openTime': '00:00',
+          'closeTime': '24:00',
+        },
+        'facilities': {..._facilities, ..._customFacilities}.toList(),
+        'options': [
+          for (int i = 0; i < _optionNameCtrls.length; i++)
+            {
+              'name': _optionNameCtrls[i].text,
+              'price': int.tryParse(_optionPriceCtrls[i].text.trim()) ?? 0,
+            },
+        ],
+        'cancelPolicy': _policyCtrl.text,
+        'isActive': _isActive,
+      };
+
   // ── 헬퍼 ─────────────────────────────────────────────────────────────────
 
   String _fmtTime(TimeOfDay t) =>

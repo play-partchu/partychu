@@ -1,7 +1,8 @@
 import 'dart:async';
 import 'dart:io';
-import 'package:flutter/foundation.dart' show kDebugMode;
+import 'package:flutter/foundation.dart' show kDebugMode, kIsWeb;
 import 'package:flutter/material.dart';
+import 'package:url_launcher/url_launcher.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:image_picker/image_picker.dart';
@@ -28,6 +29,8 @@ import 'package:party_app/screens/party_detail_screen.dart';
 import 'package:party_app/screens/my_package_bookings_screen.dart';
 import 'package:party_app/screens/my_reservations_screen.dart';
 import 'package:party_app/screens/event_edit_screen.dart';
+import 'package:party_app/screens/drafts_list_screen.dart';
+import 'package:party_app/widgets/web_frame.dart';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // 마이페이지 메인
@@ -263,8 +266,7 @@ class _MyPageScreenState extends State<MyPageScreen> {
   void _openContentScreen(BuildContext context, String title, Widget body) {
     Navigator.push(
       context,
-      MaterialPageRoute(
-        builder: (_) => Scaffold(
+      webFramedRoute((_) => Scaffold(
           backgroundColor: const Color(0xFFFFF4F8),
           appBar: AppBar(
             backgroundColor: Colors.white,
@@ -292,7 +294,7 @@ class _MyPageScreenState extends State<MyPageScreen> {
           borderRadius: BorderRadius.circular(16),
           onTap: () => Navigator.push(
             context,
-            MaterialPageRoute(builder: (_) => const MyFavoritesScreen()),
+            webFramedRoute((_) => const MyFavoritesScreen()),
           ),
           child: Padding(
             padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
@@ -324,7 +326,7 @@ class _MyPageScreenState extends State<MyPageScreen> {
           borderRadius: BorderRadius.circular(16),
           onTap: () => Navigator.push(
             context,
-            MaterialPageRoute(builder: (_) => const MyReservationsScreen()),
+            webFramedRoute((_) => const MyReservationsScreen()),
           ),
           child: Padding(
             padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
@@ -357,7 +359,7 @@ class _MyPageScreenState extends State<MyPageScreen> {
           borderRadius: BorderRadius.circular(16),
           onTap: () => Navigator.push(
             context,
-            MaterialPageRoute(builder: (_) => const MyPackageBookingsScreen()),
+            webFramedRoute((_) => const MyPackageBookingsScreen()),
           ),
           child: Padding(
             padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
@@ -411,7 +413,7 @@ class _MyPageScreenState extends State<MyPageScreen> {
             trailing: const Icon(Icons.chevron_right, color: Colors.black45),
             onTap: () => Navigator.push(
               context,
-              MaterialPageRoute(builder: (_) => const SettlementInfoScreen()),
+              webFramedRoute((_) => const SettlementInfoScreen()),
             ),
           ),
           const Divider(height: 1, indent: 16, endIndent: 16),
@@ -428,7 +430,7 @@ class _MyPageScreenState extends State<MyPageScreen> {
             trailing: const Icon(Icons.chevron_right, color: Colors.black45),
             onTap: () => Navigator.push(
               context,
-              MaterialPageRoute(builder: (_) => const FeedbackComposeScreen()),
+              webFramedRoute((_) => const FeedbackComposeScreen()),
             ),
           ),
           const Divider(height: 1, indent: 16, endIndent: 16),
@@ -442,9 +444,41 @@ class _MyPageScreenState extends State<MyPageScreen> {
             trailing: const Icon(Icons.chevron_right, color: Colors.black45),
             onTap: () => Navigator.push(
               context,
-              MaterialPageRoute(builder: (_) => const MyFeedbackListScreen()),
+              webFramedRoute((_) => const MyFeedbackListScreen()),
             ),
           ),
+          const Divider(height: 1, indent: 16, endIndent: 16),
+          ListTile(
+            leading: const Icon(Icons.drafts_outlined, color: Colors.black87),
+            title: const Text('임시저장'),
+            subtitle: const Text(
+              '작성 중이던 등록 내용 이어서 작성',
+              style: TextStyle(fontSize: 12),
+            ),
+            trailing: const Icon(Icons.chevron_right, color: Colors.black45),
+            onTap: () => Navigator.push(
+              context,
+              webFramedRoute((_) => const DraftsListScreen()),
+            ),
+          ),
+          // 웹에서만 노출 — 모바일 앱은 스토어 소개 화면이 이 역할을 대신하므로
+          // 마이페이지에 중복 노출할 필요가 없다.
+          if (kIsWeb) ...[
+            const Divider(height: 1, indent: 16, endIndent: 16),
+            ListTile(
+              leading: const Icon(Icons.info_outline, color: Colors.black87),
+              title: const Text('서비스 소개'),
+              subtitle: const Text(
+                '파티츄 소개 · 이용 방법 살펴보기',
+                style: TextStyle(fontSize: 12),
+              ),
+              trailing: const Icon(Icons.chevron_right, color: Colors.black45),
+              onTap: () => launchUrl(
+                Uri.parse('/'),
+                webOnlyWindowName: '_blank',
+              ),
+            ),
+          ],
           if (kDebugMode) ...[
             const Divider(height: 1, indent: 16, endIndent: 16),
             ListTile(
@@ -1664,8 +1698,7 @@ class _MyParticipationCard extends StatelessWidget {
         return GestureDetector(
           onTap: () => Navigator.push(
             context,
-            MaterialPageRoute(
-              builder: (_) => PartyDetailScreen(docId: partyId),
+            webFramedRoute((_) => PartyDetailScreen(docId: partyId),
             ),
           ),
           child: Container(
@@ -2371,8 +2404,7 @@ class _MyPartyCard extends StatelessWidget {
                     color: const Color(0xFF7C5CBF),
                     onTap: () => Navigator.push(
                       context,
-                      MaterialPageRoute(
-                        builder: (_) => PartyRegisterScreen(
+                      webFramedRoute((_) => PartyRegisterScreen(
                           prefillData: data,
                           existingDocId: docId,
                         ),
@@ -2423,8 +2455,7 @@ class _MyPartyCard extends StatelessWidget {
                     label: '수정',
                     onTap: () => Navigator.push(
                       context,
-                      MaterialPageRoute(
-                        builder: (_) =>
+                      webFramedRoute((_) =>
                             PartyEditScreen(docId: docId, data: data),
                       ),
                     ),
@@ -2786,8 +2817,7 @@ class _MyPlaceCard extends StatelessWidget {
                         color: const Color(0xFF7C5CBF),
                         onTap: () => Navigator.push(
                           context,
-                          MaterialPageRoute(
-                            builder: (_) =>
+                          webFramedRoute((_) =>
                                 PlaceEditScreen(docId: docId, data: data),
                           ),
                         ),
@@ -2836,8 +2866,7 @@ class _MyPlaceCard extends StatelessWidget {
                         label: '수정',
                         onTap: () => Navigator.push(
                           context,
-                          MaterialPageRoute(
-                            builder: (_) =>
+                          webFramedRoute((_) =>
                                 PlaceEditScreen(docId: docId, data: data),
                           ),
                         ),
@@ -3039,8 +3068,7 @@ class _MyShopCard extends StatelessWidget {
     return GestureDetector(
       onTap: () => Navigator.push(
         context,
-        MaterialPageRoute(
-          builder: (_) => PartyShopManageScreen(shopId: shopId, shopData: data),
+        webFramedRoute((_) => PartyShopManageScreen(shopId: shopId, shopData: data),
         ),
       ),
       child: Container(
@@ -3325,8 +3353,7 @@ class _MyEventCard extends StatelessWidget {
     return GestureDetector(
       onTap: () => Navigator.push(
         context,
-        MaterialPageRoute(
-          builder: (_) => EventEditScreen(eventId: eventId, data: data),
+        webFramedRoute((_) => EventEditScreen(eventId: eventId, data: data),
         ),
       ),
       child: Container(

@@ -4,14 +4,23 @@ import 'package:flutter/services.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:party_app/models/listing_constants.dart';
+import 'package:party_app/models/draft_type.dart';
 import 'package:party_app/services/cloudflare_service.dart';
+import 'package:party_app/utils/draftable_register.dart';
 import 'package:party_app/utils/user_session.dart';
 import 'package:party_app/screens/party_shop_manage_screen.dart';
+import 'package:party_app/widgets/web_frame.dart';
 
 // ── 옵션 항목 (이름 + 추가금액) ────────────────────────────────────
 class _OptionEntry {
   final TextEditingController nameCtrl  = TextEditingController();
   final TextEditingController priceCtrl = TextEditingController();
+  _OptionEntry({VoidCallback? onChanged}) {
+    if (onChanged != null) {
+      nameCtrl.addListener(onChanged);
+      priceCtrl.addListener(onChanged);
+    }
+  }
   void dispose() {
     nameCtrl.dispose();
     priceCtrl.dispose();
@@ -25,11 +34,15 @@ class PartyShopProductRegisterScreen extends StatefulWidget {
   /// non-null이면 샵 등록 직후 진입 (저장 후 관리화면으로 pushReplacement)
   final Map<String, dynamic>? shopData;
 
+  /// 마이페이지 "임시저장" 목록에서 "이어서 작성"으로 열 때 true.
+  final bool autoRestoreDraft;
+
   const PartyShopProductRegisterScreen({
     super.key,
     required this.shopId,
     required this.shopName,
     this.shopData,
+    this.autoRestoreDraft = false,
   });
 
   @override
@@ -38,7 +51,109 @@ class PartyShopProductRegisterScreen extends StatefulWidget {
 }
 
 class _PartyShopProductRegisterScreenState
-    extends State<PartyShopProductRegisterScreen> {
+    extends State<PartyShopProductRegisterScreen>
+    with WidgetsBindingObserver, DraftableRegister<PartyShopProductRegisterScreen> {
+  @override
+  void setState(VoidCallback fn) {
+    markDraftDirty();
+    super.setState(fn);
+  }
+
+  @override
+  DraftType get draftType => DraftType.shop;
+
+  @override
+  bool get draftAutoRestore => widget.autoRestoreDraft;
+
+  @override
+  String get draftTitle => _nameCtrl.text;
+
+  @override
+  String? get draftCoverImageUrl => null;
+
+  @override
+  Map<String, dynamic> buildDraftPayload() {
+    return <String, dynamic>{
+      // 목록 표시/이어서 작성 시 어느 샵의 상품인지 식별용.
+      'shopId': widget.shopId,
+      'shopName': widget.shopName,
+      'name': _nameCtrl.text,
+      'description': _descCtrl.text,
+      'price': _priceCtrl.text,
+      'stock': _stockCtrl.text,
+      'isActive': _isActive,
+      'isSameDayAvailable': _isSameDayAvailable,
+      'isCouponApplicable': _isCouponApplicable,
+      'isOnSale': _isOnSale,
+      'category': _category,
+      'deliveryOpts': _deliveryOpts.toList(),
+      'options': _options
+          .map((o) => {'name': o.nameCtrl.text, 'price': o.priceCtrl.text})
+          .toList(),
+      'autoMsgs': {
+        for (final e in _autoMsgCtrls.entries) e.key: e.value.text,
+      },
+      'imagePaths': _images.map((f) => f.path).toList(),
+    };
+  }
+
+  @override
+  void applyDraftPayload(Map<String, dynamic> p) {
+    _nameCtrl.text = (p['name'] as String?) ?? '';
+    _descCtrl.text = (p['description'] as String?) ?? '';
+    _priceCtrl.text = (p['price'] as String?) ?? '';
+    _stockCtrl.text = (p['stock'] as String?) ?? '0';
+    _isActive = p['isActive'] as bool? ?? true;
+    _isSameDayAvailable = p['isSameDayAvailable'] as bool? ?? false;
+    _isCouponApplicable = p['isCouponApplicable'] as bool? ?? false;
+    _isOnSale = p['isOnSale'] as bool? ?? false;
+    _category = p['category'] as String? ?? ListingConstants.shopCategories.first;
+    _deliveryOpts
+      ..clear()
+      ..addAll((p['deliveryOpts'] as List?)?.cast<String>() ?? const []);
+    // 옵션 목록 재구성(기존 것 dispose 후).
+    for (final o in _options) {
+      o.dispose();
+    }
+    _options.clear();
+    for (final raw in (p['options'] as List?) ?? const []) {
+      final m = raw as Map;
+      final entry = _OptionEntry(onChanged: markDraftDirty);
+      entry.nameCtrl.text = m['name'] as String? ?? '';
+      entry.priceCtrl.text = m['price'] as String? ?? '';
+      _options.add(entry);
+    }
+    final autoMsgs = p['autoMsgs'] as Map?;
+    if (autoMsgs != null) {
+      for (final e in _autoMsgCtrls.entries) {
+        e.value.text = autoMsgs[e.key] as String? ?? '';
+      }
+    }
+    // 로컬 이미지 복원(파일이 남아 있을 때만).
+    _images = [];
+    bool anyMissing = false;
+    for (final path in (p['imagePaths'] as List?)?.cast<String>() ?? const []) {
+      if (File(path).existsSync()) {
+        _images.add(XFile(path));
+      } else {
+        anyMissing = true;
+      }
+    }
+    draftMediaNeedsReselect = anyMissing;
+  }
+
+  @override
+  void initState() {
+    super.initState();
+    for (final c in [_nameCtrl, _descCtrl, _priceCtrl, _stockCtrl]) {
+      c.addListener(markDraftDirty);
+    }
+    for (final c in _autoMsgCtrls.values) {
+      c.addListener(markDraftDirty);
+    }
+    initDraft();
+  }
+
   final _nameCtrl  = TextEditingController();
   final _descCtrl  = TextEditingController();
   final _priceCtrl = TextEditingController();
@@ -80,6 +195,7 @@ class _PartyShopProductRegisterScreenState
 
   @override
   void dispose() {
+    disposeDraft();
     _nameCtrl.dispose();
     _descCtrl.dispose();
     _priceCtrl.dispose();
@@ -104,7 +220,7 @@ class _PartyShopProductRegisterScreenState
   }
 
   void _addOption() {
-    setState(() => _options.add(_OptionEntry()));
+    setState(() => _options.add(_OptionEntry(onChanged: markDraftDirty)));
   }
 
   void _removeOption(int idx) {
@@ -198,12 +314,14 @@ class _PartyShopProductRegisterScreenState
       });
 
       if (!mounted) { return; }
+      // 최종 등록 완료 — 파티샵 상품 임시저장은 자동 삭제.
+      await deleteCurrentDraft();
+      if (!mounted) { return; }
       if (widget.shopData != null) {
         // 샵 등록 직후 → 관리화면으로 이동
         Navigator.pushReplacement(
           context,
-          MaterialPageRoute(
-            builder: (_) => PartyShopManageScreen(
+          webFramedRoute((_) => PartyShopManageScreen(
               shopId:   widget.shopId,
               shopData: widget.shopData!,
             ),
@@ -272,7 +390,14 @@ class _PartyShopProductRegisterScreenState
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
+    return PopScope(
+      canPop: !draftDirty,
+      onPopInvokedWithResult: (didPop, result) async {
+        if (didPop) return;
+        final leave = await confirmLeaveWithDraftSave();
+        if (leave && mounted) Navigator.of(context).pop();
+      },
+      child: Scaffold(
       backgroundColor: const Color(0xFFFFF4F8),
       appBar: AppBar(
         title: const Text('상품 등록',
@@ -281,30 +406,31 @@ class _PartyShopProductRegisterScreenState
         backgroundColor: Colors.white,
         foregroundColor: Colors.black,
         elevation: 0,
-        actions: widget.shopData != null
-            ? [
-                TextButton(
-                  onPressed: () => Navigator.pushReplacement(
-                    context,
-                    MaterialPageRoute(
-                      builder: (_) => PartyShopManageScreen(
-                        shopId:   widget.shopId,
-                        shopData: widget.shopData!,
-                      ),
-                    ),
+        actions: [
+          if (widget.shopData != null)
+            TextButton(
+              onPressed: () => Navigator.pushReplacement(
+                context,
+                webFramedRoute((_) => PartyShopManageScreen(
+                    shopId:   widget.shopId,
+                    shopData: widget.shopData!,
                   ),
-                  child: const Text('건너뛰기',
-                      style: TextStyle(
-                          fontSize: 13,
-                          color: Colors.black45,
-                          fontWeight: FontWeight.w500)),
                 ),
-              ]
-            : null,
+              ),
+              child: const Text('건너뛰기',
+                  style: TextStyle(
+                      fontSize: 13,
+                      color: Colors.black45,
+                      fontWeight: FontWeight.w500)),
+            ),
+          draftSaveAction(),
+        ],
+        bottom: buildAutoSaveIndicator(),
       ),
       body: ListView(
         padding: const EdgeInsets.fromLTRB(20, 20, 20, 100),
         children: [
+          if (draftMediaNeedsReselect) buildMediaReselectBanner(),
           // ── 상품 이미지 ────────────────────────────────────────
           _sectionLabel('상품 이미지 (최대 5장)'),
           SizedBox(
@@ -703,6 +829,7 @@ class _PartyShopProductRegisterScreenState
             ),
           ),
         ],
+      ),
       ),
     );
   }

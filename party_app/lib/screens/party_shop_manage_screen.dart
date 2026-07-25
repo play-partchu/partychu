@@ -4,6 +4,7 @@ import 'package:party_app/models/region_data.dart';
 import 'package:party_app/screens/party_shop_product_register_screen.dart';
 import 'package:party_app/utils/format_utils.dart';
 import 'package:party_app/utils/user_session.dart';
+import 'package:party_app/widgets/web_frame.dart';
 
 class PartyShopManageScreen extends StatelessWidget {
   final String shopId;
@@ -156,8 +157,7 @@ class PartyShopManageScreen extends StatelessWidget {
                 TextButton.icon(
                   onPressed: () => Navigator.push(
                     context,
-                    MaterialPageRoute(
-                      builder: (_) => PartyShopProductRegisterScreen(
+                    webFramedRoute((_) => PartyShopProductRegisterScreen(
                         shopId:   shopId,
                         shopName: name,
                       ),
@@ -221,8 +221,7 @@ class PartyShopManageScreen extends StatelessWidget {
                       ElevatedButton.icon(
                         onPressed: () => Navigator.push(
                           context,
-                          MaterialPageRoute(
-                            builder: (_) => PartyShopProductRegisterScreen(
+                          webFramedRoute((_) => PartyShopProductRegisterScreen(
                               shopId:   shopId,
                               shopName: name,
                             ),
@@ -345,8 +344,7 @@ class PartyShopManageScreen extends StatelessWidget {
       floatingActionButton: FloatingActionButton.extended(
         onPressed: () => Navigator.push(
           context,
-          MaterialPageRoute(
-            builder: (_) => PartyShopProductRegisterScreen(
+          webFramedRoute((_) => PartyShopProductRegisterScreen(
               shopId:   shopId,
               shopName: name,
             ),

@@ -15,6 +15,7 @@ import 'package:party_app/utils/video_crop.dart';
 import 'package:party_app/models/region_data.dart';
 import 'package:party_app/models/party_constants.dart';
 import 'package:party_app/widgets/video_seek_bar.dart';
+import 'package:party_app/widgets/web_frame.dart';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // 공통 플레이스홀더
@@ -1315,8 +1316,7 @@ class PartyCard extends StatelessWidget {
         (onTap ??
             () => Navigator.push(
               context,
-              MaterialPageRoute(
-                builder: (_) => PartyDetailScreen(docId: docId),
+              webFramedRoute((_) => PartyDetailScreen(docId: docId),
               ),
             ))();
       },
@@ -1401,8 +1401,7 @@ class PartyStandardCard extends StatelessWidget {
         (onTap ??
             () => Navigator.push(
               context,
-              MaterialPageRoute(
-                builder: (_) => PartyDetailScreen(docId: docId),
+              webFramedRoute((_) => PartyDetailScreen(docId: docId),
               ),
             ))();
       },
@@ -1756,17 +1755,19 @@ class PartyCompactCard extends StatelessWidget {
           onTap ??
           () => Navigator.push(
             context,
-            MaterialPageRoute(builder: (_) => PartyDetailScreen(docId: docId)),
+            webFramedRoute((_) => PartyDetailScreen(docId: docId)),
           ),
       child: Container(
         margin: const EdgeInsets.only(bottom: 8),
         child: Stack(
           children: [
             Container(
-              // 썸네일(동영상/사진) 위아래 여백을 거의 없앤다 — 오른쪽(12)은
-              // 그대로 두고 상하는 최소화(2), 왼쪽은 0으로 없애 썸네일이 카드
-              // 왼쪽 끝에 바로 붙게 만든다. 썸네일 크기·크롭 등 동영상 자체는 그대로.
-              padding: const EdgeInsets.fromLTRB(0, 2, 12, 2),
+              // 썸네일(동영상/사진) 위아래 여백을 완전히 없앤다 — 오른쪽(12)은
+              // 그대로 두고 상하는 0, 왼쪽도 0으로 없애 썸네일이 카드 위·아래·
+              // 왼쪽 끝에 바로 붙게 만든다. 낮/밤 모드 모두 동일하게 상하 여백을
+              // 0으로 둬, 흰 카드 배경이 사진 위아래로 비치지 않게 한다.
+              // 썸네일 크기·크롭 등 동영상 자체는 그대로.
+              padding: const EdgeInsets.fromLTRB(0, 0, 12, 0),
               decoration: BoxDecoration(
                 color: Colors.white,
                 borderRadius: BorderRadius.circular(_radius),
@@ -1790,7 +1791,16 @@ class PartyCompactCard extends StatelessWidget {
                     width: _thumbSize,
                     height: _thumbSize,
                     child: ClipRRect(
-                      borderRadius: BorderRadius.circular(_thumbRadius),
+                      // 썸네일 왼쪽 모서리를 카드 모서리(_radius)와 똑같이 맞춰,
+                      // 상하 패딩을 0으로 없앴을 때 둥근 모서리 틈으로 흰 카드
+                      // 배경이 비치지 않게 한다(낮/밤 모드 동일). 오른쪽 모서리는
+                      // 정보 열과 만나는 안쪽이라 기존 둥근 정도(_thumbRadius) 유지.
+                      borderRadius: const BorderRadius.only(
+                        topLeft: Radius.circular(_radius),
+                        bottomLeft: Radius.circular(_radius),
+                        topRight: Radius.circular(_thumbRadius),
+                        bottomRight: Radius.circular(_thumbRadius),
+                      ),
                       // 사진 위에는 어떤 오버레이도 올리지 않는다 — 모집 상태는
                       // 오른쪽 정보 영역의 제목 줄로 옮겼다.
                       child: (cover?.isVideo ?? false)
@@ -2352,8 +2362,7 @@ class _PartyVideoFeedCardState extends State<PartyVideoFeedCard> {
                         (widget.onOpenDetail ??
                             () => Navigator.push(
                               context,
-                              MaterialPageRoute(
-                                builder: (_) =>
+                              webFramedRoute((_) =>
                                     PartyDetailScreen(docId: widget.docId),
                               ),
                             ))();

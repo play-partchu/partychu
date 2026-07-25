@@ -8,25 +8,190 @@ import 'package:party_app/models/listing_constants.dart';
 import 'package:party_app/screens/address_search_screen.dart';
 import 'package:party_app/screens/party_media_picker_screen.dart';
 import 'package:party_app/services/cloudflare_service.dart';
+import 'package:party_app/models/draft_type.dart';
+import 'package:party_app/utils/draftable_register.dart';
 import 'package:party_app/utils/register_return_signal.dart';
 import 'package:party_app/widgets/party_form/party_title_field.dart';
 import 'package:party_app/widgets/party_media_editor.dart' show PartyCoverPick;
 import 'package:party_app/widgets/place_form/room_card.dart';
+import 'package:party_app/widgets/web_frame.dart';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // 장소 등록 화면
 // ─────────────────────────────────────────────────────────────────────────────
 
 class PlaceRegisterScreen extends StatefulWidget {
-  const PlaceRegisterScreen({super.key});
+  /// 마이페이지 "임시저장" 목록에서 "이어서 작성"으로 열 때 true.
+  final bool autoRestoreDraft;
+
+  const PlaceRegisterScreen({super.key, this.autoRestoreDraft = false});
 
   @override
   State<PlaceRegisterScreen> createState() => _PlaceRegisterScreenState();
 }
 
-class _PlaceRegisterScreenState extends State<PlaceRegisterScreen> {
+class _PlaceRegisterScreenState extends State<PlaceRegisterScreen>
+    with WidgetsBindingObserver, DraftableRegister<PlaceRegisterScreen> {
   final _formKey = GlobalKey<FormState>();
   final _scrollCtrl = ScrollController();
+
+  @override
+  void setState(VoidCallback fn) {
+    markDraftDirty();
+    super.setState(fn);
+  }
+
+  // 룸별 임시저장 복원 데이터(RoomCard의 initialData로 전달) — _roomKeys와
+  // 인덱스가 1:1 대응한다. 신규 룸은 null.
+  final List<Map<String, dynamic>?> _roomInitialData = [];
+
+  @override
+  DraftType get draftType => DraftType.place;
+
+  @override
+  bool get draftAutoRestore => widget.autoRestoreDraft;
+
+  @override
+  String get draftTitle => _nameCtrl.text;
+
+  @override
+  String? get draftCoverImageUrl =>
+      _mediaExistingImageUrls.isNotEmpty ? _mediaExistingImageUrls.first : null;
+
+  @override
+  Map<String, dynamic> buildDraftPayload() {
+    return <String, dynamic>{
+      'name': _nameCtrl.text,
+      'detailAddress': _detailAddressCtrl.text,
+      'description': _descCtrl.text,
+      'address': _selectedAddress == null
+          ? null
+          : {
+              'placeName': _selectedAddress!.placeName,
+              'address': _selectedAddress!.address,
+              'roadAddress': _selectedAddress!.roadAddress,
+              'jibunAddress': _selectedAddress!.jibunAddress,
+              'latitude': _selectedAddress!.latitude,
+              'longitude': _selectedAddress!.longitude,
+            },
+      'placeType': _placeType,
+      'commonFacilities': _commonFacilities.toList(),
+      'customCommonFacilities': _customCommonFacilities.toList(),
+      'placeOpenTime': DraftableRegister.timeToMap(_placeOpenTime),
+      'placeCloseTime': DraftableRegister.timeToMap(_placeCloseTime),
+      'placeIsOpen24Hours': _placeIsOpen24Hours,
+      'bank': _bankCtrl.text,
+      'account': _accountCtrl.text,
+      'holder': _holderCtrl.text,
+      'autoMsg': _autoMsgCtrl.text,
+      'existingImageUrls': _mediaExistingImageUrls,
+      'existingVideoUrl': _mediaExistingVideoUrl,
+      'existingVideoUid': _mediaExistingVideoUid,
+      'existingVideoThumbnailUrl': _mediaExistingVideoThumbnailUrl,
+      'newFilePaths': _mediaNewFiles.map((f) => f.path).toList(),
+      'coverPick': _mediaCoverPick == null
+          ? null
+          : {
+              'existingImageUrl': _mediaCoverPick!.existingImageUrl,
+              'isExistingVideo': _mediaCoverPick!.isExistingVideo,
+              'newImageOrdinal': _mediaCoverPick!.newImageOrdinal,
+              'isNewVideo': _mediaCoverPick!.isNewVideo,
+            },
+      // 룸 — 마운트돼 있으면 현재 상태를, 아직 안 그려졌으면 복원 데이터를 쓴다.
+      'rooms': [
+        for (int i = 0; i < _roomKeys.length; i++)
+          _roomKeys[i].currentState?.getDraftData() ??
+              _roomInitialData[i] ??
+              const <String, dynamic>{},
+      ],
+    };
+  }
+
+  @override
+  void applyDraftPayload(Map<String, dynamic> p) {
+    _nameCtrl.text = (p['name'] as String?) ?? '';
+    _detailAddressCtrl.text = (p['detailAddress'] as String?) ?? '';
+    _descCtrl.text = (p['description'] as String?) ?? '';
+    final addr = p['address'] as Map?;
+    _selectedAddress = addr == null
+        ? null
+        : AddressResult(
+            placeName: addr['placeName'] as String? ?? '',
+            address: addr['address'] as String? ?? '',
+            roadAddress: addr['roadAddress'] as String? ?? '',
+            jibunAddress: addr['jibunAddress'] as String? ?? '',
+            latitude: (addr['latitude'] as num?)?.toDouble() ?? 0,
+            longitude: (addr['longitude'] as num?)?.toDouble() ?? 0,
+          );
+    _placeType = p['placeType'] as String? ?? ListingConstants.placeTypes.first;
+    _commonFacilities
+      ..clear()
+      ..addAll((p['commonFacilities'] as List?)?.cast<String>() ?? const []);
+    _customCommonFacilities
+      ..clear()
+      ..addAll(
+          (p['customCommonFacilities'] as List?)?.cast<String>() ?? const []);
+    _placeOpenTime = DraftableRegister.timeFromMap(p['placeOpenTime']);
+    _placeCloseTime = DraftableRegister.timeFromMap(p['placeCloseTime']);
+    _placeIsOpen24Hours = p['placeIsOpen24Hours'] as bool? ?? false;
+    _bankCtrl.text = (p['bank'] as String?) ?? '';
+    _accountCtrl.text = (p['account'] as String?) ?? '';
+    _holderCtrl.text = (p['holder'] as String?) ?? '';
+    _autoMsgCtrl.text = (p['autoMsg'] as String?) ?? '';
+
+    _mediaExistingImageUrls =
+        [...((p['existingImageUrls'] as List?)?.cast<String>() ?? const [])];
+    _mediaExistingVideoUrl = p['existingVideoUrl'] as String?;
+    _mediaExistingVideoUid = p['existingVideoUid'] as String?;
+    _mediaExistingVideoThumbnailUrl = p['existingVideoThumbnailUrl'] as String?;
+    bool anyMissing = false;
+    _mediaNewFiles = [];
+    for (final path in (p['newFilePaths'] as List?)?.cast<String>() ?? const []) {
+      if (File(path).existsSync()) {
+        _mediaNewFiles.add(XFile(path));
+      } else {
+        anyMissing = true;
+      }
+    }
+    final coverPick = p['coverPick'] as Map?;
+    _mediaCoverPick = coverPick == null
+        ? null
+        : PartyCoverPick(
+            existingImageUrl: coverPick['existingImageUrl'] as String?,
+            isExistingVideo: coverPick['isExistingVideo'] as bool? ?? false,
+            newImageOrdinal: (coverPick['newImageOrdinal'] as num?)?.toInt(),
+            isNewVideo: coverPick['isNewVideo'] as bool? ?? false,
+          );
+
+    // 룸 재구성 — 새 GlobalKey + 복원 데이터(initialData)로 다시 그린다.
+    _roomKeys.clear();
+    _roomInitialData.clear();
+    for (final raw in (p['rooms'] as List?) ?? const []) {
+      final m = Map<String, dynamic>.from(raw as Map);
+      if (m['_hasUnsavedImages'] == true) anyMissing = true;
+      _roomKeys.add(GlobalKey<RoomCardState>());
+      _roomInitialData.add(m);
+    }
+    draftMediaNeedsReselect = anyMissing;
+  }
+
+  @override
+  void initState() {
+    super.initState();
+    for (final c in [
+      _nameCtrl,
+      _detailAddressCtrl,
+      _descCtrl,
+      _bankCtrl,
+      _accountCtrl,
+      _holderCtrl,
+      _autoMsgCtrl,
+      _customFacilityCtrl,
+    ]) {
+      c.addListener(markDraftDirty);
+    }
+    initDraft();
+  }
 
   // 섹션별 스크롤 앵커
   final _basicInfoKey = GlobalKey();
@@ -88,6 +253,7 @@ class _PlaceRegisterScreenState extends State<PlaceRegisterScreen> {
 
   @override
   void dispose() {
+    disposeDraft();
     _scrollCtrl.dispose();
     _nameCtrl.dispose();
     _detailAddressCtrl.dispose();
@@ -102,10 +268,14 @@ class _PlaceRegisterScreenState extends State<PlaceRegisterScreen> {
 
   void _addRoom() => setState(() {
     _roomKeys.add(GlobalKey<RoomCardState>());
+    _roomInitialData.add(null);
     _showRoomError = false;
   });
 
-  void _removeRoom(int index) => setState(() => _roomKeys.removeAt(index));
+  void _removeRoom(int index) => setState(() {
+    _roomKeys.removeAt(index);
+    _roomInitialData.removeAt(index);
+  });
 
   bool _isVideoFile(XFile f) {
     final p = f.path.toLowerCase();
@@ -131,8 +301,7 @@ class _PlaceRegisterScreenState extends State<PlaceRegisterScreen> {
   Future<void> _openMediaPicker() async {
     final result = await Navigator.push<PartyMediaSelection>(
       context,
-      MaterialPageRoute(
-        builder: (_) => PartyMediaPickerScreen(
+      webFramedRoute((_) => PartyMediaPickerScreen(
           existingImageUrls: _mediaExistingImageUrls,
           existingVideoUrl: _mediaExistingVideoUrl,
           existingVideoUid: _mediaExistingVideoUid,
@@ -477,6 +646,9 @@ class _PlaceRegisterScreenState extends State<PlaceRegisterScreen> {
         ),
       );
       if (!mounted) return;
+      // 최종 등록 완료 — 장소 임시저장은 자동 삭제.
+      await deleteCurrentDraft();
+      if (!mounted) return;
       // 등록 화면이 몇 단계 깊이 열려 있었든(모바일: RegisterTypeScreen 경유,
       // 데스크톱: MainScreen에서 바로) 곧장 메인화면 장소대여 탭으로 복귀한다.
       pendingTopTabAfterRegister.value = 2;
@@ -604,7 +776,14 @@ class _PlaceRegisterScreenState extends State<PlaceRegisterScreen> {
   @override
   Widget build(BuildContext context) {
     // Stack 오버레이 방식 — _isUploading 중에도 Form·RoomCard 를 트리에 유지
-    return Stack(
+    return PopScope(
+      canPop: !draftDirty,
+      onPopInvokedWithResult: (didPop, result) async {
+        if (didPop) return;
+        final leave = await confirmLeaveWithDraftSave();
+        if (leave && mounted) Navigator.of(context).pop();
+      },
+      child: Stack(
       children: [
         Scaffold(
           backgroundColor: const Color(0xFFF3F4F6),
@@ -614,6 +793,8 @@ class _PlaceRegisterScreenState extends State<PlaceRegisterScreen> {
             backgroundColor: Colors.white,
             foregroundColor: Colors.black,
             elevation: 0,
+            actions: [draftSaveAction()],
+            bottom: buildAutoSaveIndicator(),
           ),
           body: Form(
             key: _formKey,
@@ -621,6 +802,7 @@ class _PlaceRegisterScreenState extends State<PlaceRegisterScreen> {
               controller: _scrollCtrl,
               padding: const EdgeInsets.all(16),
               children: [
+                if (draftMediaNeedsReselect) buildMediaReselectBanner(),
                 // 섹션 앵커 — 오류 발생 시 스크롤 대상
                 SizedBox(key: _basicInfoKey, height: 0),
                 _buildBasicInfo(),
@@ -679,6 +861,7 @@ class _PlaceRegisterScreenState extends State<PlaceRegisterScreen> {
             ),
           ),
       ],
+      ),
     );
   }
 
@@ -701,7 +884,7 @@ class _PlaceRegisterScreenState extends State<PlaceRegisterScreen> {
           onTap: () async {
             final result = await Navigator.push<AddressResult>(
               context,
-              MaterialPageRoute(builder: (_) => const AddressSearchScreen()),
+              webFramedRoute((_) => const AddressSearchScreen()),
             );
             if (result != null) {
               setState(() {
@@ -1063,6 +1246,8 @@ class _PlaceRegisterScreenState extends State<PlaceRegisterScreen> {
             getPreviousData: i > 0
                 ? () => _roomKeys[i - 1].currentState?.getRoomData()
                 : null,
+            // 임시저장에서 복원된 룸이면 그 데이터로 초기화한다(신규 룸은 null).
+            initialData: i < _roomInitialData.length ? _roomInitialData[i] : null,
           ),
         ),
 

@@ -7,6 +7,7 @@ import 'package:party_app/utils/format_utils.dart';
 import 'package:party_app/utils/user_session.dart';
 import 'package:party_app/widgets/partychu_ui.dart';
 import 'package:party_app/widgets/party_card_widget.dart';
+import 'package:party_app/widgets/web_frame.dart';
 
 /// 숙박+파티 패키지 예약 — `places.packageBookingEnabled == true`인 콤보에서만
 /// 진입하는 통합 예약/결제 화면. 방(또는 패키지) + 인원 + 예약자 정보를
@@ -300,8 +301,7 @@ class _PackageBookingScreenState extends State<PackageBookingScreen> {
         if (!mounted) return;
         final paid = await Navigator.push<bool>(
           context,
-          MaterialPageRoute(
-            builder: (_) => PortoneCheckoutScreen(
+          webFramedRoute((_) => PortoneCheckoutScreen(
               paymentId: bundleBookingId!,
               orderName: '숙박+파티 패키지',
               amount: totalPrice,

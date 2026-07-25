@@ -6,18 +6,135 @@ import 'package:party_app/models/address_result.dart';
 import 'package:party_app/models/listing_constants.dart';
 import 'package:party_app/screens/address_search_screen.dart';
 import 'package:party_app/services/cloudflare_service.dart';
+import 'package:party_app/models/draft_type.dart';
+import 'package:party_app/utils/draftable_register.dart';
 import 'package:party_app/utils/register_return_signal.dart';
 import 'package:party_app/utils/user_session.dart';
 import 'package:party_app/widgets/single_video_picker.dart';
+import 'package:party_app/widgets/web_frame.dart';
 
 class EventRegisterScreen extends StatefulWidget {
-  const EventRegisterScreen({super.key});
+  /// 마이페이지 "임시저장" 목록에서 "이어서 작성"으로 열 때 true.
+  final bool autoRestoreDraft;
+
+  const EventRegisterScreen({super.key, this.autoRestoreDraft = false});
 
   @override
   State<EventRegisterScreen> createState() => _EventRegisterScreenState();
 }
 
-class _EventRegisterScreenState extends State<EventRegisterScreen> {
+class _EventRegisterScreenState extends State<EventRegisterScreen>
+    with WidgetsBindingObserver, DraftableRegister<EventRegisterScreen> {
+  @override
+  void setState(VoidCallback fn) {
+    markDraftDirty();
+    super.setState(fn);
+  }
+
+  @override
+  DraftType get draftType => DraftType.event;
+
+  @override
+  bool get draftAutoRestore => widget.autoRestoreDraft;
+
+  @override
+  String get draftTitle => _nameCtrl.text;
+
+  @override
+  String? get draftCoverImageUrl => null;
+
+  @override
+  Map<String, dynamic> buildDraftPayload() {
+    return <String, dynamic>{
+      'name': _nameCtrl.text,
+      'description': _descCtrl.text,
+      'isActive': _isActive,
+      'themeTags': _themeTags.toList(),
+      'address': _selectedAddress == null
+          ? null
+          : {
+              'placeName': _selectedAddress!.placeName,
+              'address': _selectedAddress!.address,
+              'roadAddress': _selectedAddress!.roadAddress,
+              'jibunAddress': _selectedAddress!.jibunAddress,
+              'latitude': _selectedAddress!.latitude,
+              'longitude': _selectedAddress!.longitude,
+            },
+      'detailAddress': _detailAddressCtrl.text,
+      'isOngoing': _isOngoing,
+      'startDateMs': _startDate?.millisecondsSinceEpoch,
+      'endDateMs': _endDate?.millisecondsSinceEpoch,
+      'hasTimeRange': _hasTimeRange,
+      'startTime': DraftableRegister.timeToMap(_startTime),
+      'endTime': DraftableRegister.timeToMap(_endTime),
+      // 로컬 미디어 경로(최선; 파일이 사라지면 복원 시 재선택 안내).
+      'mainImagePath': _mainImage?.path,
+      'introImagePaths': _introImages.map((f) => f.path).toList(),
+      'videoNewFilePath': _videoKey.currentState?.newVideoFile?.path,
+    };
+  }
+
+  @override
+  void applyDraftPayload(Map<String, dynamic> p) {
+    _nameCtrl.text = (p['name'] as String?) ?? '';
+    _descCtrl.text = (p['description'] as String?) ?? '';
+    _detailAddressCtrl.text = (p['detailAddress'] as String?) ?? '';
+    _isActive = p['isActive'] as bool? ?? true;
+    _themeTags
+      ..clear()
+      ..addAll((p['themeTags'] as List?)?.cast<String>() ?? const []);
+    final addr = p['address'] as Map?;
+    _selectedAddress = addr == null
+        ? null
+        : AddressResult(
+            placeName: addr['placeName'] as String? ?? '',
+            address: addr['address'] as String? ?? '',
+            roadAddress: addr['roadAddress'] as String? ?? '',
+            jibunAddress: addr['jibunAddress'] as String? ?? '',
+            latitude: (addr['latitude'] as num?)?.toDouble() ?? 0,
+            longitude: (addr['longitude'] as num?)?.toDouble() ?? 0,
+          );
+    _isOngoing = p['isOngoing'] as bool? ?? true;
+    final sMs = (p['startDateMs'] as num?)?.toInt();
+    final eMs = (p['endDateMs'] as num?)?.toInt();
+    _startDate = sMs != null ? DateTime.fromMillisecondsSinceEpoch(sMs) : null;
+    _endDate = eMs != null ? DateTime.fromMillisecondsSinceEpoch(eMs) : null;
+    _hasTimeRange = p['hasTimeRange'] as bool? ?? false;
+    _startTime = DraftableRegister.timeFromMap(p['startTime']);
+    _endTime = DraftableRegister.timeFromMap(p['endTime']);
+
+    // 로컬 미디어 복원(파일이 남아 있을 때만). 동영상은 SingleVideoPicker에
+    // 로컬 파일을 다시 주입할 방법이 없어 항상 재선택 안내 대상이다.
+    bool anyMissing = false;
+    final mainPath = p['mainImagePath'] as String?;
+    if (mainPath != null) {
+      if (File(mainPath).existsSync()) {
+        _mainImage = XFile(mainPath);
+      } else {
+        anyMissing = true;
+      }
+    }
+    _introImages.clear();
+    for (final path
+        in (p['introImagePaths'] as List?)?.cast<String>() ?? const []) {
+      if (File(path).existsSync()) {
+        _introImages.add(XFile(path));
+      } else {
+        anyMissing = true;
+      }
+    }
+    if ((p['videoNewFilePath'] as String?) != null) anyMissing = true;
+    draftMediaNeedsReselect = anyMissing;
+  }
+
+  @override
+  void initState() {
+    super.initState();
+    for (final c in [_nameCtrl, _descCtrl, _detailAddressCtrl]) {
+      c.addListener(markDraftDirty);
+    }
+    initDraft();
+  }
   // ── 기본 정보 ─────────────────────────────────────────────────────
   final _nameCtrl = TextEditingController();
   final _descCtrl = TextEditingController();
@@ -54,6 +171,7 @@ class _EventRegisterScreenState extends State<EventRegisterScreen> {
 
   @override
   void dispose() {
+    disposeDraft();
     _nameCtrl.dispose();
     _descCtrl.dispose();
     _detailAddressCtrl.dispose();
@@ -210,6 +328,9 @@ class _EventRegisterScreenState extends State<EventRegisterScreen> {
       await FirebaseFirestore.instance.collection('events').add(doc);
 
       if (!mounted) return;
+      // 최종 등록 완료 — 이 유형의 임시저장은 자동 삭제.
+      await deleteCurrentDraft();
+      if (!mounted) return;
       // 등록 화면이 몇 단계 깊이 열려 있었든(모바일: RegisterTypeScreen 경유,
       // 데스크톱: MainScreen에서 바로) 곧장 메인화면 플레이스 탭으로 복귀한다.
       pendingTopTabAfterRegister.value = 1;
@@ -244,7 +365,14 @@ class _EventRegisterScreenState extends State<EventRegisterScreen> {
   // ── 빌드 ─────────────────────────────────────────────────────────
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
+    return PopScope(
+      canPop: !draftDirty,
+      onPopInvokedWithResult: (didPop, result) async {
+        if (didPop) return;
+        final leave = await confirmLeaveWithDraftSave();
+        if (leave && mounted) Navigator.of(context).pop();
+      },
+      child: Scaffold(
       backgroundColor: const Color(0xFFFFF4F8),
       appBar: AppBar(
         title: const Text('플레이스 등록',
@@ -253,10 +381,13 @@ class _EventRegisterScreenState extends State<EventRegisterScreen> {
         backgroundColor: Colors.white,
         foregroundColor: Colors.black,
         elevation: 0,
+        actions: [draftSaveAction()],
+        bottom: buildAutoSaveIndicator(),
       ),
       body: SingleChildScrollView(
         padding: const EdgeInsets.fromLTRB(20, 20, 20, 100),
         child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          if (draftMediaNeedsReselect) buildMediaReselectBanner(),
 
           // ── 1. 플레이스 제목 ─────────────────────────────────────
           _label('플레이스 제목', required: true),
@@ -353,6 +484,7 @@ class _EventRegisterScreenState extends State<EventRegisterScreen> {
             ),
           ),
         ]),
+      ),
       ),
     );
   }
@@ -538,8 +670,7 @@ class _EventRegisterScreenState extends State<EventRegisterScreen> {
           onTap: () async {
             final result = await Navigator.push<AddressResult>(
               context,
-              MaterialPageRoute(
-                  builder: (_) => const AddressSearchScreen()),
+              webFramedRoute((_) => const AddressSearchScreen()),
             );
             if (result != null) setState(() => _selectedAddress = result);
           },

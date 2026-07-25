@@ -8,6 +8,7 @@ import 'package:party_app/screens/place_register_screen.dart';
 import 'package:party_app/screens/crew_register_screen.dart';
 import 'package:party_app/screens/party_market_register_screen.dart';
 import 'package:party_app/screens/event_register_screen.dart';
+import 'package:party_app/widgets/web_frame.dart';
 
 class RegisterTypeScreen extends StatefulWidget {
   const RegisterTypeScreen({super.key});
@@ -83,7 +84,7 @@ class _RegisterTypeScreenState extends State<RegisterTypeScreen> {
       if (!mounted) return;
       await Navigator.push(
         context,
-        MaterialPageRoute(builder: (_) => const PartyRegisterScreen()),
+        webFramedRoute((_) => const PartyRegisterScreen()),
       );
     } catch (e) {
       if (mounted) {
@@ -174,7 +175,7 @@ class _RegisterTypeScreenState extends State<RegisterTypeScreen> {
               bgColor: const Color(0xFFFFF0F5),
               onTap: () => Navigator.push(
                 context,
-                MaterialPageRoute(builder: (_) => const EventRegisterScreen()),
+                webFramedRoute((_) => const EventRegisterScreen()),
               ),
             ),
             const SizedBox(height: 16),
@@ -186,8 +187,7 @@ class _RegisterTypeScreenState extends State<RegisterTypeScreen> {
               bgColor: const Color(0xFFFFF0F5),
               onTap: () => Navigator.push(
                 context,
-                MaterialPageRoute(
-                  builder: (_) => const PlacePartyComboRegisterScreen(),
+                webFramedRoute((_) => const PlacePartyComboRegisterScreen(),
                 ),
               ),
             ),
@@ -200,7 +200,7 @@ class _RegisterTypeScreenState extends State<RegisterTypeScreen> {
               bgColor: const Color(0xFFF3EFFA),
               onTap: () => Navigator.push(
                 context,
-                MaterialPageRoute(builder: (_) => const PlaceRegisterScreen()),
+                webFramedRoute((_) => const PlaceRegisterScreen()),
               ),
             ),
             const SizedBox(height: 16),
@@ -212,8 +212,7 @@ class _RegisterTypeScreenState extends State<RegisterTypeScreen> {
               bgColor: const Color(0xFFF3EFFA),
               onTap: () => Navigator.push(
                 context,
-                MaterialPageRoute(
-                  builder: (_) => const PartyPlaceComboRegisterScreen(),
+                webFramedRoute((_) => const PartyPlaceComboRegisterScreen(),
                 ),
               ),
             ),
@@ -226,8 +225,7 @@ class _RegisterTypeScreenState extends State<RegisterTypeScreen> {
               bgColor: const Color(0xFFFFF4EC),
               onTap: () => Navigator.push(
                 context,
-                MaterialPageRoute(
-                  builder: (_) => const PartyMarketRegisterScreen(),
+                webFramedRoute((_) => const PartyMarketRegisterScreen(),
                 ),
               ),
             ),
@@ -240,7 +238,7 @@ class _RegisterTypeScreenState extends State<RegisterTypeScreen> {
               bgColor: const Color(0xFFFFF0F5),
               onTap: () => Navigator.push(
                 context,
-                MaterialPageRoute(builder: (_) => const CrewRegisterScreen()),
+                webFramedRoute((_) => const CrewRegisterScreen()),
               ),
             ),
           ],

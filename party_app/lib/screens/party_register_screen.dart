@@ -14,6 +14,8 @@ import 'package:party_app/services/cloudflare_service.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:party_app/models/region_data.dart';
 import 'package:party_app/models/spotify_track.dart';
+import 'package:party_app/models/draft_type.dart';
+import 'package:party_app/services/draft_service.dart';
 import 'package:party_app/screens/party_detail_block_editor_screen.dart';
 import 'package:party_app/screens/party_intro_screen.dart';
 import 'package:party_app/screens/party_location_picker_screen.dart';
@@ -36,6 +38,7 @@ import 'package:party_app/widgets/party_form/party_type_vibe_sheet.dart';
 import 'package:party_app/widgets/party_form/round_list_editor.dart';
 import 'package:party_app/widgets/party_form/section_summary_row.dart';
 import 'package:party_app/widgets/party_media_editor.dart' show PartyCoverPick;
+import 'package:party_app/widgets/web_frame.dart';
 
 class PartyRegisterScreen extends StatefulWidget {
   /// non-null이면 해당 데이터로 필드를 사전 입력 (재등록 용도)
@@ -44,14 +47,38 @@ class PartyRegisterScreen extends StatefulWidget {
   /// non-null이면 해당 문서를 update (재등록). null이면 새 문서 add (신규 등록).
   final String? existingDocId;
 
-  const PartyRegisterScreen({super.key, this.prefillData, this.existingDocId});
+  /// 마이페이지 "임시저장" 목록에서 "이어서 작성"으로 열 때 true — 복구
+  /// 여부를 다시 묻지 않고 곧바로 임시저장을 불러온다.
+  final bool autoRestoreDraft;
+
+  const PartyRegisterScreen({
+    super.key,
+    this.prefillData,
+    this.existingDocId,
+    this.autoRestoreDraft = false,
+  });
 
   @override
   State<PartyRegisterScreen> createState() => _PartyRegisterScreenState();
 }
 
-class _PartyRegisterScreenState extends State<PartyRegisterScreen> {
+class _PartyRegisterScreenState extends State<PartyRegisterScreen>
+    with WidgetsBindingObserver {
   final _formKey = GlobalKey<FormState>();
+
+  // ── 임시저장(Draft) ──────────────────────────────────────────────────
+  // 임시저장은 "빈 화면에서 새로 등록하는 경우"에만 동작한다 — 수정
+  // (existingDocId)·재등록(prefillData)은 이미 특정 데이터를 불러오므로
+  // 임시저장 복구/자동저장을 트리거하지 않는다(요구사항 9번).
+  bool get _isDraftEnabled =>
+      widget.existingDocId == null && widget.prefillData == null;
+  DraftAutosaver? _autosaver;
+  // initState/복구 중에는 자동저장을 예약하지 않도록 막는 게이트. 복구 결정이
+  // 끝난 뒤에야 true가 된다.
+  bool _draftReady = false;
+  // 임시저장 복구 시 로컬 파일이 사라져 다시 선택해야 하는 사진/동영상이
+  // 있으면 true — 화면 상단에 안내 배너를 띄운다.
+  bool _draftMediaNeedsReselect = false;
 
   // ── 뒤로가기 이탈 방지 ───────────────────────────────────────────────
   // 사용자가 사진·동영상·환불 규정처럼 setState를 거치지 않는 값까지 포함해
@@ -59,12 +86,34 @@ class _PartyRegisterScreenState extends State<PartyRegisterScreen> {
   // 거의 모든 상호작용을 개별 호출부를 일일이 손대지 않고 한 곳에서 잡아낸다.
   bool _dirty = false;
 
-  void _markDirty() => _dirty = true;
+  void _markDirty() {
+    _dirty = true;
+    _scheduleAutosave();
+  }
 
   @override
   void setState(VoidCallback fn) {
     _dirty = true;
+    _scheduleAutosave();
     super.setState(fn);
+  }
+
+  /// 마지막 변경 후 1초 debounce 뒤 한 번 자동저장을 예약한다. 복구가 끝나기
+  /// 전(_draftReady==false)이나 임시저장 비활성 화면에서는 아무 일도 안 한다.
+  void _scheduleAutosave() {
+    if (!_isDraftEnabled || !_draftReady) return;
+    _autosaver?.schedule(_buildDraftSnapshot);
+  }
+
+  DraftSnapshot _buildDraftSnapshot() {
+    final cover = _mediaExistingImageUrls.isNotEmpty
+        ? _mediaExistingImageUrls.first
+        : null;
+    return DraftSnapshot(
+      title: _partyNameController.text.trim(),
+      coverImageUrl: cover,
+      payload: _toDraftPayload(),
+    );
   }
 
   Future<bool> _confirmLeave() async {
@@ -100,6 +149,566 @@ class _PartyRegisterScreenState extends State<PartyRegisterScreen> {
       ),
     );
     return leave ?? false;
+  }
+
+  // ── 임시저장 직렬화 헬퍼 ─────────────────────────────────────────────
+  static Map<String, int>? _timeToMap(TimeOfDay? t) =>
+      t == null ? null : {'h': t.hour, 'm': t.minute};
+
+  static TimeOfDay? _timeFromMap(Object? raw) {
+    if (raw is Map) {
+      final h = (raw['h'] as num?)?.toInt();
+      final m = (raw['m'] as num?)?.toInt();
+      if (h != null && m != null) return TimeOfDay(hour: h, minute: m);
+    }
+    return null;
+  }
+
+  /// 현재 화면의 "전체" 작성 상태를 순수 JSON 맵으로 직렬화한다. 날짜는
+  /// epoch millis, 시간은 {h,m}로 저장해 Firestore·SharedPreferences 양쪽에
+  /// 그대로 담을 수 있게 한다(Timestamp를 쓰지 않는다).
+  Map<String, dynamic> _toDraftPayload() {
+    return <String, dynamic>{
+      // 텍스트 입력(사용자가 친 그대로 보존)
+      'titleText': _partyNameController.text,
+      'introText': _introController.text,
+      'detailAddressText': _detailAddressController.text,
+      'maleFeeText': _maleFeeController.text,
+      'femaleFeeText': _femaleFeeController.text,
+      'earlyBirdPercentText': _earlyBirdPercentController.text,
+      'capacityText': _capacityController.text,
+      'maleCapacityText': _maleCapacityController.text,
+      'femaleCapacityText': _femaleCapacityController.text,
+      // 장소
+      'place': _selectedPlace == null
+          ? null
+          : {
+              'placeName': _selectedPlace!.placeName,
+              'address': _selectedPlace!.address,
+              'roadAddress': _selectedPlace!.roadAddress,
+              'jibunAddress': _selectedPlace!.jibunAddress,
+              'latitude': _selectedPlace!.latitude,
+              'longitude': _selectedPlace!.longitude,
+            },
+      // 성별·인원
+      'genderLimit': _genderLimit,
+      'genderCapacityMode': _genderCapacityMode,
+      'genderMode': _genderMode,
+      // 환불 규정
+      'refundPolicy': RefundTier.listToMaps(_refundTiers),
+      // 얼리버드
+      'earlyBirdEnabled': _earlyBirdEnabled,
+      'earlyBirdEndDateMs': _earlyBirdEndDate?.millisecondsSinceEpoch,
+      'earlyBirdEndTime': _timeToMap(_earlyBirdEndTime),
+      // 유형·분위기·태그·지역·나이
+      'partyTypes': _partyTypes.toList(),
+      'vibes': _vibes.toList(),
+      'tags': _tags,
+      'region': _region,
+      'district': _district,
+      'ageRestrictionEnabled': _ageRestrictionEnabled,
+      'minBirthYear': _minBirthYear,
+      'maxBirthYear': _maxBirthYear,
+      'seriesId': _existingSeriesId,
+      // 날짜 슬롯(여러 날짜 전체)
+      'dateSlots': _dateSlots
+          .map((s) => {
+                'dateMs': DateTime(s.date.year, s.date.month, s.date.day)
+                    .millisecondsSinceEpoch,
+                'start': _timeToMap(s.startTime),
+                'end': _timeToMap(s.endTime),
+                'auto': s.isAutoGenerated,
+              })
+          .toList(),
+      'recruitDeadlineTime': _timeToMap(_recruitDeadlineTime),
+      // 매주 반복
+      'weeklyRepeatEnabled': _weeklyRepeatEnabled,
+      'weeklyRepeatEndDateMs': _weeklyRepeatEndDate?.millisecondsSinceEpoch,
+      'weeklyRepeatCount': _weeklyRepeatCount,
+      'weeklyRepeatExcludedDates': _weeklyRepeatExcludedDates.toList(),
+      // 다차수 라운드
+      'hasMultipleRounds': _hasMultipleRounds,
+      'roundCapacityMode': _roundCapacityMode,
+      'extraRounds': _extraRounds
+          .map((r) => {
+                'id': r.id,
+                'label': r.labelCtrl.text,
+                'time': _timeToMap(r.time),
+                'capacity': r.capacityCtrl.text,
+                'maleCapacity': r.maleCapacityCtrl.text,
+                'femaleCapacity': r.femaleCapacityCtrl.text,
+                'maleFee': r.maleFeeCtrl.text,
+                'femaleFee': r.femaleFeeCtrl.text,
+              })
+          .toList(),
+      // 미디어 — 업로드된 URL은 그대로, 아직 업로드 안 된 로컬 파일은 경로만.
+      'existingImageUrls': _mediaExistingImageUrls,
+      'existingVideoUrl': _mediaExistingVideoUrl,
+      'existingVideoUid': _mediaExistingVideoUid,
+      'existingVideoThumbnailUrl': _mediaExistingVideoThumbnailUrl,
+      'newFilePaths': _mediaNewFiles.map((f) => f.path).toList(),
+      'coverPick': _mediaCoverPick == null
+          ? null
+          : {
+              'existingImageUrl': _mediaCoverPick!.existingImageUrl,
+              'isExistingVideo': _mediaCoverPick!.isExistingVideo,
+              'newImageOrdinal': _mediaCoverPick!.newImageOrdinal,
+              'isNewVideo': _mediaCoverPick!.isNewVideo,
+            },
+      'basicCardVideoFocalX': _mediaBasicCardFocalX,
+      'basicCardVideoFocalY': _mediaBasicCardFocalY,
+      'basicCardVideoScale': _mediaBasicCardScale,
+      'mediaVideoCropConfirmed': _mediaVideoCropConfirmed,
+      'basicCardPhotoCrops': _mediaPhotoCrops,
+      // Spotify
+      'spotify': _selectedSpotifyTrack == null
+          ? null
+          : {
+              'id': _selectedSpotifyTrack!.id,
+              'name': _selectedSpotifyTrack!.name,
+              'artistNames': _selectedSpotifyTrack!.artistNames,
+              'albumArtUrl': _selectedSpotifyTrack!.albumArtUrl,
+              'previewUrl': _selectedSpotifyTrack!.previewUrl,
+            },
+      // 상세 설명 방식·블록
+      'descriptionMode': _descriptionMode.name,
+      'autoDescriptionStyle': _autoDescriptionStyle.toMap(),
+      'detailBlocks':
+          PartyDetailBlock.listToMaps(_detailBlocks.map((d) => d.toBlock()).toList()),
+      // 상세 블록의 "아직 업로드 안 된 로컬 파일" 경로 — 블록 id별.
+      'detailBlockLocalFiles': {
+        for (final d in _detailBlocks)
+          if (d.newImageFile != null || d.newVideoFile != null)
+            d.id: {
+              'image': d.newImageFile?.path,
+              'video': d.newVideoFile?.path,
+            },
+      },
+      'detailTheme': _detailTheme.name,
+      'detailDecorationIntensity': _detailDecorationIntensity.name,
+      'detailDecorationVariantSeed': _detailDecorationVariantSeed,
+    };
+  }
+
+  /// 임시저장 payload로 화면 상태 전체를 복원한다. 복원 도중에는
+  /// _draftReady=false라 자동저장이 예약되지 않는다(복원값을 그대로 다시
+  /// 저장하는 낭비/무한루프 방지).
+  void _applyDraftPayload(Map<String, dynamic> p) {
+    String s(String key) => (p[key] as String?) ?? '';
+    _partyNameController.text = s('titleText');
+    _introController.text = s('introText');
+    _detailAddressController.text = s('detailAddressText');
+    _maleFeeController.text = s('maleFeeText');
+    _femaleFeeController.text = s('femaleFeeText');
+    _earlyBirdPercentController.text = s('earlyBirdPercentText');
+    _capacityController.text = s('capacityText');
+    _maleCapacityController.text = s('maleCapacityText');
+    _femaleCapacityController.text = s('femaleCapacityText');
+
+    final place = p['place'] as Map?;
+    _selectedPlace = place == null
+        ? null
+        : AddressResult(
+            placeName: place['placeName'] as String? ?? '',
+            address: place['address'] as String? ?? '',
+            roadAddress: place['roadAddress'] as String? ?? '',
+            jibunAddress: place['jibunAddress'] as String? ?? '',
+            latitude: (place['latitude'] as num?)?.toDouble() ?? 0,
+            longitude: (place['longitude'] as num?)?.toDouble() ?? 0,
+          );
+
+    _genderLimit = p['genderLimit'] as String? ?? 'all';
+    _genderCapacityMode = p['genderCapacityMode'] as String? ?? 'unlimited';
+    _genderMode = p['genderMode'] as String? ?? '';
+
+    _refundTiers = RefundTier.listFromDynamic(p['refundPolicy']);
+
+    _earlyBirdEnabled = p['earlyBirdEnabled'] as bool? ?? false;
+    final ebMs = (p['earlyBirdEndDateMs'] as num?)?.toInt();
+    _earlyBirdEndDate =
+        ebMs != null ? DateTime.fromMillisecondsSinceEpoch(ebMs) : null;
+    _earlyBirdEndTime = _timeFromMap(p['earlyBirdEndTime']);
+
+    _partyTypes
+      ..clear()
+      ..addAll((p['partyTypes'] as List?)?.cast<String>() ?? const []);
+    _vibes
+      ..clear()
+      ..addAll((p['vibes'] as List?)?.cast<String>() ?? const []);
+    _tags = [...((p['tags'] as List?)?.cast<String>() ?? const [])];
+    _region = p['region'] as String? ?? '서울';
+    _district = p['district'] as String?;
+    _ageRestrictionEnabled = p['ageRestrictionEnabled'] as bool? ?? false;
+    _minBirthYear = (p['minBirthYear'] as num?)?.toInt() ?? birthYearFromAge(31);
+    _maxBirthYear = (p['maxBirthYear'] as num?)?.toInt() ?? birthYearFromAge(23);
+    _existingSeriesId = p['seriesId'] as String?;
+
+    // 날짜 슬롯
+    _dateSlots = ((p['dateSlots'] as List?) ?? const [])
+        .map((raw) {
+          final m = raw as Map;
+          final ms = (m['dateMs'] as num?)?.toInt();
+          if (ms == null) return null;
+          final d = DateTime.fromMillisecondsSinceEpoch(ms);
+          return PartyDateSlot(
+            id: newPartyDateSlotId(),
+            date: DateTime(d.year, d.month, d.day),
+            startTime: _timeFromMap(m['start']),
+            endTime: _timeFromMap(m['end']),
+            isAutoGenerated: m['auto'] as bool? ?? false,
+          );
+        })
+        .whereType<PartyDateSlot>()
+        .toList();
+    _recruitDeadlineTime = _timeFromMap(p['recruitDeadlineTime']);
+    _weeklyRepeatEnabled = p['weeklyRepeatEnabled'] as bool? ?? false;
+    final wrMs = (p['weeklyRepeatEndDateMs'] as num?)?.toInt();
+    _weeklyRepeatEndDate =
+        wrMs != null ? DateTime.fromMillisecondsSinceEpoch(wrMs) : null;
+    _weeklyRepeatCount = (p['weeklyRepeatCount'] as num?)?.toInt();
+    _weeklyRepeatExcludedDates = {
+      ...((p['weeklyRepeatExcludedDates'] as List?)?.cast<String>() ?? const [])
+    };
+
+    // 다차수 라운드 — 기존 것을 정리하고 새로 만든다.
+    for (final r in _extraRounds) {
+      r.dispose();
+    }
+    _extraRounds.clear();
+    _hasMultipleRounds = p['hasMultipleRounds'] as bool? ?? false;
+    _roundCapacityMode = p['roundCapacityMode'] as String? ?? 'unified';
+    for (final raw in (p['extraRounds'] as List?) ?? const []) {
+      final m = raw as Map;
+      _extraRounds.add(PartyRoundDraft(
+        id: m['id'] as String?,
+        label: m['label'] as String? ?? '',
+        time: _timeFromMap(m['time']),
+        capacity: m['capacity'] as String?,
+        maleCapacity: m['maleCapacity'] as String?,
+        femaleCapacity: m['femaleCapacity'] as String?,
+        maleFee: m['maleFee'] as String?,
+        femaleFee: m['femaleFee'] as String?,
+      ));
+    }
+
+    // 미디어(업로드된 URL)
+    _mediaExistingImageUrls =
+        [...((p['existingImageUrls'] as List?)?.cast<String>() ?? const [])];
+    _mediaExistingVideoUrl = p['existingVideoUrl'] as String?;
+    _mediaExistingVideoUid = p['existingVideoUid'] as String?;
+    _mediaExistingVideoThumbnailUrl = p['existingVideoThumbnailUrl'] as String?;
+
+    // 아직 업로드 안 된 로컬 파일 — 파일이 아직 있으면 되살리고, 없으면
+    // 배너로 재선택을 안내한다(요구 8번).
+    _mediaNewFiles = [];
+    bool anyMissing = false;
+    for (final path in (p['newFilePaths'] as List?)?.cast<String>() ?? const []) {
+      if (File(path).existsSync()) {
+        _mediaNewFiles.add(XFile(path));
+      } else {
+        anyMissing = true;
+      }
+    }
+
+    final coverPick = p['coverPick'] as Map?;
+    _mediaCoverPick = coverPick == null
+        ? null
+        : PartyCoverPick(
+            existingImageUrl: coverPick['existingImageUrl'] as String?,
+            isExistingVideo: coverPick['isExistingVideo'] as bool? ?? false,
+            newImageOrdinal: (coverPick['newImageOrdinal'] as num?)?.toInt(),
+            isNewVideo: coverPick['isNewVideo'] as bool? ?? false,
+          );
+    _mediaBasicCardFocalX = (p['basicCardVideoFocalX'] as num?)?.toDouble() ?? 0.5;
+    _mediaBasicCardFocalY = (p['basicCardVideoFocalY'] as num?)?.toDouble() ?? 0.5;
+    _mediaBasicCardScale = (p['basicCardVideoScale'] as num?)?.toDouble() ?? 1.0;
+    _mediaVideoCropConfirmed = p['mediaVideoCropConfirmed'] as bool? ?? false;
+    final rawCrops = p['basicCardPhotoCrops'] as Map?;
+    _mediaPhotoCrops = rawCrops == null
+        ? {}
+        : rawCrops.map((key, value) => MapEntry(key as String, {
+              'x': ((value as Map)['x'] as num?)?.toDouble() ?? 0.5,
+              'y': (value['y'] as num?)?.toDouble() ?? 0.5,
+              'scale': (value['scale'] as num?)?.toDouble() ?? 1.0,
+            }));
+
+    final spotify = p['spotify'] as Map?;
+    _selectedSpotifyTrack = spotify == null
+        ? null
+        : SpotifyTrack(
+            id: spotify['id'] as String? ?? '',
+            name: spotify['name'] as String? ?? '',
+            artistNames: spotify['artistNames'] as String? ?? '',
+            albumArtUrl: spotify['albumArtUrl'] as String?,
+            previewUrl: spotify['previewUrl'] as String?,
+          );
+
+    // 상세 블록 — 기존 것을 정리하고 새로 만든다.
+    for (final d in _detailBlocks) {
+      d.dispose();
+    }
+    _detailBlocks = PartyDetailBlock.listFromDynamic(p['detailBlocks'])
+        .map((b) => PartyDetailBlockDraft.fromBlock(b))
+        .toList();
+    // 상세 블록의 로컬 파일 되살리기(있으면) — 블록 id로 매칭.
+    final blockFiles = p['detailBlockLocalFiles'] as Map?;
+    if (blockFiles != null) {
+      for (final block in _detailBlocks) {
+        final entry = blockFiles[block.id] as Map?;
+        if (entry == null) continue;
+        final imgPath = entry['image'] as String?;
+        final vidPath = entry['video'] as String?;
+        if (imgPath != null) {
+          if (File(imgPath).existsSync()) {
+            block.newImageFile = XFile(imgPath);
+          } else {
+            anyMissing = true;
+          }
+        }
+        if (vidPath != null) {
+          if (File(vidPath).existsSync()) {
+            block.newVideoFile = XFile(vidPath);
+          } else {
+            anyMissing = true;
+          }
+        }
+      }
+    }
+
+    _descriptionMode =
+        partyDescriptionModeFromString(p['descriptionMode'] as String?);
+    _autoDescriptionStyle = PartyAutoDescriptionStyle.fromMap(
+        p['autoDescriptionStyle'] as Map<String, dynamic>?);
+    _detailTheme = partyDetailThemeKeyFromString(p['detailTheme'] as String?);
+    _detailDecorationIntensity = partyDetailDecorationIntensityFromString(
+        p['detailDecorationIntensity'] as String?);
+    _detailDecorationVariantSeed =
+        (p['detailDecorationVariantSeed'] as num?)?.toInt() ?? 0;
+
+    _draftMediaNeedsReselect = anyMissing;
+  }
+
+  /// 등록 화면에 새로 들어왔을 때, 임시저장이 있으면 이어서/새로/취소를 묻는다.
+  Future<void> _maybeOfferDraftRestore() async {
+    if (!_isDraftEnabled) {
+      _draftReady = true;
+      return;
+    }
+    _autosaver ??= DraftAutosaver(type: DraftType.party);
+    final has = await DraftService.hasDraft(DraftType.party);
+    if (!mounted) {
+      _draftReady = true;
+      return;
+    }
+    if (!has) {
+      _draftReady = true;
+      return;
+    }
+
+    // 마이페이지 목록에서 "이어서 작성"으로 들어온 경우 — 다시 묻지 않고
+    // 곧바로 복구한다.
+    if (widget.autoRestoreDraft) {
+      final record = await DraftService.loadDraft(DraftType.party);
+      if (mounted && record != null) {
+        setState(() => _applyDraftPayload(record.payload));
+        if (_draftMediaNeedsReselect) {
+          _showMessage('임시저장된 사진/동영상 일부는 다시 선택해주세요.');
+        }
+      }
+      _draftReady = true;
+      return;
+    }
+
+    final choice = await showDialog<String>(
+      context: context,
+      barrierDismissible: false,
+      builder: (_) => AlertDialog(
+        title: const Text('작성 중인 내용이 있습니다',
+            style: TextStyle(
+                fontFamily: 'SeoulHangang',
+                fontSize: 16,
+                fontWeight: FontWeight.w500,
+                shadows: [
+                  Shadow(color: Colors.black87, offset: Offset(0.3, 0)),
+                  Shadow(color: Colors.black87, offset: Offset(-0.3, 0)),
+                  Shadow(color: Colors.black87, offset: Offset(0, 0.3)),
+                  Shadow(color: Colors.black87, offset: Offset(0, -0.3)),
+                ])),
+        content: const Text('이어서 작성하시겠습니까?'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, 'cancel'),
+            child: const Text('취소'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(context, 'new'),
+            child: const Text('새로 작성'),
+          ),
+          ElevatedButton(
+            onPressed: () => Navigator.pop(context, 'continue'),
+            style: ElevatedButton.styleFrom(
+                backgroundColor: const Color(0xFFFF6FA0),
+                foregroundColor: Colors.white),
+            child: const Text('이어서 작성'),
+          ),
+        ],
+      ),
+    );
+    if (!mounted) {
+      _draftReady = true;
+      return;
+    }
+
+    if (choice == 'continue') {
+      final record = await DraftService.loadDraft(DraftType.party);
+      if (!mounted) {
+        _draftReady = true;
+        return;
+      }
+      if (record != null) {
+        setState(() => _applyDraftPayload(record.payload));
+        if (_draftMediaNeedsReselect) {
+          _showMessage('임시저장된 사진/동영상 일부는 다시 선택해주세요.');
+        }
+      }
+    } else if (choice == 'new') {
+      final confirmNew = await showDialog<bool>(
+        context: context,
+        builder: (_) => AlertDialog(
+          content: const Text('저장된 임시저장 내용을 지우고 새로 작성할까요?'),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context, false),
+              child: const Text('취소'),
+            ),
+            TextButton(
+              onPressed: () => Navigator.pop(context, true),
+              style: TextButton.styleFrom(foregroundColor: Colors.red),
+              child: const Text('삭제하고 새로 작성'),
+            ),
+          ],
+        ),
+      );
+      if (confirmNew == true) {
+        await DraftService.deleteDraft(DraftType.party);
+      }
+    } else {
+      // 취소 — 등록 화면을 닫고 이전(등록 유형) 화면으로 돌아간다.
+      if (mounted) Navigator.of(context).maybePop();
+    }
+    _draftReady = true;
+  }
+
+  /// 상단 '임시저장' 버튼 — 즉시 저장 후 안내.
+  Future<void> _manualSaveDraft() async {
+    if (!_isDraftEnabled) return;
+    _autosaver ??= DraftAutosaver(type: DraftType.party);
+    await _autosaver!.flushNow(_buildDraftSnapshot);
+    if (mounted) _showMessage('임시저장되었습니다');
+  }
+
+  /// 뒤로가기 시(임시저장 가능 화면) — 내용을 버리지 않고 먼저 저장한 뒤
+  /// "임시저장되었습니다" 안내와 함께 나가기/계속 작성을 묻는다.
+  Future<bool> _confirmLeaveWithDraftSave() async {
+    // 아무것도 입력하지 않았으면 저장할 것도, 안내할 것도 없이 바로 나간다.
+    if (!_dirty) return true;
+    _autosaver ??= DraftAutosaver(type: DraftType.party);
+    await _autosaver!.flushNow(_buildDraftSnapshot);
+    if (!mounted) return true;
+    final leave = await showDialog<bool>(
+      context: context,
+      builder: (_) => AlertDialog(
+        title: const Text('작성 중인 내용이 임시저장되었습니다',
+            style: TextStyle(
+                fontFamily: 'SeoulHangang',
+                fontSize: 16,
+                fontWeight: FontWeight.w500,
+                shadows: [
+                  Shadow(color: Colors.black87, offset: Offset(0.3, 0)),
+                  Shadow(color: Colors.black87, offset: Offset(-0.3, 0)),
+                  Shadow(color: Colors.black87, offset: Offset(0, 0.3)),
+                  Shadow(color: Colors.black87, offset: Offset(0, -0.3)),
+                ])),
+        content: const Text('나중에 이어서 작성할 수 있습니다.'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('계속 작성'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('나가기'),
+          ),
+        ],
+      ),
+    );
+    return leave ?? false;
+  }
+
+  /// AppBar 하단의 "자동 저장됨 · HH:mm" 표시(임시저장 활성일 때만).
+  PreferredSizeWidget? _buildAutoSaveIndicator() {
+    final saver = _autosaver;
+    if (saver == null) return null;
+    return PreferredSize(
+      preferredSize: const Size.fromHeight(22),
+      child: ValueListenableBuilder<DateTime?>(
+        valueListenable: saver.lastSavedAt,
+        builder: (context, savedAt, _) {
+          if (savedAt == null) return const SizedBox(height: 22);
+          final synced = saver.lastSaveSynced.value;
+          final hh = savedAt.hour.toString().padLeft(2, '0');
+          final mm = savedAt.minute.toString().padLeft(2, '0');
+          return SizedBox(
+            height: 22,
+            child: Center(
+              child: Text(
+                synced ? '자동 저장됨 · $hh:$mm' : '기기에 보관됨 · $hh:$mm',
+                style: TextStyle(
+                  fontSize: 11,
+                  color: synced ? Colors.black45 : const Color(0xFFC26A00),
+                ),
+              ),
+            ),
+          );
+        },
+      ),
+    );
+  }
+
+  /// 임시저장 복구 시 로컬 파일이 사라진 사진/동영상이 있을 때의 안내 배너.
+  Widget _buildMediaReselectBanner() {
+    return Container(
+      margin: const EdgeInsets.only(bottom: 12),
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+      decoration: BoxDecoration(
+        color: const Color(0xFFFFF3E0),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: const Color(0xFFFFD8A8)),
+      ),
+      child: const Row(
+        children: [
+          Icon(Icons.info_outline, size: 18, color: Color(0xFFC26A00)),
+          SizedBox(width: 8),
+          Expanded(
+            child: Text(
+              '임시저장된 사진/동영상 일부는 다시 선택해주세요.',
+              style: TextStyle(fontSize: 12.5, color: Color(0xFF8A5A00)),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    // 앱이 백그라운드로 가거나 종료될 때 마지막 내용을 즉시 저장한다.
+    if (!_isDraftEnabled || !_draftReady) return;
+    if (state == AppLifecycleState.paused ||
+        state == AppLifecycleState.inactive ||
+        state == AppLifecycleState.detached) {
+      _autosaver?.flushNow(_buildDraftSnapshot);
+    }
   }
 
   final _partyNameController = PartyTitleController();
@@ -240,6 +849,15 @@ class _PartyRegisterScreenState extends State<PartyRegisterScreen> {
     ]) {
       c.addListener(_markDirty);
     }
+    // 앱 백그라운드/종료 시 마지막 내용 저장을 위해 라이프사이클 관찰.
+    WidgetsBinding.instance.addObserver(this);
+    if (_isDraftEnabled) {
+      _autosaver = DraftAutosaver(type: DraftType.party);
+    }
+    // 첫 프레임 뒤에 임시저장 복구 여부를 묻는다(빈 새 등록일 때만).
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _maybeOfferDraftRestore();
+    });
   }
 
   void _prefill(Map<String, dynamic> d) {
@@ -457,6 +1075,8 @@ class _PartyRegisterScreenState extends State<PartyRegisterScreen> {
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    _autosaver?.dispose();
     _scrollController.dispose();
     _partyNameController.dispose();
     _introController.dispose();
@@ -1170,6 +1790,11 @@ class _PartyRegisterScreenState extends State<PartyRegisterScreen> {
 
       if (!mounted) return;
       _dirty = false; // 정상 등록 완료 — 나갈 때 이탈 방지 확인창을 띄우지 않는다.
+      // 최종 등록이 끝났으니 이 유형의 임시저장은 자동 삭제한다(요구 6·7번).
+      if (_isDraftEnabled) {
+        await DraftService.deleteDraft(DraftType.party);
+        if (!mounted) return;
+      }
       // 등록 화면이 몇 단계 깊이 열려 있었든(모바일: RegisterTypeScreen 경유,
       // 데스크톱: MainScreen에서 바로) 곧장 메인화면 파티 탭으로 복귀한다.
       pendingTopTabAfterRegister.value = 0;
@@ -1266,8 +1891,7 @@ class _PartyRegisterScreenState extends State<PartyRegisterScreen> {
   Future<void> _openLocationPicker() async {
     final result = await Navigator.push<PartyLocationSelection>(
       context,
-      MaterialPageRoute(
-        builder: (_) => PartyLocationPickerScreen(
+      webFramedRoute((_) => PartyLocationPickerScreen(
           initialPlace: _selectedPlace,
           initialDetailAddress: _detailAddressController.text,
         ),
@@ -1347,8 +1971,7 @@ class _PartyRegisterScreenState extends State<PartyRegisterScreen> {
   Future<void> _openRefundPolicy() async {
     await Navigator.push(
       context,
-      MaterialPageRoute(
-        builder: (_) => PartyRefundPolicyScreen(
+      webFramedRoute((_) => PartyRefundPolicyScreen(
           initialTiers: _refundTiers,
           onChanged: (tiers) {
             _refundTiers = tiers;
@@ -1444,8 +2067,7 @@ class _PartyRegisterScreenState extends State<PartyRegisterScreen> {
   Future<void> _openIntroScreen() async {
     final result = await Navigator.push<PartyIntroSelection>(
       context,
-      MaterialPageRoute(
-        builder: (_) => PartyIntroScreen(
+      webFramedRoute((_) => PartyIntroScreen(
           initialIntro: _introController.text,
           initialTags: _tags,
           initialTheme: _autoDescriptionStyle.theme,
@@ -1493,8 +2115,7 @@ class _PartyRegisterScreenState extends State<PartyRegisterScreen> {
     }
     final result = await Navigator.push<PartyDetailBlockEditorResult>(
       context,
-      MaterialPageRoute(
-        builder: (_) => PartyDetailBlockEditorScreen(
+      webFramedRoute((_) => PartyDetailBlockEditorScreen(
           initialBlocks: initialBlocks,
           initialTheme: _detailTheme,
           initialIntensity: _detailDecorationIntensity,
@@ -1526,8 +2147,7 @@ class _PartyRegisterScreenState extends State<PartyRegisterScreen> {
   Future<void> _openMediaPicker() async {
     final result = await Navigator.push<PartyMediaSelection>(
       context,
-      MaterialPageRoute(
-        builder: (_) => PartyMediaPickerScreen(
+      webFramedRoute((_) => PartyMediaPickerScreen(
           existingImageUrls: _mediaExistingImageUrls,
           existingVideoUrl: _mediaExistingVideoUrl,
           existingVideoUid: _mediaExistingVideoUid,
@@ -1803,12 +2423,32 @@ class _PartyRegisterScreenState extends State<PartyRegisterScreen> {
       canPop: !_dirty,
       onPopInvokedWithResult: (didPop, result) async {
         if (didPop) return;
-        final shouldLeave = await _confirmLeave();
+        // 임시저장 가능한(빈 새 등록) 화면에서는 내용을 버리지 않고 먼저
+        // 자동 임시저장한 뒤 "임시저장되었습니다" 안내를 보여준다. 수정·재등록
+        // 화면은 기존 "종료하시겠습니까?" 확인창을 그대로 쓴다.
+        final shouldLeave = _isDraftEnabled
+            ? await _confirmLeaveWithDraftSave()
+            : await _confirmLeave();
         if (shouldLeave && mounted) Navigator.of(context).pop();
       },
       child: Scaffold(
         backgroundColor: const Color(0xFFF7F8FC),
-        appBar: AppBar(title: const Text('파티 등록', style: TextStyle(fontFamily: 'SeoulHangang', fontWeight: FontWeight.w500, shadows: [Shadow(color: Colors.black87, offset: Offset(0.3, 0)), Shadow(color: Colors.black87, offset: Offset(-0.3, 0)), Shadow(color: Colors.black87, offset: Offset(0, 0.3)), Shadow(color: Colors.black87, offset: Offset(0, -0.3))])), centerTitle: true),
+        appBar: AppBar(
+          title: const Text('파티 등록', style: TextStyle(fontFamily: 'SeoulHangang', fontWeight: FontWeight.w500, shadows: [Shadow(color: Colors.black87, offset: Offset(0.3, 0)), Shadow(color: Colors.black87, offset: Offset(-0.3, 0)), Shadow(color: Colors.black87, offset: Offset(0, 0.3)), Shadow(color: Colors.black87, offset: Offset(0, -0.3))])),
+          centerTitle: true,
+          actions: _isDraftEnabled
+              ? [
+                  TextButton(
+                    onPressed: _manualSaveDraft,
+                    child: const Text('임시저장',
+                        style: TextStyle(
+                            color: Color(0xFFFF6FA0),
+                            fontWeight: FontWeight.w700)),
+                  ),
+                ]
+              : null,
+          bottom: _isDraftEnabled ? _buildAutoSaveIndicator() : null,
+        ),
         body: Stack(
           children: [
             Form(
@@ -1817,6 +2457,8 @@ class _PartyRegisterScreenState extends State<PartyRegisterScreen> {
                 controller: _scrollController,
                 padding: const EdgeInsets.all(16),
                 children: [
+                  if (_isDraftEnabled && _draftMediaNeedsReselect)
+                    _buildMediaReselectBanner(),
                   _sectionCard(
                     title: '기본 정보',
                     child: Column(

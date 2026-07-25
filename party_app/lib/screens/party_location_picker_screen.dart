@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:party_app/models/address_result.dart';
 import 'package:party_app/screens/address_search_screen.dart';
+import 'package:party_app/widgets/web_frame.dart';
 
 class PartyLocationSelection {
   final AddressResult place;
@@ -46,7 +47,7 @@ class _PartyLocationPickerScreenState extends State<PartyLocationPickerScreen> {
   Future<void> _openAddressSearch() async {
     final result = await Navigator.push<AddressResult>(
       context,
-      MaterialPageRoute(builder: (_) => const AddressSearchScreen()),
+      webFramedRoute((_) => const AddressSearchScreen()),
     );
     if (result != null) {
       setState(() {

@@ -568,5 +568,21 @@ service cloud.firestore {
 
       allow update, delete: if false;
     }
+
+    // ── drafts 컬렉션 (등록 화면 임시저장 — 비공개) ────────────────────────
+    // 문서 id = "{userId}__{type}" (사용자별·등록유형별 1개 고정). 본인만
+    // 조회·생성·수정·삭제할 수 있는 완전 비공개 컬렉션 — 목록/검색에 절대
+    // 노출되지 않는다.
+    //
+    // read/delete는 아직 존재하지 않는 문서를 get()/snapshots()로 확인할 때
+    // resource가 null이 되어 규칙 평가가 실패하는 것을 피하기 위해, favorites와
+    // 같은 방식으로 소유권을 resource.data가 아니라 문서 id 접두어로 판정한다.
+    match /drafts/{draftId} {
+      allow read, delete: if isSignedIn() && draftId.matches(uid() + '__.*');
+
+      allow create, update: if isSignedIn() &&
+        request.resource.data.userId == uid() &&
+        draftId == uid() + '__' + request.resource.data.type;
+    }
   }
 }

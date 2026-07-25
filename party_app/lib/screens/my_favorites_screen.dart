@@ -10,6 +10,7 @@ import 'package:party_app/widgets/party_card_widget.dart';
 import 'package:party_app/screens/place_detail_screen.dart';
 import 'package:party_app/screens/party_shop_detail_screen.dart';
 import 'package:party_app/screens/event_detail_screen.dart';
+import 'package:party_app/widgets/web_frame.dart';
 
 /// 마이페이지 "🐾 관심 목록" — 내가 찜한 파티/장소/파티샵/파트너를 타입별
 /// 탭으로 모아 보여준다. 찜 자체는 FavoritesService(Firestore `favorites`
@@ -244,8 +245,7 @@ class _PlaceFavoriteCard extends StatelessWidget {
     return GestureDetector(
       onTap: () => Navigator.push(
         context,
-        MaterialPageRoute(
-            builder: (_) => PlaceDetailScreen(placeId: placeId, data: data)),
+        webFramedRoute((_) => PlaceDetailScreen(placeId: placeId, data: data)),
       ),
       child: Container(
         margin: const EdgeInsets.only(bottom: 12),
@@ -325,8 +325,7 @@ class _ShopFavoriteCard extends StatelessWidget {
     return GestureDetector(
       onTap: () => Navigator.push(
         context,
-        MaterialPageRoute(
-            builder: (_) => PartyShopDetailScreen(shopId: shopId, shopData: data)),
+        webFramedRoute((_) => PartyShopDetailScreen(shopId: shopId, shopData: data)),
       ),
       child: Container(
         margin: const EdgeInsets.only(bottom: 12),
@@ -406,8 +405,7 @@ class _EventFavoriteCard extends StatelessWidget {
     return GestureDetector(
       onTap: () => Navigator.push(
         context,
-        MaterialPageRoute(
-            builder: (_) => EventDetailScreen(eventId: eventId, eventData: data)),
+        webFramedRoute((_) => EventDetailScreen(eventId: eventId, eventData: data)),
       ),
       child: Container(
         margin: const EdgeInsets.only(bottom: 12),

@@ -18,6 +18,7 @@ import 'package:party_app/widgets/party_form/party_detail_block_type_sheet.dart'
 import 'package:party_app/widgets/party_form/decoration_intensity_picker.dart';
 import 'package:party_app/widgets/party_form/party_detail_theme_picker.dart';
 import 'package:party_app/models/party_detail_decoration_intensity.dart';
+import 'package:party_app/widgets/web_frame.dart';
 
 const _kAccent = Color(0xFFFF6FA0);
 
@@ -146,8 +147,7 @@ class _PartyDetailBlockEditorScreenState extends State<PartyDetailBlockEditorScr
     final frame = _imageFrameSize(context);
     final result = await Navigator.push<Map<String, double>>(
       context,
-      MaterialPageRoute(
-        builder: (_) => PhotoCropScreen(
+      webFramedRoute((_) => PhotoCropScreen(
           imageUrl: draft.newImageFile == null ? draft.uploadedImageUrl : null,
           imageFile: draft.newImageFile != null ? File(draft.newImageFile!.path) : null,
           frameWidth: frame.width,
@@ -224,8 +224,7 @@ class _PartyDetailBlockEditorScreenState extends State<PartyDetailBlockEditorScr
     final frame = _imageGroupCellFrameSize(context);
     final result = await Navigator.push<Map<String, double>>(
       context,
-      MaterialPageRoute(
-        builder: (_) => PhotoCropScreen(
+      webFramedRoute((_) => PhotoCropScreen(
           imageUrl: item.newImageFile == null ? item.uploadedImageUrl : null,
           imageFile: item.newImageFile != null ? File(item.newImageFile!.path) : null,
           frameWidth: frame.width,
@@ -284,8 +283,7 @@ class _PartyDetailBlockEditorScreenState extends State<PartyDetailBlockEditorScr
       if (!mounted) return;
       final trimmedPath = await Navigator.push<String>(
         context,
-        MaterialPageRoute(
-          builder: (_) => VideoTrimScreen(sourceFile: File(file.path)),
+        webFramedRoute((_) => VideoTrimScreen(sourceFile: File(file.path)),
           fullscreenDialog: true,
         ),
       );
@@ -355,8 +353,7 @@ class _PartyDetailBlockEditorScreenState extends State<PartyDetailBlockEditorScr
     };
     final resultSeed = await Navigator.push<int>(
       context,
-      MaterialPageRoute(
-        builder: (_) => _PreviewScreen(
+      webFramedRoute((_) => _PreviewScreen(
           blocks: _blocks.map((d) => d.toBlock()).toList(),
           theme: _theme,
           intensity: _intensity,

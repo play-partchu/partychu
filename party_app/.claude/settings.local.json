@@ -12,7 +12,10 @@
       "PowerShell(npx firebase deploy --only firestore:rules --project partychu 2>&1)",
       "Bash(dart run *)",
       "PowerShell(Add-Type -AssemblyName System.Drawing; $img = [System.Drawing.Image]::FromFile\\('C:\\\\partychu\\\\partymap\\\\party_app\\\\assets\\\\images\\\\header_logo_last.png'\\); \"Width: $\\($img.Width\\), Height: $\\($img.Height\\)\"; $img.Dispose\\(\\))",
-      "PowerShell(Add-Type -AssemblyName System.Drawing; $img = [System.Drawing.Image]::FromFile\\('C:\\\\partychu\\\\partymap\\\\party_app\\\\assets\\\\images\\\\header_logo_last.png'\\); \"Width: $\\($img.Width\\), Height: $\\($img.Height\\), Ratio: $\\([math]::Round\\($img.Width / $img.Height, 3\\)\\)\"; $img.Dispose\\(\\))"
+      "PowerShell(Add-Type -AssemblyName System.Drawing; $img = [System.Drawing.Image]::FromFile\\('C:\\\\partychu\\\\partymap\\\\party_app\\\\assets\\\\images\\\\header_logo_last.png'\\); \"Width: $\\($img.Width\\), Height: $\\($img.Height\\), Ratio: $\\([math]::Round\\($img.Width / $img.Height, 3\\)\\)\"; $img.Dispose\\(\\))",
+      "Read(//c/partychu/partymap/website/**)",
+      "Read(//c/partychu/partymap/website/.well-known/**)",
+      "Read(//c/partychu/partymap/website/js/**)"
     ]
   }
 }

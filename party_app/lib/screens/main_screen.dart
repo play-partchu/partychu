@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:math';
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -50,6 +51,7 @@ import 'package:party_app/screens/place_register_screen.dart';
 import 'package:party_app/screens/party_market_register_screen.dart';
 import 'package:party_app/screens/crew_register_screen.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:party_app/widgets/web_frame.dart';
 
 class MainScreen extends StatefulWidget {
   const MainScreen({super.key});
@@ -181,11 +183,34 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin {
     _previewData = null;
   }
 
+  // 웹에서 랜딩페이지(website/index.html)의 "파티 찾기"/"공간 등록" 버튼이
+  // /app/?tab=place 처럼 쿼리스트링으로 원하는 탭을 지정해 진입할 수 있게
+  // 한다 — 앱 자체의 라우팅 구조를 새로 만들지 않고, 시작 시 한 번만 초기
+  // 탭 인덱스를 정하는 데만 쓴다(DeepLinkService의 파티 상세 딥링크와 같은
+  // "웹 시작 시 Uri.base 한 번만 확인" 패턴).
+  int _initialTopTabIndexFromWebUrl() {
+    if (!kIsWeb) return 0;
+    switch (Uri.base.queryParameters['tab']) {
+      case 'venue':
+        return 1;
+      case 'place':
+        return 2;
+      case 'crew':
+        return 3;
+      default:
+        return 0;
+    }
+  }
+
   // ── 수명주기 ──────────────────────────────────────────────────────
   @override
   void initState() {
     super.initState();
-    _topTabController = TabController(length: 4, vsync: this);
+    _topTabController = TabController(
+      length: 4,
+      vsync: this,
+      initialIndex: _initialTopTabIndexFromWebUrl(),
+    );
     // 탭을 바꾸면 이전 탭에서 선택했던 미리보기(데스크톱 전용)는 더 이상
     // 유효하지 않으므로 함께 초기화한다.
     _topTabController.addListener(() => setState(_clearPreview));
@@ -297,7 +322,7 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin {
     if (UserSession.userId.isNotEmpty && !UserSession.identityVerified) {
       await Navigator.push(
         context,
-        MaterialPageRoute(builder: (_) => const IdentityVerificationScreen()),
+        webFramedRoute((_) => const IdentityVerificationScreen()),
       );
       if (mounted) setState(() {});
     }
@@ -325,7 +350,7 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin {
   Future<void> _goToRegisterScreen() async {
     await Navigator.push(
       context,
-      MaterialPageRoute(builder: (_) => const RegisterTypeScreen()),
+      webFramedRoute((_) => const RegisterTypeScreen()),
     );
   }
 
@@ -334,7 +359,7 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin {
     if (UserSession.userId.isEmpty) {
       await Navigator.push(
         context,
-        MaterialPageRoute(builder: (_) => LoginPage()),
+        webFramedRoute((_) => LoginPage()),
       );
       if (!mounted) return false;
       if (UserSession.userId.isEmpty) return false;
@@ -344,7 +369,7 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin {
     if (!UserSession.identityVerified) {
       await Navigator.push(
         context,
-        MaterialPageRoute(builder: (_) => const IdentityVerificationScreen()),
+        webFramedRoute((_) => const IdentityVerificationScreen()),
       );
       if (!mounted) return false;
       if (!UserSession.identityVerified) return false;
@@ -365,7 +390,7 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin {
       FeedVideoManager.instance.pauseActive();
       Navigator.push(
         context,
-        MaterialPageRoute(builder: (_) => const MapScreen()),
+        webFramedRoute((_) => const MapScreen()),
       ).then((_) => setState(() => _currentIndex = 0));
     } else if (index == 2) {
       final ok = await _requireVerification();
@@ -381,7 +406,7 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin {
       if (ok) {
         Navigator.push(
           context,
-          MaterialPageRoute(builder: (_) => const ChatListScreen()),
+          webFramedRoute((_) => const ChatListScreen()),
         ).then((_) => setState(() => _currentIndex = 0));
       }
     } else if (index == 4) {
@@ -391,7 +416,7 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin {
       if (ok) {
         Navigator.push(
           context,
-          MaterialPageRoute(builder: (_) => const MyPageScreen()),
+          webFramedRoute((_) => const MyPageScreen()),
         ).then((_) => setState(() => _currentIndex = 0));
       }
     }
@@ -743,12 +768,12 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin {
     if (UserSession.userId.isEmpty) {
       await Navigator.push(
         context,
-        MaterialPageRoute(builder: (_) => LoginPage()),
+        webFramedRoute((_) => LoginPage()),
       );
     } else {
       await Navigator.push(
         context,
-        MaterialPageRoute(builder: (_) => const MyPageScreen()),
+        webFramedRoute((_) => const MyPageScreen()),
       );
     }
     if (mounted) setState(() {});
@@ -767,7 +792,7 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin {
       3 => const CrewRegisterScreen(),
       _ => const PartyRegisterScreen(),
     };
-    await Navigator.push(context, MaterialPageRoute(builder: (_) => target));
+    await Navigator.push(context, webFramedRoute((_) => target));
   }
 
   Widget _buildResponsiveTopBar() {
@@ -943,7 +968,7 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin {
           card: _buildPartyCard(data, docId),
           onOpenDetail: () => Navigator.push(
             context,
-            MaterialPageRoute(builder: (_) => PartyDetailScreen(docId: docId)),
+            webFramedRoute((_) => PartyDetailScreen(docId: docId)),
           ),
         );
       case 'place':
@@ -952,8 +977,7 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin {
           card: _placeGridCard(docId, data),
           onOpenDetail: () => Navigator.push(
             context,
-            MaterialPageRoute(
-              builder: (_) => PlaceDetailScreen(placeId: docId, data: data),
+            webFramedRoute((_) => PlaceDetailScreen(placeId: docId, data: data),
             ),
           ),
         );
@@ -963,8 +987,7 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin {
           card: _shopCard(docId, data),
           onOpenDetail: () => Navigator.push(
             context,
-            MaterialPageRoute(
-              builder: (_) =>
+            webFramedRoute((_) =>
                   PartyShopDetailScreen(shopId: docId, shopData: data),
             ),
           ),
@@ -1604,8 +1627,7 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin {
   ) async {
     final result = await Navigator.push<VideoFeedExitResult>(
       context,
-      MaterialPageRoute(
-        builder: (_) => PartyVideoFeedScreen(
+      webFramedRoute((_) => PartyVideoFeedScreen(
           docs: docs,
           initialIndex: index,
           filter: _filter,
@@ -2220,8 +2242,7 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin {
           onTap ??
           () => Navigator.push(
             context,
-            MaterialPageRoute(
-              builder: (_) =>
+            webFramedRoute((_) =>
                   PartyShopDetailScreen(shopId: shopId, shopData: d),
             ),
           ),
@@ -2686,8 +2707,7 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin {
     return GestureDetector(
       onTap: () => Navigator.push(
         context,
-        MaterialPageRoute(
-          builder: (_) => EventDetailScreen(eventId: eventId, eventData: d),
+        webFramedRoute((_) => EventDetailScreen(eventId: eventId, eventData: d),
         ),
       ),
       child: Container(
@@ -3723,8 +3743,7 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin {
           onTap ??
           () => Navigator.push(
             context,
-            MaterialPageRoute(
-              builder: (_) => PlaceDetailScreen(placeId: id, data: data),
+            webFramedRoute((_) => PlaceDetailScreen(placeId: id, data: data),
             ),
           ),
       child: Container(

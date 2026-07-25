@@ -7,6 +7,7 @@ import 'package:party_app/utils/format_utils.dart';
 import 'package:party_app/widgets/favorite_star_button.dart';
 import 'package:party_app/widgets/media_gallery.dart';
 import 'package:party_app/widgets/party_card_widget.dart';
+import 'package:party_app/widgets/web_frame.dart';
 
 // ══════════════════════════════════════════════════════════════════
 // 플레이스 상세 — 혼술바/이벤트/핫플 등 매장·장소를 안내만 하는 순수
@@ -281,8 +282,7 @@ class EventDetailScreen extends StatelessWidget {
                 TextButton(
                   onPressed: () => Navigator.push(
                     context,
-                    MaterialPageRoute(
-                      builder: (_) => PartyDetailScreen(docId: linkedPartyId),
+                    webFramedRoute((_) => PartyDetailScreen(docId: linkedPartyId),
                     ),
                   ),
                   style: TextButton.styleFrom(

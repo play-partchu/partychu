@@ -10,7 +10,7 @@ const {
   loadReservationConfig,
   computeWindows,
 } = require('./roomAvailability');
-const { portOneGetPayment } = require('./portOne');
+const { verifyPortOnePayment } = require('./portOne');
 const {
   computeRefund,
   reserveApplicantSlot,
@@ -302,23 +302,9 @@ exports.verifyAndConfirmPackageBooking = onCall(
     }
 
     if (group.totalPrice > 0) {
-      let apiSecret;
-      try {
-        apiSecret = portOneApiSecret.value().trim();
-      } catch (e) {
-        throw new HttpsError('internal', `결제 시크릿 로딩 실패: ${e.message}`);
-      }
-
-      const { statusCode, body } = await portOneGetPayment(bundleBookingId, apiSecret);
-      if (statusCode !== 200) {
-        console.error('[verifyAndConfirmPackageBooking] PortOne 조회 실패', statusCode, body);
-        throw new HttpsError('internal', '결제 확인에 실패했습니다.');
-      }
-      const paidAmount = body && body.amount && body.amount.total;
-      const status = body && body.status;
-      if (status !== 'PAID' || paidAmount !== group.totalPrice) {
-        console.error('[verifyAndConfirmPackageBooking] 결제 검증 불일치',
-          { status, paidAmount, expected: group.totalPrice });
+      const verify = await verifyPortOnePayment(bundleBookingId, group.totalPrice, portOneApiSecret);
+      if (!verify.ok) {
+        console.error('[verifyAndConfirmPackageBooking] 결제 검증 실패', verify);
         throw new HttpsError('failed-precondition', '결제 금액/상태가 일치하지 않습니다.');
       }
     }

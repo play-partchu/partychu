@@ -37,6 +37,7 @@ import 'package:party_app/widgets/party_form/round_list_editor.dart';
 import 'package:party_app/widgets/party_form/section_summary_row.dart';
 import 'package:party_app/widgets/party_media_editor.dart' show PartyCoverPick;
 import 'package:party_app/widgets/place_form/room_card.dart';
+import 'package:party_app/widgets/web_frame.dart';
 
 const _kAccent = Color(0xFF7C5CBF);
 
@@ -233,8 +234,7 @@ class _PartyPlaceComboRegisterScreenState
   Future<void> _openMediaPicker() async {
     final result = await Navigator.push<PartyMediaSelection>(
       context,
-      MaterialPageRoute(
-        builder: (_) => PartyMediaPickerScreen(
+      webFramedRoute((_) => PartyMediaPickerScreen(
           existingImageUrls: _mediaExistingImageUrls,
           existingVideoUrl: _mediaExistingVideoUrl,
           existingVideoUid: _mediaExistingVideoUid,
@@ -671,8 +671,7 @@ class _PartyPlaceComboRegisterScreenState
   Future<void> _openRefundPolicy() async {
     await Navigator.push(
       context,
-      MaterialPageRoute(
-        builder: (_) => PartyRefundPolicyScreen(
+      webFramedRoute((_) => PartyRefundPolicyScreen(
           initialTiers: _refundTiers,
           onChanged: (tiers) {
             _refundTiers = tiers;
@@ -780,8 +779,7 @@ class _PartyPlaceComboRegisterScreenState
   Future<void> _openIntroScreen() async {
     final result = await Navigator.push<PartyIntroSelection>(
       context,
-      MaterialPageRoute(
-        builder: (_) => PartyIntroScreen(
+      webFramedRoute((_) => PartyIntroScreen(
           initialIntro: _introCtrl.text,
           initialTags: _tags,
           initialTheme: _autoDescriptionStyle.theme,
@@ -821,8 +819,7 @@ class _PartyPlaceComboRegisterScreenState
     }
     final result = await Navigator.push<PartyDetailBlockEditorResult>(
       context,
-      MaterialPageRoute(
-        builder: (_) => PartyDetailBlockEditorScreen(
+      webFramedRoute((_) => PartyDetailBlockEditorScreen(
           initialBlocks: initialBlocks,
           initialTheme: _detailTheme,
           initialIntensity: _detailDecorationIntensity,
@@ -956,7 +953,20 @@ class _PartyPlaceComboRegisterScreenState
     }
 
     if (hasError) {
+      // 오류 항목이 접힌 아코디언(숙박/파티) 안에 있으면 먼저 그 섹션을 펼쳐
+      // 빨간 오류 표시가 실제로 보이게 한 뒤 스크롤한다. 그리고 조용히 끝내지
+      // 않고 항상 안내 스낵바를 띄운다(버튼을 눌러도 아무 반응 없어 보이는
+      // 문제 방지 — 요구사항 3·6).
+      if (firstErrorKey == _roomsKey) {
+        setState(() => _expandedSection = 'accommodation');
+      } else if (firstErrorKey == _partyDateKey ||
+          firstErrorKey == _partyCapacityKey ||
+          firstErrorKey == _partyFeeKey ||
+          firstErrorKey == _partyIntroKey) {
+        setState(() => _expandedSection = 'party');
+      }
       _scrollToKey(firstErrorKey!);
+      _msg('입력하지 않은 필수 항목이 있어요. 표시된 부분을 확인해주세요.');
       return;
     }
 
@@ -968,17 +978,20 @@ class _PartyPlaceComboRegisterScreenState
     if (!roomsValid) {
       setState(() => _expandedSection = 'accommodation');
       _scrollToKey(_roomsKey);
+      _msg('객실 정보를 확인해주세요.');
       return;
     }
 
     if (!_validateCapacityInputs()) {
       setState(() => _expandedSection = 'party');
       _scrollToKey(_showFeeError ? _partyFeeKey : _partyCapacityKey);
+      _msg('파티 인원/참가비를 확인해주세요.');
       return;
     }
     if (!_validateRoundsInputs()) {
       setState(() => _expandedSection = 'party');
       _scrollToKey(_partyCapacityKey);
+      _msg('라운드(차수) 정보를 확인해주세요.');
       return;
     }
 
@@ -1698,7 +1711,7 @@ class _PartyPlaceComboRegisterScreenState
               onTap: () async {
                 final result = await Navigator.push<AddressResult>(
                   context,
-                  MaterialPageRoute(builder: (_) => const AddressSearchScreen()),
+                  webFramedRoute((_) => const AddressSearchScreen()),
                 );
                 if (result != null) {
                   setState(() {

@@ -45,6 +45,7 @@ import 'package:party_app/screens/event_detail_screen.dart';
 import 'package:party_app/models/listing_constants.dart';
 import 'package:party_app/services/analytics_service.dart';
 import 'package:party_app/widgets/share_bottom_sheet.dart';
+import 'package:party_app/widgets/web_frame.dart';
 
 class PartyDetailScreen extends StatefulWidget {
   final String docId;
@@ -451,8 +452,7 @@ class _PartyDetailScreenState extends State<PartyDetailScreen> {
                 TextButton(
                   onPressed: () => Navigator.push(
                     context,
-                    MaterialPageRoute(
-                      builder: (_) => PlaceDetailScreen(
+                    webFramedRoute((_) => PlaceDetailScreen(
                         placeId: linkedPlaceId,
                         data: placeData,
                       ),
@@ -473,8 +473,7 @@ class _PartyDetailScreenState extends State<PartyDetailScreen> {
                     child: ElevatedButton.icon(
                       onPressed: () => Navigator.push(
                         context,
-                        MaterialPageRoute(
-                          builder: (_) => PackageBookingScreen(
+                        webFramedRoute((_) => PackageBookingScreen(
                             placeId: linkedPlaceId,
                             partyId: widget.docId,
                           ),
@@ -571,8 +570,7 @@ class _PartyDetailScreenState extends State<PartyDetailScreen> {
               TextButton(
                 onPressed: () => Navigator.push(
                   context,
-                  MaterialPageRoute(
-                    builder: (_) => EventDetailScreen(
+                  webFramedRoute((_) => EventDetailScreen(
                       eventId: linkedEventId,
                       eventData: eventData,
                     ),
@@ -1199,8 +1197,7 @@ class _PartyDetailScreenState extends State<PartyDetailScreen> {
                                       if (url == null || url.isEmpty) return;
                                       Navigator.push(
                                         context,
-                                        MaterialPageRoute(
-                                          builder: (_) => FullScreenImageViewer(imageUrl: url),
+                                        webFramedRoute((_) => FullScreenImageViewer(imageUrl: url),
                                         ),
                                       );
                                     },
@@ -1463,8 +1460,7 @@ class _PartyDetailScreenState extends State<PartyDetailScreen> {
                         onTap: () {
                           Navigator.push(
                             context,
-                            MaterialPageRoute(
-                              builder: (_) => PartyApplicantsScreen(
+                            webFramedRoute((_) => PartyApplicantsScreen(
                                 partyId: widget.docId,
                                 partyTitle: data['title'] as String? ?? '',
                                 rounds: (data['rounds'] as List?)
@@ -1485,8 +1481,7 @@ class _PartyDetailScreenState extends State<PartyDetailScreen> {
                                 ? null
                                 : () => Navigator.push(
                                     context,
-                                    MaterialPageRoute(
-                                      builder: (_) => PartyReRegisterScreen(
+                                    webFramedRoute((_) => PartyReRegisterScreen(
                                         sourceData: data,
                                         sourcePartyId: widget.docId,
                                       ),
@@ -1613,8 +1608,7 @@ class _PartyDetailScreenState extends State<PartyDetailScreen> {
                                           // 한다.
                                           await Navigator.push(
                                             context,
-                                            MaterialPageRoute(
-                                              builder: (_) => LoginPage(),
+                                            webFramedRoute((_) => LoginPage(),
                                             ),
                                           );
                                           return;

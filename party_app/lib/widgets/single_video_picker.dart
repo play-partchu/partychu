@@ -4,6 +4,7 @@ import 'package:image_picker/image_picker.dart';
 import 'package:video_compress/video_compress.dart';
 import 'package:video_player/video_player.dart';
 import 'package:party_app/screens/video_trim_screen.dart';
+import 'package:party_app/widgets/web_frame.dart';
 
 /// 이벤트/파티샵 등록처럼 "대표 이미지 1장 + 소개 이미지" 구조를 쓰는 단순한
 /// 등록 화면에 동영상 1개 업로드를 추가하기 위한 단일 슬롯 피커.
@@ -84,8 +85,7 @@ class SingleVideoPickerState extends State<SingleVideoPicker> {
       if (!mounted) return;
       final trimmedPath = await Navigator.push<String>(
         context,
-        MaterialPageRoute(
-          builder: (_) => VideoTrimScreen(sourceFile: File(file.path)),
+        webFramedRoute((_) => VideoTrimScreen(sourceFile: File(file.path)),
           fullscreenDialog: true,
         ),
       );

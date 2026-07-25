@@ -15,6 +15,7 @@ import 'package:party_app/screens/portone_checkout_screen.dart';
 import 'package:party_app/screens/package_booking_screen.dart';
 import 'package:party_app/screens/party_detail_screen.dart';
 import 'package:party_app/widgets/party_card_widget.dart';
+import 'package:party_app/widgets/web_frame.dart';
 
 class PlaceDetailScreen extends StatefulWidget {
   final String placeId;
@@ -623,8 +624,7 @@ class _PlaceDetailScreenState extends State<PlaceDetailScreen> {
 
       final paid = await Navigator.push<bool>(
         context,
-        MaterialPageRoute(
-          builder: (_) => PortoneCheckoutScreen(
+        webFramedRoute((_) => PortoneCheckoutScreen(
             paymentId: groupId,
             orderName: orderName,
             amount: totalPrice,
@@ -773,8 +773,7 @@ class _PlaceDetailScreenState extends State<PlaceDetailScreen> {
                 Navigator.pop(context);
                 Navigator.push(
                   context,
-                  MaterialPageRoute(
-                    builder: (_) => ChatRoomScreen(
+                  webFramedRoute((_) => ChatRoomScreen(
                       roomId: roomId!,
                       otherName: hostName,
                       relatedTitle: placeName,
@@ -1153,8 +1152,7 @@ class _PlaceDetailScreenState extends State<PlaceDetailScreen> {
               TextButton(
                 onPressed: () => Navigator.push(
                   context,
-                  MaterialPageRoute(
-                    builder: (_) => PartyDetailScreen(docId: linkedPartyId),
+                  webFramedRoute((_) => PartyDetailScreen(docId: linkedPartyId),
                   ),
                 ),
                 style: TextButton.styleFrom(
@@ -1173,8 +1171,7 @@ class _PlaceDetailScreenState extends State<PlaceDetailScreen> {
                   child: ElevatedButton.icon(
                     onPressed: () => Navigator.push(
                       context,
-                      MaterialPageRoute(
-                        builder: (_) => PackageBookingScreen(
+                      webFramedRoute((_) => PackageBookingScreen(
                           placeId: widget.placeId,
                           partyId: linkedPartyId,
                         ),

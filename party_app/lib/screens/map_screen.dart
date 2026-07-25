@@ -17,6 +17,7 @@ import 'package:party_app/utils/early_bird.dart';
 import 'package:party_app/utils/party_eligibility.dart';
 import 'package:party_app/utils/user_session.dart';
 import 'package:party_app/widgets/detail_search_sheet.dart';
+import 'package:party_app/widgets/web_frame.dart';
 
 // 줌 단계별 마커 표시 방식 — 멀리서는 점, 중간부터 원형 썸네일, 가까이는
 // 기존 핀+카드 썸네일로 자연스럽게 전환된다.
@@ -966,8 +967,7 @@ class _MapScreenState extends State<MapScreen> {
                 onPressed: () {
                   Navigator.push(
                     context,
-                    MaterialPageRoute(
-                        builder: (_) => const PartyRegisterScreen()),
+                    webFramedRoute((_) => const PartyRegisterScreen()),
                   );
                 },
                 icon: const Icon(Icons.add, size: 18),
@@ -1076,8 +1076,7 @@ class _MapScreenState extends State<MapScreen> {
                 });
                 Navigator.push(
                   context,
-                  MaterialPageRoute(
-                    builder: (_) => PartyDetailScreen(docId: docId),
+                  webFramedRoute((_) => PartyDetailScreen(docId: docId),
                   ),
                 );
               },

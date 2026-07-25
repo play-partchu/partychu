@@ -4,6 +4,7 @@ import 'package:app_links/app_links.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:party_app/screens/party_detail_screen.dart';
+import 'package:party_app/widgets/web_frame.dart';
 
 /// Android App Links(https://partychu.co.kr/party/{id})와 iOS Universal
 /// Links, 그리고 폴백용 커스텀 스킴(partychu://party/{id})을 한 곳에서 받아
@@ -74,6 +75,6 @@ class DeepLinkService {
 
     final navigator = navigatorKey.currentState;
     if (navigator == null) return;
-    navigator.push(MaterialPageRoute(builder: (_) => PartyDetailScreen(docId: partyId)));
+    navigator.push(webFramedRoute((_) => PartyDetailScreen(docId: partyId)));
   }
 }

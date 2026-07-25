@@ -7,6 +7,7 @@ import 'package:party_app/utils/firestore_error_log.dart';
 import 'package:party_app/utils/user_session.dart';
 import 'package:party_app/widgets/login_required_dialog.dart';
 import 'package:party_app/widgets/partychu_ui.dart' show PartyChuColors;
+import 'package:party_app/widgets/web_frame.dart';
 
 /// 파티/장소/파티샵/파트너 상세 화면에 공통으로 붙는 찜(관심) 토글 버튼.
 /// 원형 배경 없이 하트 아이콘 하나로 표현한다 — 미찜은 테두리색만 있는 빈
@@ -88,7 +89,7 @@ class _FavoriteStarButtonState extends State<FavoriteStarButton>
         // 원인). 자동으로 이어서 실행하지 않고 로그인/인증을 마치고 이 화면에
         // 실제로 돌아왔을 때 사용자가 다시 눌러야 찜이 걸리게 해서, 항상 이
         // 화면을 보고 있는 상태에서만 토글이 일어나게 한다.
-        await Navigator.push(context, MaterialPageRoute(builder: (_) => LoginPage()));
+        await Navigator.push(context, webFramedRoute((_) => LoginPage()));
         return;
       }
 

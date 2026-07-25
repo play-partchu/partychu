@@ -5,6 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>파티츄(PartyChu) | 오늘, 새로운 사람들과 파티를 시작하세요</title>
   <meta name="description" content="파티츄는 오늘·내일·이번주 열리는 파티를 찾고 참여하거나, 나만의 파티 공간을 등록해 운영할 수 있는 본인인증 기반 파티 매칭 플랫폼입니다.">
+  <link rel="canonical" href="https://partychu.co.kr/">
   <link rel="stylesheet" href="css/style.css">
 </head>
 <body>
@@ -25,6 +26,7 @@
       <div class="header-cta">
         <a href="#host-space" class="btn btn-secondary btn-sm">공간 등록</a>
         <a href="#find-party" class="btn btn-primary btn-sm">파티 찾기</a>
+        <button id="headerLoginBtn" class="btn btn-outline btn-sm">로그인</button>
         <button class="nav-toggle" id="navToggle" aria-label="메뉴 열기" aria-expanded="false">
           <span></span><span></span><span></span>
         </button>
@@ -109,28 +111,33 @@
     </div>
   </section>
 
-  <!-- ── 파티 찾기 ────────────────────────────────────────────────── -->
+  <!-- ── 파티 찾기 (실시간 목록) ──────────────────────────────────── -->
   <section id="find-party" class="section alt">
-    <div class="container split">
-      <div class="split-copy">
-        <span class="tag">Find a Party</span>
-        <h2>지금 나에게 맞는<br>파티를 찾아보세요</h2>
-        <p>취향과 일정에 맞는 파티를 골라 바로 신청할 수 있어요. 복잡한 절차 없이 원하는 파티에 참여하세요.</p>
-        <ul class="check-list">
-          <li>지역·날짜·인원 조건으로 파티 검색</li>
-          <li>파티 상세 정보와 호스트 소개 확인</li>
-          <li>탭 한 번으로 간편하게 참가 신청</li>
-        </ul>
-        <a href="#" class="btn btn-primary">앱에서 파티 찾기</a>
-        <!-- TODO: App Store / Google Play 스토어 링크로 교체 -->
+    <div class="container">
+      <div class="section-head">
+        <span class="eyebrow">Find a Party</span>
+        <h2>지금 나에게 맞는 파티를 찾아보세요</h2>
+        <p>회원가입 없이도 파티 목록과 상세정보를 바로 확인할 수 있어요. 참가 신청·찜은 로그인 후 이용해주세요.</p>
       </div>
-      <div class="split-visual">
-        <div class="visual-placeholder">
-          <div class="emoji">🔍</div>
-          파티 찾기 화면 영역
-          <small>파티 리스트/검색 화면 스크린샷 삽입 예정</small>
+
+      <div class="party-toolbar">
+        <div class="party-search">
+          <input type="text" id="partySearchInput" placeholder="파티 제목, 장소로 검색" aria-label="파티 검색">
+        </div>
+        <div class="party-filter-group">
+          <span class="filter-hint">날짜 <b>여러 개</b>를 동시에 고를 수 있어요</span>
+          <div class="party-filters" id="partyFilterChips" role="group" aria-label="날짜 필터 (복수 선택 가능)">
+            <button type="button" class="chip chip-all active" data-filter="all">전체</button>
+            <button type="button" class="chip chip-check" data-filter="today"><span class="chip-box" aria-hidden="true"></span>오늘</button>
+            <button type="button" class="chip chip-check" data-filter="tomorrow"><span class="chip-box" aria-hidden="true"></span>내일</button>
+            <button type="button" class="chip chip-check" data-filter="week"><span class="chip-box" aria-hidden="true"></span>이번 주</button>
+            <button type="button" class="chip chip-check" data-filter="weekend"><span class="chip-box" aria-hidden="true"></span>이번 주말</button>
+          </div>
         </div>
       </div>
+
+      <p id="partyListStatus" class="party-status">파티 목록을 불러오는 중...</p>
+      <div id="partyGrid" class="party-grid" hidden></div>
     </div>
   </section>
 
@@ -146,8 +153,7 @@
           <li>모집 인원·성별·연령 조건 설정</li>
           <li>신청자 관리와 정산 정보를 한눈에</li>
         </ul>
-        <a href="#" class="btn btn-primary">공간 등록 문의하기</a>
-        <!-- TODO: 공간 등록 신청 폼/앱 다운로드 링크로 교체 -->
+        <a href="mailto:support@partychu.co.kr?subject=공간%20등록%20문의" class="btn btn-primary">공간 등록 문의하기</a>
       </div>
       <div class="split-visual">
         <div class="visual-placeholder">
@@ -245,7 +251,7 @@
           <h3>이메일 문의</h3>
           <p>[support@partychu.co.kr]</p>
           <p>영업일 기준 1~2일 내 답변드려요.</p>
-          <a href="mailto:support@partychu.co.kr" class="btn btn-outline btn-sm">이메일 보내기</a>
+          <a href="https://mail.google.com/mail/?view=cm&amp;fs=1&amp;tf=1&amp;to=support%40partychu.co.kr&amp;su=%5B%ED%8C%8C%ED%8B%B0%EC%B8%84%20%EB%AC%B8%EC%9D%98%5D&amp;body=%EB%AC%B8%EC%9D%98%20%EB%82%B4%EC%9A%A9%3A%0A%0A%EC%9D%B4%EB%A6%84%3A%0A%EC%97%B0%EB%9D%BD%EC%B2%98%3A" target="_blank" rel="noopener" class="btn btn-outline btn-sm">이메일 보내기</a>
         </div>
         <div class="support-card">
           <div class="feature-icon">💬</div>
@@ -289,7 +295,7 @@
             <h4>고객지원</h4>
             <ul>
               <li><a href="#support">고객센터</a></li>
-              <li><a href="mailto:support@partychu.co.kr">이메일 문의</a></li>
+              <li><a href="https://mail.google.com/mail/?view=cm&amp;fs=1&amp;tf=1&amp;to=support%40partychu.co.kr&amp;su=%5B%ED%8C%8C%ED%8B%B0%EC%B8%84%20%EB%AC%B8%EC%9D%98%5D&amp;body=%EB%AC%B8%EC%9D%98%20%EB%82%B4%EC%9A%A9%3A%0A%0A%EC%9D%B4%EB%A6%84%3A%0A%EC%97%B0%EB%9D%BD%EC%B2%98%3A" target="_blank" rel="noopener">이메일 문의</a></li>
             </ul>
           </div>
         </div>
@@ -314,6 +320,31 @@
     </div>
   </footer>
 
+  <!-- ── 파티 상세 모달 ───────────────────────────────────────────── -->
+  <div id="partyDetailOverlay" class="modal-overlay" hidden>
+    <div class="modal-card party-detail-card">
+      <button class="modal-close" id="partyDetailClose" aria-label="닫기">✕</button>
+      <div id="partyDetailContent"></div>
+    </div>
+  </div>
+
+  <!-- ── 로그인 모달 ──────────────────────────────────────────────── -->
+  <div id="loginOverlay" class="modal-overlay" hidden>
+    <div class="modal-card login-card">
+      <button class="modal-close" id="loginClose" aria-label="닫기">✕</button>
+      <div class="login-card-body">
+        <div class="logo">Party<span>Chu</span></div>
+        <p id="loginPromptMessage">로그인이 필요한 기능이에요.</p>
+        <p id="loginError" class="login-error" hidden></p>
+        <button id="googleLoginBtn" class="btn btn-outline login-btn" type="button">Google로 계속하기</button>
+        <p class="login-note">카카오 로그인은 준비 중이에요.</p>
+      </div>
+    </div>
+  </div>
+
   <script src="js/script.js"></script>
+  <script type="module" src="js/firebase-init.js"></script>
+  <script type="module" src="js/auth.js"></script>
+  <script type="module" src="js/party-list.js"></script>
 </body>
 </html>

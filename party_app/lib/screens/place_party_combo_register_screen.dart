@@ -21,6 +21,7 @@ import 'package:party_app/widgets/party_form/date_time_sheet.dart';
 import 'package:party_app/widgets/party_form/party_title_field.dart';
 import 'package:party_app/widgets/party_form/section_summary_row.dart';
 import 'package:party_app/widgets/party_media_editor.dart' show PartyCoverPick;
+import 'package:party_app/widgets/web_frame.dart';
 
 const _kAccent = Color(0xFFFF6FA0);
 
@@ -139,8 +140,7 @@ class _PlacePartyComboRegisterScreenState
   Future<void> _openMediaPicker() async {
     final result = await Navigator.push<PartyMediaSelection>(
       context,
-      MaterialPageRoute(
-        builder: (_) => PartyMediaPickerScreen(
+      webFramedRoute((_) => PartyMediaPickerScreen(
           existingImageUrls: _mediaExistingImageUrls,
           existingVideoUrl: _mediaExistingVideoUrl,
           existingVideoUid: _mediaExistingVideoUid,
@@ -934,8 +934,7 @@ class _PlacePartyComboRegisterScreenState
               onTap: () async {
                 final result = await Navigator.push<AddressResult>(
                   context,
-                  MaterialPageRoute(
-                      builder: (_) => const AddressSearchScreen()),
+                  webFramedRoute((_) => const AddressSearchScreen()),
                 );
                 if (result != null) {
                   setState(() {

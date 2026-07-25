@@ -6,6 +6,7 @@ import 'package:video_player/video_player.dart';
 import 'package:party_app/screens/video_trim_screen.dart';
 import 'package:party_app/screens/video_crop_screen.dart';
 import 'package:party_app/screens/photo_crop_screen.dart';
+import 'package:party_app/widgets/web_frame.dart';
 
 /// 대표 미디어(cover) 선택 결과 — 업로드 완료 후 부모 화면이 최종 URL로
 /// 변환해서 Firestore에 쓴다. null이면 사용자가 명시적으로 고르지 않은
@@ -358,8 +359,7 @@ class PartyMediaEditorState extends State<PartyMediaEditor>
     final frameSize = _cardFrameSize(context);
     final result = await Navigator.push<Map<String, double>>(
       context,
-      MaterialPageRoute(
-        builder: (_) => VideoCropScreen(
+      webFramedRoute((_) => VideoCropScreen(
           videoUrl: videoUrl,
           videoFile: videoFile,
           frameWidth: frameSize.width,
@@ -392,8 +392,7 @@ class PartyMediaEditorState extends State<PartyMediaEditor>
     final existing = _photoCrops[cropKey];
     final result = await Navigator.push<Map<String, double>>(
       context,
-      MaterialPageRoute(
-        builder: (_) => PhotoCropScreen(
+      webFramedRoute((_) => PhotoCropScreen(
           imageUrl: imageUrl,
           imageFile: imageFile,
           frameWidth: frameSize.width,
@@ -476,8 +475,7 @@ class PartyMediaEditorState extends State<PartyMediaEditor>
           if (!mounted) return;
           final trimmedPath = await Navigator.push<String>(
             context,
-            MaterialPageRoute(
-              builder: (_) => VideoTrimScreen(sourceFile: File(file.path)),
+            webFramedRoute((_) => VideoTrimScreen(sourceFile: File(file.path)),
               fullscreenDialog: true,
             ),
           );

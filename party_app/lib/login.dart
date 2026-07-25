@@ -15,6 +15,7 @@ import 'package:url_launcher/url_launcher.dart';
 import 'package:party_app/utils/user_session.dart';
 import 'package:party_app/utils/last_login_method.dart';
 import 'package:party_app/screens/identity_verification_screen.dart';
+import 'package:party_app/widgets/web_frame.dart';
 
 // Firebase Functions 리전 (functions/index.js의 region과 일치해야 함)
 const _functionsRegion = 'asia-northeast3';
@@ -112,7 +113,7 @@ class _LoginPageState extends State<LoginPage> {
       // 본인인증 미완료 → LoginPage를 닫고 본인확인 화면으로 대체
       // (LoginPage 뒤에는 MainScreen이 있으므로 인증 완료 후 pop 시 MainScreen으로 복귀)
       Navigator.of(context).pushReplacement(
-        MaterialPageRoute(builder: (_) => const IdentityVerificationScreen()),
+        webFramedRoute((_) => const IdentityVerificationScreen()),
       );
     } else {
       Navigator.of(context).pop();

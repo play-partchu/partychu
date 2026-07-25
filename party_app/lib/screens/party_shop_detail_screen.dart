@@ -7,6 +7,7 @@ import 'package:party_app/utils/user_session.dart';
 import 'package:party_app/utils/favorites_service.dart';
 import 'package:party_app/widgets/favorite_star_button.dart';
 import 'package:party_app/widgets/media_gallery.dart';
+import 'package:party_app/widgets/web_frame.dart';
 
 // ══════════════════════════════════════════════════════════════════
 // 파티샵 상세 (구매자 뷰) — 샵 정보 + 상품 목록
@@ -701,8 +702,7 @@ class _ProductSheetState extends State<_ProductSheet> {
               Navigator.pop(dlgCtx);
               Navigator.push(
                 ctx,
-                MaterialPageRoute(
-                  builder: (_) => ChatRoomScreen(
+                webFramedRoute((_) => ChatRoomScreen(
                     roomId:       roomId,
                     otherName:    sellerName,
                     relatedTitle: productName,

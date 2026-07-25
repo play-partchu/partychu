@@ -11,6 +11,7 @@ import 'package:party_app/services/cloudflare_service.dart';
 import 'package:party_app/widgets/party_form/party_title_field.dart';
 import 'package:party_app/widgets/party_media_editor.dart' show PartyCoverPick;
 import 'package:party_app/widgets/place_form/room_card.dart';
+import 'package:party_app/widgets/web_frame.dart';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // 장소 수정 화면 — 진행중 상태에서 "수정"으로 열 때도, 숨김 상태에서
@@ -243,8 +244,7 @@ class _PlaceEditScreenState extends State<PlaceEditScreen> {
   Future<void> _openMediaPicker() async {
     final result = await Navigator.push<PartyMediaSelection>(
       context,
-      MaterialPageRoute(
-        builder: (_) => PartyMediaPickerScreen(
+      webFramedRoute((_) => PartyMediaPickerScreen(
           existingImageUrls: _mediaExistingImageUrls,
           existingVideoUrl: _mediaExistingVideoUrl,
           existingVideoUid: _mediaExistingVideoUid,
@@ -779,7 +779,7 @@ class _PlaceEditScreenState extends State<PlaceEditScreen> {
           onTap: () async {
             final result = await Navigator.push<AddressResult>(
               context,
-              MaterialPageRoute(builder: (_) => const AddressSearchScreen()),
+              webFramedRoute((_) => const AddressSearchScreen()),
             );
             if (result != null) {
               setState(() {

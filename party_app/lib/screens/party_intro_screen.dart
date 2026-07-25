@@ -10,6 +10,7 @@ import 'package:party_app/widgets/party_detail_theme.dart';
 import 'package:party_app/widgets/party_form/decoration_intensity_picker.dart';
 import 'package:party_app/widgets/party_form/paragraph_style_edit_sheet.dart';
 import 'package:party_app/widgets/party_form/party_detail_theme_picker.dart';
+import 'package:party_app/widgets/web_frame.dart';
 
 const _kAccent = Color(0xFFFF6FA0);
 
@@ -114,8 +115,7 @@ class _PartyIntroScreenState extends State<PartyIntroScreen> {
     }
     final result = await Navigator.push<PartyIntroPreviewResult>(
       context,
-      MaterialPageRoute(
-        builder: (_) => _AutoDescriptionPreviewScreen(
+      webFramedRoute((_) => _AutoDescriptionPreviewScreen(
           intro: intro,
           theme: _theme,
           intensity: _intensity,

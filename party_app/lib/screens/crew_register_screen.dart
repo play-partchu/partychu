@@ -6,17 +6,154 @@ import 'package:party_app/models/address_result.dart';
 import 'package:party_app/models/listing_constants.dart';
 import 'package:party_app/screens/address_search_screen.dart';
 import 'package:party_app/services/cloudflare_service.dart';
+import 'package:party_app/models/draft_type.dart';
+import 'package:party_app/utils/draftable_register.dart';
 import 'package:party_app/utils/register_return_signal.dart';
 import 'package:party_app/utils/user_session.dart';
+import 'package:party_app/widgets/web_frame.dart';
 
 class CrewRegisterScreen extends StatefulWidget {
-  const CrewRegisterScreen({super.key});
+  /// 마이페이지 "임시저장" 목록에서 "이어서 작성"으로 열 때 true.
+  final bool autoRestoreDraft;
+
+  /// 구인/구직은 별도 임시저장이라, 목록에서 특정 유형을 이어서 작성할 때
+  /// 그 유형('구인'/'구직')으로 시작하도록 지정한다.
+  final String? initialCrewType;
+
+  const CrewRegisterScreen({
+    super.key,
+    this.autoRestoreDraft = false,
+    this.initialCrewType,
+  });
 
   @override
   State<CrewRegisterScreen> createState() => _CrewRegisterScreenState();
 }
 
-class _CrewRegisterScreenState extends State<CrewRegisterScreen> {
+class _CrewRegisterScreenState extends State<CrewRegisterScreen>
+    with WidgetsBindingObserver, DraftableRegister<CrewRegisterScreen> {
+  @override
+  void setState(VoidCallback fn) {
+    markDraftDirty();
+    super.setState(fn);
+  }
+
+  // 구인/구직에 따라 임시저장 종류가 갈린다(사용자별·유형별 1개씩).
+  @override
+  DraftType get draftType =>
+      _crewType == '구인' ? DraftType.crewRecruit : DraftType.crewSeek;
+
+  @override
+  bool get draftAutoRestore => widget.autoRestoreDraft;
+
+  @override
+  String get draftTitle => _titleCtrl.text;
+
+  @override
+  String? get draftCoverImageUrl => null;
+
+  @override
+  Map<String, dynamic> buildDraftPayload() {
+    return <String, dynamic>{
+      'crewType': _crewType,
+      'recruitType': _recruitType,
+      'startDateMs': _startDate?.millisecondsSinceEpoch,
+      'endDateMs': _endDate?.millisecondsSinceEpoch,
+      'startTime': DraftableRegister.timeToMap(_startTime),
+      'endTime': DraftableRegister.timeToMap(_endTime),
+      'title': _titleCtrl.text,
+      'content': _contentCtrl.text,
+      'role': _roleCtrl.text,
+      'pay': _payCtrl.text,
+      'autoMsg': _autoMsgCtrl.text,
+      'recruitCount': _recruitCountCtrl.text,
+      'detailAddress': _detailAddressCtrl.text,
+      'selectedRoles': _selectedRoles.toList(),
+      'beginnerFriendly': _beginnerFriendly,
+      'experiencedPreferred': _experiencedPreferred,
+      'selectedRegions': _selectedRegions.toList(),
+      'payType': _payType,
+      'profileImagePath': _profileImage?.path,
+      'address': _selectedAddress == null
+          ? null
+          : {
+              'placeName': _selectedAddress!.placeName,
+              'address': _selectedAddress!.address,
+              'roadAddress': _selectedAddress!.roadAddress,
+              'jibunAddress': _selectedAddress!.jibunAddress,
+              'latitude': _selectedAddress!.latitude,
+              'longitude': _selectedAddress!.longitude,
+            },
+    };
+  }
+
+  @override
+  void applyDraftPayload(Map<String, dynamic> p) {
+    _crewType = p['crewType'] as String? ?? '구인';
+    _recruitType = p['recruitType'] as String? ?? '항시';
+    final sMs = (p['startDateMs'] as num?)?.toInt();
+    final eMs = (p['endDateMs'] as num?)?.toInt();
+    _startDate = sMs != null ? DateTime.fromMillisecondsSinceEpoch(sMs) : null;
+    _endDate = eMs != null ? DateTime.fromMillisecondsSinceEpoch(eMs) : null;
+    _startTime = DraftableRegister.timeFromMap(p['startTime']);
+    _endTime = DraftableRegister.timeFromMap(p['endTime']);
+    _titleCtrl.text = (p['title'] as String?) ?? '';
+    _contentCtrl.text = (p['content'] as String?) ?? '';
+    _roleCtrl.text = (p['role'] as String?) ?? '';
+    _payCtrl.text = (p['pay'] as String?) ?? '';
+    _autoMsgCtrl.text = (p['autoMsg'] as String?) ?? '';
+    _recruitCountCtrl.text = (p['recruitCount'] as String?) ?? '';
+    _detailAddressCtrl.text = (p['detailAddress'] as String?) ?? '';
+    _selectedRoles
+      ..clear()
+      ..addAll((p['selectedRoles'] as List?)?.cast<String>() ?? const []);
+    _beginnerFriendly = p['beginnerFriendly'] as bool? ?? false;
+    _experiencedPreferred = p['experiencedPreferred'] as bool? ?? false;
+    _selectedRegions
+      ..clear()
+      ..addAll((p['selectedRegions'] as List?)?.cast<String>() ?? const []);
+    _payType = p['payType'] as String? ?? '협의';
+    final addr = p['address'] as Map?;
+    _selectedAddress = addr == null
+        ? null
+        : AddressResult(
+            placeName: addr['placeName'] as String? ?? '',
+            address: addr['address'] as String? ?? '',
+            roadAddress: addr['roadAddress'] as String? ?? '',
+            jibunAddress: addr['jibunAddress'] as String? ?? '',
+            latitude: (addr['latitude'] as num?)?.toDouble() ?? 0,
+            longitude: (addr['longitude'] as num?)?.toDouble() ?? 0,
+          );
+    final profilePath = p['profileImagePath'] as String?;
+    if (profilePath != null) {
+      if (File(profilePath).existsSync()) {
+        _profileImage = XFile(profilePath);
+      } else {
+        draftMediaNeedsReselect = true;
+      }
+    }
+  }
+
+  @override
+  void initState() {
+    super.initState();
+    if (widget.initialCrewType != null) {
+      _crewType = widget.initialCrewType!;
+    }
+    for (final c in [
+      _titleCtrl,
+      _contentCtrl,
+      _roleCtrl,
+      _payCtrl,
+      _autoMsgCtrl,
+      _recruitCountCtrl,
+      _detailAddressCtrl,
+    ]) {
+      c.addListener(markDraftDirty);
+    }
+    initDraft();
+  }
+
   // ── 글 유형 / 모집 기간 ────────────────────────────────────────────
   String _crewType    = '구인';
   String _recruitType = '항시';
@@ -71,6 +208,7 @@ class _CrewRegisterScreenState extends State<CrewRegisterScreen> {
 
   @override
   void dispose() {
+    disposeDraft();
     _titleCtrl.dispose();
     _contentCtrl.dispose();
     _roleCtrl.dispose();
@@ -246,6 +384,9 @@ class _CrewRegisterScreenState extends State<CrewRegisterScreen> {
 
       await FirebaseFirestore.instance.collection('crews').add(doc);
       if (!mounted) { return; }
+      // 최종 등록 완료 — 이 유형(구인/구직)의 임시저장은 자동 삭제.
+      await deleteCurrentDraft();
+      if (!mounted) { return; }
 
       await showDialog<void>(
         context: context,
@@ -307,7 +448,14 @@ class _CrewRegisterScreenState extends State<CrewRegisterScreen> {
   // ── 빌드 ─────────────────────────────────────────────────────────
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
+    return PopScope(
+      canPop: !draftDirty,
+      onPopInvokedWithResult: (didPop, result) async {
+        if (didPop) return;
+        final leave = await confirmLeaveWithDraftSave();
+        if (leave && mounted) Navigator.of(context).pop();
+      },
+      child: Scaffold(
       backgroundColor: const Color(0xFFFFF4F8),
       appBar: AppBar(
         title: const Text('파티크루 등록',
@@ -316,11 +464,14 @@ class _CrewRegisterScreenState extends State<CrewRegisterScreen> {
         backgroundColor: Colors.white,
         foregroundColor: Colors.black,
         elevation: 0,
+        actions: [draftSaveAction()],
+        bottom: buildAutoSaveIndicator(),
       ),
       body: SingleChildScrollView(
         padding: const EdgeInsets.fromLTRB(20, 20, 20, 100),
         child:
             Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          if (draftMediaNeedsReselect) buildMediaReselectBanner(),
           // ── 1. 글 유형 ───────────────────────────────────────────
           _label('글 유형'),
           _segment(
@@ -620,6 +771,7 @@ class _CrewRegisterScreenState extends State<CrewRegisterScreen> {
           ),
         ]),
       ),
+      ),
     );
   }
 
@@ -707,8 +859,7 @@ class _CrewRegisterScreenState extends State<CrewRegisterScreen> {
           onTap: () async {
             final result = await Navigator.push<AddressResult>(
               context,
-              MaterialPageRoute(
-                  builder: (_) => const AddressSearchScreen()),
+              webFramedRoute((_) => const AddressSearchScreen()),
             );
             if (result != null) {
               setState(() => _selectedAddress = result);

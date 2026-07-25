@@ -4,6 +4,7 @@ import 'package:party_app/services/chat_service.dart';
 import 'package:party_app/screens/chat_room_screen.dart';
 import 'package:party_app/utils/user_session.dart';
 import 'package:party_app/widgets/auth_rebuilder.dart';
+import 'package:party_app/widgets/web_frame.dart';
 
 class ChatListScreen extends StatelessWidget {
   const ChatListScreen({super.key});
@@ -129,8 +130,7 @@ class ChatListScreen extends StatelessWidget {
               return InkWell(
                 onTap: () => Navigator.push(
                   context,
-                  MaterialPageRoute(
-                    builder: (_) => ChatRoomScreen(
+                  webFramedRoute((_) => ChatRoomScreen(
                       roomId:     roomId,
                       otherName:  otherName,
                       relatedTitle: title,

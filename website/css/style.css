@@ -806,3 +806,353 @@ button { font-family: inherit; cursor: pointer; }
   .footer-top { flex-direction: column; gap: 28px; }
   .footer-links { gap: 32px; }
 }
+
+/* ── 실시간 파티 목록 (find-party 섹션) ───────────────────────────────── */
+
+.party-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 28px;
+  flex-wrap: wrap;
+}
+
+.party-search input {
+  width: 280px;
+  max-width: 100%;
+  padding: 12px 18px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  font-size: 14px;
+  background: var(--white);
+}
+
+.party-search input:focus {
+  outline: none;
+  border-color: var(--pink);
+}
+
+/* 날짜 필터: 복수 선택 그룹(안내 문구 + 칩 묶음) */
+.party-filter-group {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 8px;
+}
+
+.filter-hint {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--pink-dark);
+}
+
+.filter-hint::before {
+  content: "☑";
+  font-size: 12px;
+}
+
+.filter-hint b { font-weight: 800; }
+
+.party-filters {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 9px 16px;
+  border-radius: 999px;
+  border: 1px solid var(--pink-border);
+  background: var(--white);
+  color: var(--text-body);
+  font-size: 13px;
+  font-weight: 600;
+  transition: background 0.15s ease, color 0.15s ease, border-color 0.15s ease;
+}
+
+.chip:hover { border-color: var(--pink); }
+
+.chip.active {
+  background: var(--pink);
+  border-color: var(--pink);
+  color: var(--white);
+}
+
+/* 다중 선택 칩 안의 체크박스 표식 — 비어 있으면 빈 네모, 선택되면 체크 */
+.chip-box {
+  width: 15px;
+  height: 15px;
+  border-radius: 4px;
+  border: 1.5px solid var(--pink-border);
+  background: var(--white);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  transition: background 0.15s ease, border-color 0.15s ease;
+}
+
+.chip-check.active .chip-box {
+  background: var(--white);
+  border-color: var(--white);
+}
+
+.chip-check.active .chip-box::after {
+  content: "✓";
+  font-size: 11px;
+  font-weight: 900;
+  line-height: 1;
+  color: var(--pink);
+}
+
+.party-status {
+  text-align: center;
+  padding: 48px 16px;
+  color: var(--text-muted);
+  font-size: 15px;
+}
+
+.party-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 24px;
+}
+
+.party-card {
+  background: var(--white);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  overflow: hidden;
+  cursor: pointer;
+  text-align: left;
+  transition: transform 0.2s ease, box-shadow 0.2s ease;
+}
+
+.party-card:hover,
+.party-card:focus-visible {
+  transform: translateY(-6px);
+  box-shadow: var(--shadow);
+  outline: none;
+}
+
+.party-card-closed { opacity: 0.62; }
+
+.party-card-img {
+  position: relative;
+  height: 168px;
+  background: var(--pink-softer) center/cover no-repeat;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.party-card-noimg { font-size: 40px; }
+
+.party-card-badge {
+  position: absolute;
+  top: 12px;
+  left: 12px;
+  background: rgba(26, 26, 26, 0.72);
+  color: var(--white);
+  font-size: 12px;
+  font-weight: 700;
+  padding: 5px 12px;
+  border-radius: 999px;
+}
+
+.party-favorite {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  width: 34px;
+  height: 34px;
+  border-radius: 50%;
+  border: none;
+  background: rgba(255, 255, 255, 0.9);
+  font-size: 16px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: var(--shadow-sm);
+}
+
+.party-favorite:hover { transform: scale(1.08); }
+
+.party-card-body { padding: 18px 20px 20px; }
+
+.party-card-body h3 {
+  font-size: 16.5px;
+  font-weight: 800;
+  color: var(--text-dark);
+  margin: 0 0 8px;
+  display: -webkit-box;
+  -webkit-line-clamp: 1;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.party-card-meta {
+  font-size: 13px;
+  color: var(--text-muted);
+  margin: 0 0 4px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.party-card-foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-top: 12px;
+}
+
+.party-card-fee {
+  font-weight: 800;
+  color: var(--pink-dark);
+  font-size: 14.5px;
+}
+
+.party-card-cap {
+  font-size: 12.5px;
+  color: var(--text-muted);
+  background: var(--pink-light);
+  padding: 4px 10px;
+  border-radius: 999px;
+}
+
+/* ── 모달 공통 (파티 상세 / 로그인) ───────────────────────────────────── */
+
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(26, 26, 26, 0.5);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+  padding: 16px;
+}
+
+.modal-overlay[hidden] { display: none; }
+
+.modal-card {
+  position: relative;
+  width: 480px;
+  max-width: 100%;
+  max-height: 88vh;
+  overflow-y: auto;
+  background: var(--white);
+  border-radius: var(--radius-lg);
+  box-shadow: 0 24px 60px rgba(0, 0, 0, 0.2);
+}
+
+.modal-close {
+  position: absolute;
+  top: 14px;
+  right: 14px;
+  width: 34px;
+  height: 34px;
+  border-radius: 50%;
+  border: none;
+  background: var(--pink-light);
+  color: var(--text-dark);
+  font-size: 15px;
+  z-index: 2;
+}
+
+.party-detail-img {
+  width: 100%;
+  height: 220px;
+  object-fit: cover;
+  background: var(--pink-softer);
+}
+
+.party-detail-body { padding: 28px; }
+
+.party-detail-badge { display: inline-block; position: static; margin-bottom: 12px; }
+
+.party-detail-body h2 {
+  font-size: 21px;
+  font-weight: 800;
+  color: var(--text-dark);
+  margin: 0 0 18px;
+}
+
+.party-detail-row {
+  display: flex;
+  gap: 12px;
+  font-size: 14.5px;
+  color: var(--text-body);
+  margin-bottom: 10px;
+}
+
+.party-detail-row .label {
+  color: var(--text-muted);
+  min-width: 56px;
+  flex-shrink: 0;
+}
+
+.party-detail-desc {
+  margin-top: 16px;
+  font-size: 14px;
+  color: var(--text-body);
+  white-space: pre-wrap;
+}
+
+.party-detail-actions { margin-top: 24px; }
+.party-detail-actions .btn { width: 100%; }
+.party-detail-actions .btn:disabled {
+  background: var(--border);
+  color: var(--text-muted);
+  box-shadow: none;
+  cursor: not-allowed;
+  transform: none;
+}
+
+.login-card-body {
+  padding: 36px 28px;
+  text-align: center;
+}
+
+.login-card-body .logo { font-size: 20px; margin-bottom: 6px; }
+
+.login-card-body p { font-size: 14.5px; color: var(--text-body); margin: 0 0 24px; }
+
+.login-btn {
+  width: 100%;
+  justify-content: center;
+  gap: 10px;
+}
+
+.login-error {
+  color: #D64545;
+  font-size: 13px;
+  margin: -12px 0 16px;
+}
+
+.login-note {
+  margin-top: 16px !important;
+  font-size: 12.5px !important;
+  color: var(--text-muted) !important;
+}
+
+@media (max-width: 960px) and (min-width: 721px) {
+  .party-grid { grid-template-columns: repeat(2, 1fr); }
+}
+
+@media (max-width: 720px) {
+  .party-toolbar { flex-direction: column; align-items: stretch; }
+  .party-filter-group { align-items: flex-start; }
+  .party-filters { justify-content: flex-start; }
+  .party-grid { grid-template-columns: 1fr; }
+  .modal-card { width: calc(100% - 32px); max-height: calc(100% - 32px); }
+}

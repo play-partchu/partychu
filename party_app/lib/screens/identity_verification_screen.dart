@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 // nice_verification_screen.dart의 NiceVerificationScreen으로 되돌리거나
 // 이 화면으로 정식 교체할지 결정할 것.
 import 'package:party_app/screens/nice_auth_verification_screen.dart';
+import 'package:party_app/widgets/web_frame.dart';
 
 class IdentityVerificationScreen extends StatefulWidget {
   const IdentityVerificationScreen({super.key});
@@ -25,7 +26,7 @@ class _IdentityVerificationScreenState
 
     final result = await Navigator.push<bool>(
       context,
-      MaterialPageRoute(builder: (_) => const NiceAuthVerificationScreen()),
+      webFramedRoute((_) => const NiceAuthVerificationScreen()),
     );
 
     if (!mounted) return;
