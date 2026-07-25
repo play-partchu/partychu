@@ -5,7 +5,9 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:party_app/services/cloudflare_service.dart';
+import 'package:party_app/utils/refund_policy.dart';
 import 'package:party_app/widgets/place_form/package_list_editor.dart';
+import 'package:party_app/widgets/refund_policy_editor.dart';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // 장소대여 객실(룸) 편집 카드 — 등록 화면(place_register_screen.dart)과 수정
@@ -47,7 +49,12 @@ class RoomCardState extends State<RoomCard> {
   final _capacityMinCtrl = TextEditingController(text: '1');
   final _capacityMaxCtrl = TextEditingController();
   final _priceCtrl = TextEditingController();
-  final _policyCtrl = TextEditingController();
+
+  // 환불 규정 — 파티 등록과 동일한 구조(RefundTier 구간 목록). 기존 자유
+  // 입력(cancelPolicy 문자열)을 대체한다. 옛 문서에 refundPolicy가 없고
+  // cancelPolicy 문자열만 있으면 안내용으로만 보관한다(_legacyCancelPolicy).
+  List<RefundTier> _refundTiers = [];
+  String? _legacyCancelPolicy;
 
   final List<XFile> _images = [];
   // 기존(이미 업로드되어 있던) 룸 사진 URL — 신규 파일(_images)과 구분해서
@@ -132,7 +139,15 @@ class RoomCardState extends State<RoomCard> {
     _capacityMaxCtrl.text = ((d['capacityMax'] as num?)?.toInt() ?? 0)
         .toString();
     _priceCtrl.text = ((d['pricePerHour'] as num?)?.toInt() ?? 0).toString();
-    _policyCtrl.text = d['cancelPolicy'] as String? ?? '';
+    _refundTiers = RefundTier.listFromDynamic(d['refundPolicy']);
+    // 구 스키마(자유 입력) 문서 하위호환 — 구조화된 refundPolicy가 없을 때만
+    // 옛 cancelPolicy 문자열을 안내용으로 보관한다.
+    if (_refundTiers.isEmpty) {
+      final legacy = d['cancelPolicy'] as String?;
+      if (legacy != null && legacy.trim().isNotEmpty) {
+        _legacyCancelPolicy = legacy.trim();
+      }
+    }
     _existingImages.addAll((d['roomImages'] as List?)?.cast<String>() ?? []);
     _availableDays.addAll((d['availableDays'] as List?)?.cast<String>() ?? []);
 
@@ -199,7 +214,6 @@ class RoomCardState extends State<RoomCard> {
     _capacityMinCtrl.dispose();
     _capacityMaxCtrl.dispose();
     _priceCtrl.dispose();
-    _policyCtrl.dispose();
     _customFacilityCtrl.dispose();
     for (final c in _optionNameCtrls) {
       c.dispose();
@@ -304,7 +318,7 @@ class RoomCardState extends State<RoomCard> {
               'price': int.tryParse(_optionPriceCtrls[i].text.trim()) ?? 0,
             },
       ],
-      'cancelPolicy': _policyCtrl.text.trim(),
+      'refundPolicy': RefundTier.listToMaps(_refundTiers),
       'isActive': _isActive,
       // 신규 룸(roomId == null)일 때만 createdAt을 새로 찍는다 — 기존 룸을
       // 수정할 때는 이 키 자체를 넣지 않아 update() 호출 시 원래 생성 시각이
@@ -351,7 +365,7 @@ class RoomCardState extends State<RoomCard> {
               'price': int.tryParse(_optionPriceCtrls[i].text.trim()) ?? 0,
             },
         ],
-        'cancelPolicy': _policyCtrl.text,
+        'refundPolicy': RefundTier.listToMaps(_refundTiers),
         'isActive': _isActive,
       };
 
@@ -391,7 +405,7 @@ class RoomCardState extends State<RoomCard> {
     'openTime': _openTime,
     'closeTime': _closeTime,
     'isOpen24Hours': _isOpen24Hours,
-    'cancelPolicy': _policyCtrl.text,
+    'refundPolicy': RefundTier.listToMaps(_refundTiers),
     'options': [
       for (int i = 0; i < _optionNameCtrls.length; i++)
         {'name': _optionNameCtrls[i].text, 'price': _optionPriceCtrls[i].text},
@@ -432,7 +446,7 @@ class RoomCardState extends State<RoomCard> {
       _openTime = data['openTime'] as TimeOfDay?;
       _closeTime = data['closeTime'] as TimeOfDay?;
       _isOpen24Hours = data['isOpen24Hours'] as bool? ?? false;
-      _policyCtrl.text = data['cancelPolicy'] as String? ?? '';
+      _refundTiers = RefundTier.listFromDynamic(data['refundPolicy']);
       // 옵션 복사
       for (final c in _optionNameCtrls) {
         c.dispose();
@@ -1287,12 +1301,15 @@ class RoomCardState extends State<RoomCard> {
             ),
           ),
         ),
-        _label('환불/취소 규정'),
-        TextField(
-          controller: _policyCtrl,
-          maxLines: 2,
-          decoration: _inputDeco('예: 이용 24시간 전 100% 환불, 이후 취소 불가'),
-        ),
+        _label('환불 규정'),
+        _buildRefundPolicyRow(),
+        if (_legacyCancelPolicy != null && _refundTiers.isEmpty) ...[
+          const SizedBox(height: 6),
+          Text(
+            '이전 안내: $_legacyCancelPolicy\n(구간을 추가하면 위 안내는 대체됩니다)',
+            style: const TextStyle(fontSize: 11, color: Colors.black38, height: 1.4),
+          ),
+        ],
         _label('예약 가능 여부'),
         Row(
           children: [
@@ -1524,6 +1541,89 @@ class RoomCardState extends State<RoomCard> {
         ),
       ),
     );
+  }
+
+  // 파티 등록과 동일한 환불 규정 컴포넌트(RefundPolicyEditor)를 그대로
+  // 재사용한다 — 요약 행을 누르면 시트에서 구간(N일 전 → X% 환불)을 편집한다.
+  Widget _buildRefundPolicyRow() {
+    return InkWell(
+      onTap: _openRefundPolicy,
+      borderRadius: BorderRadius.circular(12),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 13),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(color: const Color(0xFFE0E0E0)),
+        ),
+        child: Row(
+          children: [
+            Expanded(
+              child: Text(
+                _refundTiers.isEmpty
+                    ? '환불 규정 설정 (선택)'
+                    : '${_refundTiers.length}단계 환불 규정 설정됨',
+                style: TextStyle(
+                  fontSize: 14,
+                  color: _refundTiers.isEmpty ? Colors.black38 : Colors.black87,
+                ),
+              ),
+            ),
+            const Icon(Icons.chevron_right, size: 18, color: Colors.black38),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Future<void> _openRefundPolicy() async {
+    await showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.white,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (sheetCtx) => Padding(
+        padding: EdgeInsets.fromLTRB(
+          16,
+          20,
+          16,
+          MediaQuery.of(sheetCtx).viewInsets.bottom + 20,
+        ),
+        child: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Text('환불 규정',
+                  style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+              const SizedBox(height: 12),
+              RefundPolicyEditor(
+                initialTiers: _refundTiers,
+                introText: 'PartyChu는 환불률을 정하거나 권장하지 않습니다. 이용(체크인) 기준 '
+                    '며칠 전부터 몇 %를 환불할지 직접 구간을 등록해주세요. 예약자는 예약 전 '
+                    '이 규정을 확인할 수 있어요.',
+                onChanged: (tiers) => setState(() => _refundTiers = tiers),
+              ),
+              const SizedBox(height: 12),
+              SizedBox(
+                width: double.infinity,
+                child: ElevatedButton(
+                  onPressed: () => Navigator.pop(sheetCtx),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: const Color(0xFF7C5CBF),
+                    foregroundColor: Colors.white,
+                  ),
+                  child: const Text('완료'),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+    if (mounted) setState(() {}); // 요약 문구 갱신
   }
 
   Widget _label(String text) => Padding(

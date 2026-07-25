@@ -5,6 +5,8 @@ import 'package:cloud_functions/cloud_functions.dart';
 import 'package:party_app/utils/user_session.dart';
 import 'package:party_app/utils/favorites_service.dart';
 import 'package:party_app/utils/format_utils.dart';
+import 'package:party_app/utils/refund_policy.dart';
+import 'package:party_app/widgets/refund_policy_editor.dart' show RefundPolicyView;
 import 'package:party_app/utils/party_utils.dart';
 import 'package:party_app/widgets/favorite_star_button.dart';
 import 'package:party_app/widgets/media_gallery.dart';
@@ -1408,11 +1410,29 @@ class _PlaceDetailScreenState extends State<PlaceDetailScreen> {
                     .toList(),
               ),
             ],
-            // 룸 취소 정책
-            if ((room['cancelPolicy'] as String?)?.isNotEmpty == true) ...[
-              const SizedBox(height: 10),
-              _policyCard(room['cancelPolicy'] as String),
-            ],
+            // 룸 환불 규정 — 파티 등록과 동일한 구조(refundPolicy 구간)로 표시.
+            // 구조화된 값이 있으면 그걸 우선하고, 없고 옛 자유입력(cancelPolicy)만
+            // 있는 기존 문서는 하위호환으로 그 문자열을 그대로 보여준다.
+            ...(() {
+              final tiers = RefundTier.listFromDynamic(room['refundPolicy']);
+              if (tiers.isNotEmpty) {
+                return [
+                  const SizedBox(height: 10),
+                  const Text('환불 규정',
+                      style: TextStyle(
+                          fontSize: 13,
+                          fontWeight: FontWeight.w600,
+                          color: Colors.black87)),
+                  const SizedBox(height: 4),
+                  RefundPolicyView(tiers: tiers, subjectLabel: '이용'),
+                ];
+              }
+              final legacy = room['cancelPolicy'] as String?;
+              if (legacy != null && legacy.isNotEmpty) {
+                return [const SizedBox(height: 10), _policyCard(legacy)];
+              }
+              return const <Widget>[];
+            })(),
           ],
         ),
       ),

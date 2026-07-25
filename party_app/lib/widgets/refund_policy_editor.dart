@@ -8,10 +8,15 @@ class RefundPolicyEditor extends StatefulWidget {
   final List<RefundTier> initialTiers;
   final ValueChanged<List<RefundTier>> onChanged;
 
+  /// 상단 안내 문구 — 파티는 기본값(파티 시작 기준), 숙박 객실 등 다른
+  /// 맥락에서 재사용할 때는 그 맥락에 맞는 문구를 넘긴다.
+  final String? introText;
+
   const RefundPolicyEditor({
     super.key,
     required this.initialTiers,
     required this.onChanged,
+    this.introText,
   });
 
   @override
@@ -56,11 +61,12 @@ class _RefundPolicyEditorState extends State<RefundPolicyEditor> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        const Text(
-          'PartyChu는 환불률을 정하거나 권장하지 않습니다. 파티 시작 기준 며칠 전부터 '
-          '몇 %를 환불할지 직접 구간을 등록해주세요. 참가자는 결제 전 이 규정을 확인할 수 '
-          '있고, 구간이 없으면 참가자가 취소해도 환불이 계산되지 않습니다.',
-          style: TextStyle(fontSize: 12, color: Colors.black45, height: 1.5),
+        Text(
+          widget.introText ??
+              'PartyChu는 환불률을 정하거나 권장하지 않습니다. 파티 시작 기준 며칠 전부터 '
+                  '몇 %를 환불할지 직접 구간을 등록해주세요. 참가자는 결제 전 이 규정을 확인할 수 '
+                  '있고, 구간이 없으면 참가자가 취소해도 환불이 계산되지 않습니다.',
+          style: const TextStyle(fontSize: 12, color: Colors.black45, height: 1.5),
         ),
         const SizedBox(height: 12),
         if (_tiers.isEmpty)
@@ -181,7 +187,15 @@ class _RefundPolicyEditorState extends State<RefundPolicyEditor> {
 /// 확인창에서 재사용한다.
 class RefundPolicyView extends StatelessWidget {
   final List<RefundTier> tiers;
-  const RefundPolicyView({super.key, required this.tiers});
+
+  /// 기준 시점 라벨 — 파티는 기본값('파티 시작'), 숙박 객실은 '이용' 등.
+  final String subjectLabel;
+
+  const RefundPolicyView({
+    super.key,
+    required this.tiers,
+    this.subjectLabel = '파티 시작',
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -199,7 +213,7 @@ class RefundPolicyView extends StatelessWidget {
           Padding(
             padding: const EdgeInsets.only(bottom: 3),
             child: Text(
-              '파티 시작 ${t.daysBefore}일 전부터: ${t.refundPercent}% 환불',
+              '$subjectLabel ${t.daysBefore}일 전부터: ${t.refundPercent}% 환불',
               style: const TextStyle(fontSize: 12, color: Colors.black54),
             ),
           ),
