@@ -216,6 +216,9 @@ function mountDetailMedia(container, items, docId) {
     destroyPlayersIn(stage);
     stage.innerHTML = '';
     const item = items[index];
+    // 동영상 슬라이드에서만 무대를 높이고 배경을 검정으로 바꾼다(CSS) —
+    // 사진은 지금처럼 카드 크기에 맞춰 잘라 보여준다.
+    container.classList.toggle('is-video', item.kind === 'video');
     if (item.kind === 'video') {
       const box = document.createElement('div');
       box.className = 'party-detail-video';
@@ -227,8 +230,11 @@ function mountDetailMedia(container, items, docId) {
         autoplay: true,
         loop: true,
         // 상세에서는 사용자가 직접 조작할 수 있어야 한다.
+        // (네이티브 컨트롤 = 재생/일시정지·탐색·전체화면)
         controls: true,
         exclusive: true,
+        // 컨트롤 바 말고 영상 아무 데나 눌러도 재생/일시정지.
+        tapToToggle: true,
       });
     } else {
       const img = document.createElement('img');

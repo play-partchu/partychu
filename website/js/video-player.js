@@ -147,10 +147,13 @@ const visibilityObserver =
 
 /// 가장 많이 보이는 카드 하나만 재생하고 나머지는 일시정지한다.
 /// (여러 영상이 동시에 재생되지 않도록 하는 지점이 여기 한 곳뿐이다)
+///
+/// 사용자가 직접 멈춘 영상(userPaused)은 후보에서 제외한다 — 안 그러면
+/// 일시정지 버튼을 눌러도 스크롤이 조금만 움직이면 곧바로 다시 재생된다.
 function syncPlayback() {
   let best = null;
   for (const p of players) {
-    if (!p.autoplay || p.failed) continue;
+    if (!p.autoplay || p.failed || p.userPaused) continue;
     if (p.visibleRatio >= 0.5 && (!best || p.visibleRatio > best.visibleRatio)) best = p;
   }
   for (const p of players) {
@@ -175,18 +178,31 @@ class VideoPlayer {
   /**
    * @param {HTMLElement} container 영상이 들어갈 박스(position:relative 필요)
    * @param {object} media resolveCoverMedia()가 만든 미디어 객체
-   * @param {object} opts { autoplay, loop, controls, scope, docId, exclusive }
+   * @param {object} opts { autoplay, loop, controls, scope, docId, exclusive, tapToToggle }
    */
   constructor(container, media, opts = {}) {
     this.container = container;
     this.media = media;
-    this.opts = { autoplay: true, loop: true, controls: false, exclusive: false, ...opts };
+    this.opts = {
+      autoplay: true,
+      loop: true,
+      controls: false,
+      exclusive: false,
+      // 영상 위를 눌렀을 때 재생/일시정지 — 목록 카드는 카드 자체가 상세로
+      // 들어가는 버튼이라 끄고(버튼으로만 조작), 상세 모달에서만 켠다.
+      tapToToggle: false,
+      ...opts,
+    };
     this.autoplay = this.opts.autoplay;
     this.visibleRatio = 0;
     this.failed = false;
     this.destroyed = false;
     this.hls = null;
     this.playRequest = null;
+    /// 사용자가 직접 멈췄는지 — 스크롤 자동재생(syncPlayback)이 이를 존중한다.
+    this.userPaused = false;
+    /// 자동재생이 브라우저 정책으로 막혔는지.
+    this.autoplayBlocked = false;
 
     this.container.classList.add('pc-video');
     this.container.innerHTML = '';
@@ -237,7 +253,20 @@ class VideoPlayer {
     });
     this.container.appendChild(this.soundBtn);
 
-    // 자동재생이 브라우저 정책으로 막히면 이 버튼이 나타난다.
+    // 재생/일시정지 토글 — 네이티브 컨트롤이 없는 목록 카드에서 항상 보인다
+    // (상세 모달은 네이티브 컨트롤 바에 같은 기능이 이미 있어 숨긴다).
+    this.toggleBtn = document.createElement('button');
+    this.toggleBtn.type = 'button';
+    this.toggleBtn.className = 'pc-video-btn pc-video-toggle';
+    this.toggleBtn.hidden = !!this.opts.controls;
+    this.toggleBtn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      this.togglePlayback();
+    });
+    this.container.appendChild(this.toggleBtn);
+
+    // 가운데 큰 재생 버튼 — 사용자가 직접 멈췄거나 자동재생이 막혔을 때만
+    // 나타난다(스크롤로 잠깐 멈춘 카드에까지 띄우면 화면이 시끄럽다).
     this.playBtn = document.createElement('button');
     this.playBtn.type = 'button';
     this.playBtn.className = 'pc-video-btn pc-video-play';
@@ -246,20 +275,50 @@ class VideoPlayer {
     this.playBtn.hidden = true;
     this.playBtn.addEventListener('click', (e) => {
       e.stopPropagation();
-      // 사용자 제스처 안에서의 play()는 정책상 항상 허용된다.
-      this.play({ userGesture: true });
+      this.togglePlayback();
     });
     this.container.appendChild(this.playBtn);
 
+    // 영상 위 탭으로 재생/일시정지. 네이티브 컨트롤이 켜져 있으면 아래쪽
+    // 컨트롤 바 클릭이 여기까지 버블링되므로, 그 띠(약 46px)는 제외해야
+    // 재생 버튼을 눌렀을 때 두 번 토글되지 않는다.
+    if (this.opts.tapToToggle) {
+      this.onContainerTap = (e) => {
+        if (e.target.closest('.pc-video-btn')) return;
+        if (this.opts.controls) {
+          const rect = this.video.getBoundingClientRect();
+          if (e.clientY > rect.bottom - 46) return;
+        }
+        this.togglePlayback();
+      };
+      this.container.addEventListener('click', this.onContainerTap);
+    }
+
     this.onPlaying = () => {
-      this.container.classList.add('is-playing');
-      this.playBtn.hidden = true;
+      // has-frame은 한 번 붙으면 떼지 않는다 — 일시정지했을 때 영상이
+      // 투명해져 뒤의 썸네일이 튀어나오는 걸 막는다.
+      this.container.classList.add('has-frame', 'is-playing');
+      this.autoplayBlocked = false;
+      this.syncControlButtons();
     };
     this.onWaiting = () => this.container.classList.remove('is-playing');
+    this.onVideoPlay = () => {
+      this.container.classList.add('is-playing');
+      this.syncControlButtons();
+    };
+    // 네이티브 컨트롤 바로 멈춘 경우도 여기로 들어온다 — 버튼 모양과
+    // userPaused 상태를 우리 쪽 상태와 일치시킨다.
+    this.onVideoPause = () => {
+      this.container.classList.remove('is-playing');
+      this.syncControlButtons();
+    };
     this.onVideoError = () => this.handleFailure({ reason: 'video-error' });
     video.addEventListener('playing', this.onPlaying);
     video.addEventListener('waiting', this.onWaiting);
+    video.addEventListener('play', this.onVideoPlay);
+    video.addEventListener('pause', this.onVideoPause);
     video.addEventListener('error', this.onVideoError);
+    this.syncControlButtons();
 
     players.add(this);
     this.attachSource();
@@ -386,8 +445,9 @@ class VideoPlayer {
     this.video.remove();
     this.soundBtn.hidden = true;
     this.playBtn.hidden = true;
+    this.toggleBtn.hidden = true;
     this.container.appendChild(frame);
-    this.container.classList.add('is-playing');
+    this.container.classList.add('has-frame', 'is-playing');
   }
 
   play({ userGesture = false } = {}) {
@@ -431,8 +491,9 @@ class VideoPlayer {
   handleAutoplayBlocked(err) {
     // 자동재생이 막혔다고 영상이 깨진 건 아니다 — 재생 버튼만 띄우고
     // 썸네일은 그대로 두면 사용자가 눌러서 볼 수 있다.
-    this.playBtn.hidden = false;
+    this.autoplayBlocked = true;
     this.container.classList.remove('is-playing');
+    this.syncControlButtons();
     // 스크롤할 때마다 재생을 다시 시도하므로, 진단 로그는 카드당 한 번만
     // 남긴다(콘솔이 같은 메시지로 도배되지 않게).
     if (this.autoplayReported) return;
@@ -451,6 +512,42 @@ class VideoPlayer {
     if (this.destroyed || this.iframe) return;
     if (!this.video.paused) this.video.pause();
     this.container.classList.remove('is-playing');
+    this.syncControlButtons();
+  }
+
+  /// 재생 ↔ 일시정지. 버튼과 영상 탭이 공유하는 유일한 진입점이다.
+  togglePlayback() {
+    if (this.destroyed || this.failed || this.iframe) return;
+    if (this.video.paused || this.video.ended) {
+      // 사용자 제스처 안에서의 play()는 정책상 항상 허용된다.
+      this.userPaused = false;
+      this.autoplayBlocked = false;
+      this.play({ userGesture: true });
+      // 목록에서는 "보이는 카드 하나만 재생" 규칙이 있어, 방금 켠 영상이
+      // 곧바로 다시 멈추지 않도록 다른 영상을 먼저 내린다.
+      pauseAllExcept(this);
+    } else {
+      this.userPaused = true;
+      this.pause();
+    }
+    this.syncControlButtons();
+  }
+
+  /// 현재 재생 상태를 버튼 모양에 반영한다.
+  syncControlButtons() {
+    if (this.destroyed || !this.toggleBtn) return;
+    const playing = !!this.video && !this.video.paused && !this.video.ended;
+    this.toggleBtn.textContent = playing ? '❚❚' : '▶';
+    this.toggleBtn.setAttribute('aria-label', playing ? '일시정지' : '재생');
+    this.toggleBtn.classList.toggle('is-paused', !playing);
+    if (this.failed || this.iframe) {
+      this.toggleBtn.hidden = true;
+      this.playBtn.hidden = true;
+      return;
+    }
+    this.toggleBtn.hidden = !!this.opts.controls;
+    // 가운데 큰 버튼은 "사용자가 멈춤" 또는 "자동재생 차단"일 때만.
+    this.playBtn.hidden = playing || !(this.userPaused || this.autoplayBlocked);
   }
 
   toggleSound() {
@@ -485,6 +582,7 @@ class VideoPlayer {
     if (this.video) this.video.style.display = 'none';
     this.soundBtn.hidden = true;
     this.playBtn.hidden = true;
+    this.toggleBtn.hidden = true;
     reportVideoFailure({
       scope: this.opts.scope || 'video',
       docId: this.opts.docId,
@@ -501,10 +599,15 @@ class VideoPlayer {
     players.delete(this);
     if (activePlayer === this) activePlayer = null;
     if (visibilityObserver) visibilityObserver.unobserve(this.container);
+    if (this.onContainerTap) {
+      this.container.removeEventListener('click', this.onContainerTap);
+    }
     const { video } = this;
     if (video) {
       video.removeEventListener('playing', this.onPlaying);
       video.removeEventListener('waiting', this.onWaiting);
+      video.removeEventListener('play', this.onVideoPlay);
+      video.removeEventListener('pause', this.onVideoPause);
       video.removeEventListener('error', this.onVideoError);
       try {
         video.pause();
