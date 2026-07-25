@@ -72,6 +72,150 @@ export function coverImage(data) {
   );
 }
 
+// ── 대표 미디어(사진/동영상) ────────────────────────────────────────────────
+// party_app/lib/utils/party_utils.dart의 getPartyCoverMedia와 같은 규칙이다.
+// 파티(parties)와 플레이스(places/events) 문서가 같은 필드 규약을 쓰므로
+// 두 컬렉션 모두 이 함수 하나로 처리한다.
+
+const nonEmpty = (v) => typeof v === 'string' && v.trim() !== '';
+
+/// 실제 저장 필드는 coverVideoUrl / videoUrl 두 가지지만, 다른 이름으로
+/// 저장된 문서가 섞여 있어도 재생되도록 흔한 이름을 전부 훑는다.
+/// (먼저 찾은 것을 쓰고, 어떤 필드에서 왔는지는 rawFields에 남겨 로그로 본다)
+const VIDEO_URL_FIELDS = [
+  'coverVideoUrl',
+  'videoUrl',
+  'hlsUrl',
+  'playbackUrl',
+  'streamUrl',
+];
+
+function pickVideoUrl(data) {
+  for (const key of VIDEO_URL_FIELDS) {
+    if (nonEmpty(data[key])) return { url: data[key], field: key };
+  }
+  if (Array.isArray(data.videoUrls) && nonEmpty(data.videoUrls[0])) {
+    return { url: data.videoUrls[0], field: 'videoUrls[0]' };
+  }
+  return { url: null, field: null };
+}
+
+/// 진단 로그에 그대로 찍는 "Firestore에서 읽은 원본 영상 필드".
+function rawVideoFields(data) {
+  const out = {};
+  for (const key of [
+    'coverMediaType',
+    'coverVideoUrl',
+    'coverVideoUid',
+    'coverThumbnailUrl',
+    'coverImageUrl',
+    'videoUrl',
+    'videoUid',
+    'videoThumbnailUrl',
+    'videoProvider',
+    'videoUrls',
+    'hlsUrl',
+    'playbackUrl',
+    'streamUrl',
+    'mainImageUrl',
+  ]) {
+    if (data[key] !== undefined) out[key] = data[key];
+  }
+  out['images.length'] = Array.isArray(data.images) ? data.images.length : 0;
+  out['imageUrls.length'] = Array.isArray(data.imageUrls) ? data.imageUrls.length : 0;
+  return out;
+}
+
+function videoMedia(data, { url, field, uid, poster }) {
+  return {
+    kind: 'video',
+    videoUrl: url,
+    videoUid: uid || null,
+    sourceField: field,
+    posterUrl: poster || null,
+    urlKind: null, // video-player.js가 채운다
+    playbackMode: null,
+    rawFields: rawVideoFields(data),
+  };
+}
+
+function imageMedia(data, imageUrl) {
+  return { kind: 'image', imageUrl, posterUrl: imageUrl, rawFields: rawVideoFields(data) };
+}
+
+/// 문서의 대표 미디어 하나를 결정한다(없으면 null).
+export function coverMedia(data) {
+  if (!data) return null;
+
+  // 1) 등록자가 직접 고른 대표 미디어 — 신규 데이터는 여기서 끝난다.
+  if (data.coverMediaType === 'video' && nonEmpty(data.coverVideoUrl)) {
+    return videoMedia(data, {
+      url: data.coverVideoUrl,
+      field: 'coverVideoUrl',
+      uid: data.coverVideoUid || data.videoUid,
+      poster: data.coverThumbnailUrl || data.videoThumbnailUrl || coverImage(data),
+    });
+  }
+  if (data.coverMediaType === 'image' && nonEmpty(data.coverImageUrl)) {
+    return imageMedia(data, data.coverImageUrl);
+  }
+
+  // 2) 하위호환 — coverMediaType이 없던 시절 데이터는 "사진이 하나도 없고
+  //    동영상만 있을 때"만 동영상을 대표로 썼다(party_utils.dart와 동일).
+  const { url, field } = pickVideoUrl(data);
+  const hasPhoto =
+    nonEmpty(data.mainImageUrl) ||
+    (Array.isArray(data.images) && data.images.length > 0) ||
+    (Array.isArray(data.imageUrls) && data.imageUrls.length > 0);
+  if (url && !hasPhoto) {
+    return videoMedia(data, {
+      url,
+      field,
+      uid: data.videoUid || data.coverVideoUid,
+      poster: data.videoThumbnailUrl || data.coverThumbnailUrl,
+    });
+  }
+
+  const img = coverImage(data);
+  return img ? imageMedia(data, img) : null;
+}
+
+/// 상세 화면용 미디어 목록 — 대표 미디어를 맨 앞에 두고 나머지 사진을
+/// 뒤에 잇는다. 동영상과 사진이 섞여 있어도 각 항목의 kind로 정확히
+/// 구분되므로 슬라이드를 넘겨도 타입을 오판하지 않는다.
+export function mediaItems(data) {
+  if (!data) return [];
+  const items = [];
+  const cover = coverMedia(data);
+  if (cover) items.push(cover);
+
+  // 대표가 사진이어도 동영상이 따로 있으면 두 번째 슬라이드로 넣어준다.
+  if (cover?.kind !== 'video') {
+    const { url, field } = pickVideoUrl(data);
+    if (url) {
+      items.push(
+        videoMedia(data, {
+          url,
+          field,
+          uid: data.videoUid || data.coverVideoUid,
+          poster: data.videoThumbnailUrl || data.coverThumbnailUrl || cover?.imageUrl,
+        }),
+      );
+    }
+  }
+
+  const photos = [
+    ...(Array.isArray(data.imageUrls) ? data.imageUrls : []),
+    ...(Array.isArray(data.images) ? data.images : []),
+    data.mainImageUrl,
+  ].filter(nonEmpty);
+  for (const url of photos) {
+    if (items.some((m) => m.kind === 'image' && m.imageUrl === url)) continue;
+    items.push(imageMedia(data, url));
+  }
+  return items;
+}
+
 export function capacityLabel(data) {
   const cap = Number(data.maxParticipants ?? data.maxCapacity ?? 0);
   if (!(cap > 0)) return null;

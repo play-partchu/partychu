@@ -88,6 +88,104 @@ function resolveVersion(data) {
   return ts && typeof ts.toMillis === 'function' ? ts.toMillis() : null;
 }
 
+// 대표 미디어가 동영상이면 재생 주소를 돌려준다(아니면 null).
+// party_app/lib/utils/party_utils.dart의 getPartyCoverMedia와 같은 규칙 —
+// coverMediaType이 'video'면 그대로 신뢰하고, 없는 옛 데이터는 "사진이
+// 하나도 없고 동영상만 있을 때"만 동영상을 대표로 본다.
+function resolveCoverVideo(data) {
+  const nonEmpty = (v) => typeof v === 'string' && v.trim() !== '';
+  if (data.coverMediaType === 'video' && nonEmpty(data.coverVideoUrl)) {
+    return { url: data.coverVideoUrl, poster: data.coverThumbnailUrl || data.videoThumbnailUrl || null };
+  }
+  if (data.coverMediaType === 'image') return null;
+  const hasPhoto =
+    nonEmpty(data.mainImageUrl) ||
+    (Array.isArray(data.images) && data.images.length > 0) ||
+    (Array.isArray(data.imageUrls) && data.imageUrls.length > 0);
+  if (nonEmpty(data.videoUrl) && !hasPhoto) {
+    return { url: data.videoUrl, poster: data.videoThumbnailUrl || null };
+  }
+  return null;
+}
+
+// Cloudflare Stream이 주는 건 HLS(.m3u8)라 Safari 외 브라우저는 <video src>
+// 로 재생하지 못한다 — Safari는 네이티브, 나머지는 hls.js로 분기한다.
+// 실패하면 <video>를 감추고 아래 깔린 썸네일이 그대로 보인다.
+function videoHtml({ url, poster }, title) {
+  return `
+    <div class="hero-media">
+      ${poster ? `<img class="hero-poster" src="${escapeHtml(poster)}" alt="${escapeHtml(title)}" onerror="this.style.display='none'">` : ''}
+      <video id="heroVideo" class="hero-video" muted autoplay loop playsinline webkit-playsinline preload="metadata"${poster ? ` poster="${escapeHtml(poster)}"` : ''}></video>
+      <button id="heroSound" class="hero-btn hero-sound" type="button" aria-label="소리 켜기">&#128263;</button>
+      <button id="heroPlay" class="hero-btn hero-play" type="button" aria-label="재생" hidden>&#9654;</button>
+    </div>
+    <script>
+    (function () {
+      var src = ${JSON.stringify(url)};
+      var video = document.getElementById('heroVideo');
+      var soundBtn = document.getElementById('heroSound');
+      var playBtn = document.getElementById('heroPlay');
+      function fail(reason, detail) {
+        console.error('[party-landing] 동영상 재생 실패', {
+          '영상 URL': src,
+          'URL 형식': /\\.m3u8($|\\?)/i.test(src) ? 'hls' : 'progressive/unknown',
+          '실패 지점': reason,
+          'video.error': video.error ? { code: video.error.code, message: video.error.message } : null,
+          '상세': detail || null
+        });
+        video.style.display = 'none';
+        soundBtn.hidden = true;
+        playBtn.hidden = true;
+      }
+      function start() {
+        var p = video.play();
+        if (p && p.catch) {
+          p.catch(function (err) {
+            // 자동재생 차단 — 영상이 깨진 게 아니므로 재생 버튼만 띄운다.
+            console.warn('[party-landing] 자동재생 거부됨:', err && err.name, err && err.message);
+            playBtn.hidden = false;
+          });
+        }
+      }
+      video.addEventListener('playing', function () { video.classList.add('is-playing'); playBtn.hidden = true; });
+      video.addEventListener('error', function () { fail('video-error'); });
+      playBtn.addEventListener('click', function () { playBtn.hidden = true; start(); });
+      soundBtn.addEventListener('click', function () {
+        video.muted = !video.muted;
+        soundBtn.innerHTML = video.muted ? '&#128263;' : '&#128266;';
+        soundBtn.setAttribute('aria-label', video.muted ? '소리 켜기' : '소리 끄기');
+        if (!video.muted) video.play().catch(function () { video.muted = true; soundBtn.innerHTML = '&#128263;'; });
+      });
+
+      var isHls = /\\.m3u8($|\\?)/i.test(src) || /\\/manifest\\//.test(src);
+      if (!isHls || video.canPlayType('application/vnd.apple.mpegurl')) {
+        video.src = src;
+        start();
+        return;
+      }
+      var s = document.createElement('script');
+      s.src = 'https://cdn.jsdelivr.net/npm/hls.js@1.5.20/dist/hls.min.js';
+      s.onload = function () {
+        if (!window.Hls || !window.Hls.isSupported()) { fail('hls-unsupported'); return; }
+        var hls = new window.Hls({ maxBufferLength: 10, capLevelToPlayerSize: true });
+        hls.on(window.Hls.Events.ERROR, function (_e, d) {
+          if (!d || !d.fatal) return;
+          if (d.type === window.Hls.ErrorTypes.NETWORK_ERROR) { hls.startLoad(); return; }
+          if (d.type === window.Hls.ErrorTypes.MEDIA_ERROR) { hls.recoverMediaError(); return; }
+          fail('hls-fatal', { type: d.type, details: d.details, reason: d.reason });
+          hls.destroy();
+        });
+        hls.loadSource(src);
+        hls.attachMedia(video);
+        start();
+        window.addEventListener('pagehide', function () { hls.destroy(); });
+      };
+      s.onerror = function () { fail('hls-js-load-failed'); };
+      document.head.appendChild(s);
+    })();
+    <\/script>`;
+}
+
 function pageShell({ title, description, image, url, bodyHtml, refresh }) {
   return `<!DOCTYPE html>
 <html lang="ko">
@@ -117,7 +215,17 @@ ${refresh ? `<meta http-equiv="refresh" content="${refresh}">` : ''}
     width: 100%; max-width: 420px; background: #fff; border-radius: 20px; overflow: hidden;
     box-shadow: 0 8px 24px rgba(0,0,0,0.06);
   }
-  .card img { width: 100%; height: 240px; object-fit: cover; display: block; background: #E9ECF5; }
+  .card > img { width: 100%; height: 240px; object-fit: cover; display: block; background: #E9ECF5; }
+  .hero-media { position: relative; width: 100%; height: 240px; background: #E9ECF5; overflow: hidden; }
+  .hero-poster, .hero-video { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; display: block; }
+  .hero-video { opacity: 0; transition: opacity .25s ease; }
+  .hero-video.is-playing { opacity: 1; }
+  .hero-btn {
+    position: absolute; border: 0; border-radius: 999px; background: rgba(0,0,0,.45); color: #fff;
+    cursor: pointer; line-height: 1; display: flex; align-items: center; justify-content: center;
+  }
+  .hero-sound { right: 12px; bottom: 12px; width: 34px; height: 34px; font-size: 15px; }
+  .hero-play { left: 50%; top: 50%; transform: translate(-50%,-50%); width: 54px; height: 54px; font-size: 20px; }
   .card-body { padding: 24px; }
   .eyebrow { color: ${ACCENT}; font-weight: 700; font-size: 13px; }
   h1 { font-size: 21px; margin: 8px 0 16px; line-height: 1.35; }
@@ -211,8 +319,15 @@ exports.partyLandingPage = onRequest({ region: 'asia-northeast3', cors: true }, 
   // 아무 반응 없이 이 웹페이지가 그대로 보인다 — 안전한 점진적 개선.
   const appScheme = `partychu://party/${escapeHtml(partyId)}`;
 
+  // 대표가 동영상인 파티는 정지 이미지 대신 실제로 재생되는 플레이어를
+  // 보여준다(og:image는 크롤러용이라 그대로 썸네일을 쓴다).
+  const coverVideo = resolveCoverVideo(data);
+  const heroHtml = coverVideo
+    ? videoHtml({ url: coverVideo.url, poster: coverVideo.poster || (rawImage ? image : null) }, title)
+    : `<img src="${escapeHtml(image)}" alt="${escapeHtml(title)}" onerror="this.style.display='none'">`;
+
   const bodyHtml = `
-    <img src="${escapeHtml(image)}" alt="${escapeHtml(title)}" onerror="this.style.display='none'">
+    ${heroHtml}
     <div class="card-body">
       <div class="eyebrow">PartyChu</div>
       <h1>${escapeHtml(title)}</h1>

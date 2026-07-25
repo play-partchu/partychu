@@ -1156,3 +1156,157 @@ button { font-family: inherit; cursor: pointer; }
   .party-grid { grid-template-columns: 1fr; }
   .modal-card { width: calc(100% - 32px); max-height: calc(100% - 32px); }
 }
+
+/* ── 동영상 플레이어 (js/video-player.js) ─────────────────────────── */
+/* 카드 대표 미디어가 동영상일 때 쓰는 박스. 썸네일(poster)이 항상 아래
+   깔려 있어서 재생 전·자동재생 차단·재생 실패 어느 경우에도 빈 화면이
+   보이지 않는다. */
+.party-card-media,
+.party-card-photo {
+  position: absolute;
+  inset: 0;
+  background: var(--pink-softer) center/cover no-repeat;
+}
+
+.pc-video {
+  position: relative;
+  overflow: hidden;
+  background: var(--pink-softer);
+}
+
+/* 카드/상세 안에서는 위에서 준 절대 배치를 그대로 유지해야 영역을 꽉
+   채운다(뒤에 오는 .pc-video의 position:relative에 덮이지 않도록 명시). */
+.party-card-media.pc-video,
+.party-detail-video.pc-video {
+  position: absolute;
+  inset: 0;
+}
+
+.pc-video-poster,
+.pc-video-el {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  border: 0;
+  display: block;
+}
+
+.pc-video-el {
+  opacity: 0;
+  transition: opacity 0.25s ease;
+}
+
+/* 실제로 프레임이 나오기 시작한 뒤에만 영상을 덮어씌워, 로딩 중 검은
+   화면이 깜빡이지 않게 한다. */
+.pc-video.is-playing .pc-video-el { opacity: 1; }
+.pc-video.has-error .pc-video-el { display: none; }
+
+.pc-video-btn {
+  position: absolute;
+  border: 0;
+  border-radius: 999px;
+  background: rgba(0, 0, 0, 0.45);
+  color: #fff;
+  cursor: pointer;
+  line-height: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background 0.15s ease, transform 0.15s ease;
+}
+
+.pc-video-btn:hover { background: rgba(0, 0, 0, 0.62); }
+.pc-video-btn:active { transform: scale(0.94); }
+
+.pc-video-sound {
+  right: 10px;
+  bottom: 10px;
+  width: 32px;
+  height: 32px;
+  font-size: 14px;
+}
+
+/* 자동재생이 브라우저 정책으로 막혔을 때만 나타나는 수동 재생 버튼 */
+.pc-video-play {
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  width: 52px;
+  height: 52px;
+  font-size: 20px;
+  padding-left: 4px;
+}
+
+.pc-video-play:active { transform: translate(-50%, -50%) scale(0.94); }
+
+/* ── 상세 모달 미디어 슬라이드 ────────────────────────────────────── */
+.party-detail-media {
+  position: relative;
+  width: 100%;
+  height: 260px;
+  background: var(--pink-softer);
+}
+
+.party-detail-stage,
+.party-detail-video {
+  position: absolute;
+  inset: 0;
+}
+
+.party-detail-media .party-detail-img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.party-detail-arrow {
+  position: absolute;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 34px;
+  height: 34px;
+  border: 0;
+  border-radius: 999px;
+  background: rgba(0, 0, 0, 0.4);
+  color: #fff;
+  font-size: 20px;
+  line-height: 1;
+  cursor: pointer;
+  z-index: 2;
+}
+
+.party-detail-arrow.prev { left: 10px; }
+.party-detail-arrow.next { right: 10px; }
+.party-detail-arrow:hover { background: rgba(0, 0, 0, 0.6); }
+
+.party-detail-dots {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 10px;
+  display: flex;
+  justify-content: center;
+  gap: 6px;
+  z-index: 2;
+}
+
+.party-detail-dot {
+  width: 7px;
+  height: 7px;
+  padding: 0;
+  border: 0;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.55);
+  cursor: pointer;
+}
+
+.party-detail-dot.active {
+  background: #fff;
+  transform: scale(1.25);
+}
+
+@media (max-width: 720px) {
+  .party-detail-media { height: 220px; }
+}

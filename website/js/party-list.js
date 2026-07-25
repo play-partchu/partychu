@@ -16,14 +16,17 @@ import {
   addressLabel,
   capacityLabel,
   coverImage,
+  coverMedia,
   formatFee,
   formatKstDateTime,
   genderLabel,
   isRecruitClosed,
   isUpcoming,
   matchesCategory,
+  mediaItems,
   partyDateTime,
 } from './party-format.js';
+import { destroyPlayersIn, mountVideo, videoUrlKind } from './video-player.js';
 
 const grid = document.getElementById('partyGrid');
 const statusEl = document.getElementById('partyListStatus');
@@ -69,9 +72,23 @@ function visibleParties() {
   );
 }
 
+// 대표 미디어가 동영상인 카드는 썸네일만 깔고 <video>는 render() 뒤에
+// mountPlayers()가 붙인다 — 카드마다 hls.js 인스턴스를 만들어야 해서
+// innerHTML 문자열로는 만들 수 없다.
+function mediaHtml(id, data) {
+  const media = coverMedia(data);
+  if (media?.kind === 'video') {
+    const poster = media.posterUrl ? ` style="background-image:url('${encodeURI(media.posterUrl)}')"` : '';
+    return `<div class="party-card-media" data-video-for="${id}"${poster}></div>`;
+  }
+  const img = media?.imageUrl || coverImage(data);
+  return img
+    ? `<div class="party-card-photo" style="background-image:url('${encodeURI(img)}')"></div>`
+    : '<span class="party-card-noimg">🎉</span>';
+}
+
 function cardHtml(p) {
   const { id, data } = p;
-  const img = coverImage(data);
   const dateLabel = formatKstDateTime(partyDateTime(data));
   const address = addressLabel(data);
   const fee = formatFee(data);
@@ -80,8 +97,8 @@ function cardHtml(p) {
   const favored = favoriteIds.has(id);
   return `
     <div class="party-card${closed ? ' party-card-closed' : ''}" data-party-id="${id}" tabindex="0" role="button" aria-label="${escapeHtml(data.title || '파티')} 상세보기">
-      <div class="party-card-img"${img ? ` style="background-image:url('${encodeURI(img)}')"` : ''}>
-        ${img ? '' : '<span class="party-card-noimg">🎉</span>'}
+      <div class="party-card-img">
+        ${mediaHtml(id, data)}
         ${closed ? '<span class="party-card-badge">모집마감</span>' : ''}
         <button class="party-favorite${favored ? ' active' : ''}" data-party-id="${id}" aria-label="찜하기">${favored ? '❤️' : '🤍'}</button>
       </div>
@@ -97,9 +114,30 @@ function cardHtml(p) {
     </div>`;
 }
 
+// 카드가 다시 그려질 때마다 이전 플레이어를 정리하고 새로 붙인다.
+// (정리하지 않으면 떨어져 나간 <video>와 hls.js가 계속 세그먼트를 받는다)
+function mountPlayers() {
+  grid.querySelectorAll('[data-video-for]').forEach((box) => {
+    const id = box.getAttribute('data-video-for');
+    const party = allParties.find((x) => x.id === id);
+    if (!party) return;
+    const media = coverMedia(party.data);
+    if (media?.kind !== 'video') return;
+    media.urlKind = videoUrlKind(media.videoUrl);
+    mountVideo(box, media, {
+      scope: 'party-card',
+      docId: id,
+      autoplay: true,
+      loop: true,
+      controls: false,
+    });
+  });
+}
+
 function render() {
   if (!grid || !statusEl) return;
   const filtered = visibleParties();
+  destroyPlayersIn(grid);
 
   if (!filtered.length) {
     grid.hidden = true;
@@ -131,11 +169,11 @@ function render() {
       if (ok) await toggleFavorite(id, btn);
     });
   });
+  mountPlayers();
 }
 
 function detailHtml(p) {
   const { data } = p;
-  const img = coverImage(data);
   const dateLabel = formatKstDateTime(partyDateTime(data));
   const address = addressLabel(data);
   const fee = formatFee(data);
@@ -143,7 +181,7 @@ function detailHtml(p) {
   const gender = genderLabel(data);
   const closed = isRecruitClosed(data);
   return `
-    ${img ? `<img class="party-detail-img" src="${encodeURI(img)}" alt="${escapeHtml(data.title || '')}">` : ''}
+    <div class="party-detail-media" id="partyDetailMedia"></div>
     <div class="party-detail-body">
       ${closed ? '<span class="party-card-badge party-detail-badge">모집마감</span>' : ''}
       <h2>${escapeHtml(data.title || '제목 없는 파티')}</h2>
@@ -159,10 +197,101 @@ function detailHtml(p) {
     </div>`;
 }
 
+// 상세 모달의 미디어 슬라이드 — 사진과 동영상이 섞여 있어도 각 항목의
+// kind로 판별해서, 동영상 슬라이드에서는 플레이어를 새로 붙이고 슬라이드를
+// 벗어나면 즉시 정리한다(다른 슬라이드에서 소리가 계속 나는 일이 없다).
+function mountDetailMedia(container, items, docId) {
+  if (!container) return;
+  if (!items.length) {
+    container.remove();
+    return;
+  }
+  let index = 0;
+
+  const stage = document.createElement('div');
+  stage.className = 'party-detail-stage';
+  container.appendChild(stage);
+
+  const showItem = () => {
+    destroyPlayersIn(stage);
+    stage.innerHTML = '';
+    const item = items[index];
+    if (item.kind === 'video') {
+      const box = document.createElement('div');
+      box.className = 'party-detail-video';
+      stage.appendChild(box);
+      item.urlKind = videoUrlKind(item.videoUrl);
+      mountVideo(box, item, {
+        scope: 'party-detail',
+        docId,
+        autoplay: true,
+        loop: true,
+        // 상세에서는 사용자가 직접 조작할 수 있어야 한다.
+        controls: true,
+        exclusive: true,
+      });
+    } else {
+      const img = document.createElement('img');
+      img.className = 'party-detail-img';
+      img.src = item.imageUrl;
+      img.alt = '';
+      stage.appendChild(img);
+    }
+    container.querySelectorAll('.party-detail-dot').forEach((dot, i) => {
+      dot.classList.toggle('active', i === index);
+    });
+  };
+
+  if (items.length > 1) {
+    const nav = document.createElement('div');
+    nav.className = 'party-detail-dots';
+    items.forEach((item, i) => {
+      const dot = document.createElement('button');
+      dot.type = 'button';
+      dot.className = 'party-detail-dot';
+      dot.setAttribute('aria-label', `${i + 1}번째 ${item.kind === 'video' ? '동영상' : '사진'}`);
+      dot.addEventListener('click', () => {
+        index = i;
+        showItem();
+      });
+      nav.appendChild(dot);
+    });
+    container.appendChild(nav);
+
+    const arrow = (dir, label) => {
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = `party-detail-arrow ${dir < 0 ? 'prev' : 'next'}`;
+      btn.setAttribute('aria-label', label);
+      btn.textContent = dir < 0 ? '‹' : '›';
+      btn.addEventListener('click', () => {
+        index = (index + dir + items.length) % items.length;
+        showItem();
+      });
+      container.appendChild(btn);
+    };
+    arrow(-1, '이전 미디어');
+    arrow(1, '다음 미디어');
+  }
+
+  showItem();
+}
+
+function closeDetail() {
+  if (!detailOverlay) return;
+  // 모달을 닫을 때 반드시 hls.destroy()까지 도달해야 소리가 남지 않는다.
+  destroyPlayersIn(detailContent);
+  if (detailContent) detailContent.innerHTML = '';
+  detailOverlay.hidden = true;
+  render();
+}
+
 function openDetail(id) {
   const p = allParties.find((x) => x.id === id);
   if (!p || !detailContent || !detailOverlay) return;
+  destroyPlayersIn(detailContent);
   detailContent.innerHTML = detailHtml(p);
+  mountDetailMedia(document.getElementById('partyDetailMedia'), mediaItems(p.data), id);
   document.getElementById('partyApplyBtn')?.addEventListener('click', async () => {
     const ok = await requireLogin('파티 참가 신청은 로그인 후 이용할 수 있어요.');
     if (ok) {
@@ -172,11 +301,12 @@ function openDetail(id) {
   detailOverlay.hidden = false;
 }
 
-detailClose?.addEventListener('click', () => {
-  if (detailOverlay) detailOverlay.hidden = true;
-});
+detailClose?.addEventListener('click', closeDetail);
 detailOverlay?.addEventListener('click', (e) => {
-  if (e.target === detailOverlay) detailOverlay.hidden = true;
+  if (e.target === detailOverlay) closeDetail();
+});
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape' && detailOverlay && !detailOverlay.hidden) closeDetail();
 });
 
 async function toggleFavorite(partyId, btn) {
