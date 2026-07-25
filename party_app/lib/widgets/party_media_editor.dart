@@ -327,10 +327,14 @@ class PartyMediaEditorState extends State<PartyMediaEditor>
   }
 
   // ── 유틸 ───────────────────────────────────────────────────────────────────
-  bool _isVideo(String path) {
+  /// 부모 화면도 State가 아직 없는 첫 프레임에 같은 기준으로 판단할 수 있게
+  /// static으로 열어둔다(예: 미디어 등록 화면의 동영상 권유 카드).
+  static bool isVideoPath(String path) {
     final p = path.toLowerCase();
     return p.endsWith('.mp4') || p.endsWith('.mov');
   }
+
+  bool _isVideo(String path) => isVideoPath(path);
 
   void _msg(String text) {
     if (!mounted) return;

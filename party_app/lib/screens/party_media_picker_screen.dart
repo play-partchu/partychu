@@ -129,9 +129,109 @@ class _PartyMediaPickerScreenState extends State<PartyMediaPickerScreen> {
     );
   }
 
+  // 동영상 등록 권유 카드 — 위 "사진을 눌러 대표이미지로 설정할 수 있습니다"
+  // 안내와 동일한 팔레트(배경 #FFF8E1 / 테두리 #FFCC02 / 글자·아이콘 #9A7D00)와
+  // 카드 모양(radius 8)을 그대로 쓴다.
+  Widget _buildVideoPromoCard() {
+    const accent = Color(0xFF9A7D00);
+    const benefits = [
+      '✨ 파티 분위기를 한눈에 전달',
+      '👀 목록에서 더욱 눈에 띄어 클릭률 증가',
+      '❤️ 참가자가 신뢰하기 쉬움',
+      '🚀 사진보다 더 높은 참여율 기대',
+    ];
+    return Container(
+      margin: const EdgeInsets.only(bottom: 10),
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 10),
+      decoration: BoxDecoration(
+        color: const Color(0xFFFFF8E1),
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: const Color(0xFFFFCC02)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Icon(Icons.videocam_outlined, size: 14, color: accent),
+              SizedBox(width: 6),
+              Expanded(
+                child: Text(
+                  '동영상을 대표 미디어로 설정해보세요!',
+                  style: TextStyle(
+                    fontSize: 12,
+                    fontWeight: FontWeight.bold,
+                    color: accent,
+                  ),
+                ),
+              ),
+            ],
+          ),
+          const Padding(
+            padding: EdgeInsets.only(left: 20, top: 5),
+            child: Text(
+              '사진보다 파티 분위기를 더 생생하게 전달할 수 있어 참가 신청률을 '
+              '높이는 데 도움이 됩니다.',
+              style: TextStyle(fontSize: 11.5, color: accent, height: 1.45),
+            ),
+          ),
+          const SizedBox(height: 7),
+          for (final benefit in benefits)
+            Padding(
+              padding: const EdgeInsets.only(left: 20, bottom: 3),
+              child: Text(
+                benefit,
+                style: const TextStyle(
+                  fontSize: 11.5,
+                  color: accent,
+                  height: 1.35,
+                ),
+              ),
+            ),
+          const SizedBox(height: 8),
+          SizedBox(
+            width: double.infinity,
+            child: OutlinedButton.icon(
+              // 아래 미디어 편집기의 "사진/동영상" 추가 버튼과 완전히 같은
+              // 흐름을 탄다 — 선택·30초 자르기·압축까지 그대로 재사용.
+              onPressed: () => _mediaEditorKey.currentState?.pickMedia(),
+              icon: const Icon(Icons.videocam_rounded, size: 16),
+              label: const Text(
+                '동영상 추가하기',
+                style: TextStyle(fontSize: 12.5, fontWeight: FontWeight.bold),
+              ),
+              style: OutlinedButton.styleFrom(
+                foregroundColor: accent,
+                backgroundColor: Colors.white,
+                side: const BorderSide(color: Color(0xFFFFCC02)),
+                padding: const EdgeInsets.symmetric(vertical: 9),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(8),
+                ),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  /// 지금 동영상이 하나라도 있는지.
+  ///
+  /// 첫 프레임에는 자식(PartyMediaEditor)의 State가 아직 없어서
+  /// `currentState`가 null이다 — 그때 무조건 false로 보면, 이미 동영상이
+  /// 있는 파티를 수정하러 들어와도 "동영상을 추가하세요" 안내가 한 번
+  /// 깜빡인다. 그래서 State가 생기기 전에는 넘겨받은 초기값으로 판단하고,
+  /// 이후에는 편집기의 실제 상태를 따른다(onMediaChanged가 갱신해준다).
+  bool get _hasVideo =>
+      _mediaEditorKey.currentState?.hasVideo ??
+      (widget.existingVideoUrl != null ||
+          widget.newMedia.any((f) => PartyMediaEditorState.isVideoPath(f.path)));
+
   @override
   Widget build(BuildContext context) {
-    final hasVideo = _mediaEditorKey.currentState?.hasVideo ?? false;
+    final hasVideo = _hasVideo;
     return Scaffold(
       backgroundColor: Colors.white,
       appBar: AppBar(title: const Text('미디어 등록', style: TextStyle(fontFamily: 'SeoulHangang', fontWeight: FontWeight.w500, shadows: [Shadow(color: Colors.black87, offset: Offset(0.3, 0)), Shadow(color: Colors.black87, offset: Offset(-0.3, 0)), Shadow(color: Colors.black87, offset: Offset(0, 0.3)), Shadow(color: Colors.black87, offset: Offset(0, -0.3))])), centerTitle: true),
@@ -173,6 +273,12 @@ class _PartyMediaPickerScreenState extends State<PartyMediaPickerScreen> {
                     ],
                   ),
                 ),
+                // 아직 동영상이 없을 때만 보이는 권유 카드 — 동영상을 하나라도
+                // 넣으면(hasVideo) 곧바로 사라진다. PartyMediaEditor가 내부
+                // setState마다 onMediaChanged로 알려주므로 추가/삭제가 바로
+                // 반영된다. 위 "대표이미지 설정" 안내와 색·아이콘·카드 모양을
+                // 그대로 맞춰 통일감을 유지한다.
+                if (!hasVideo) _buildVideoPromoCard(),
                 Expanded(
                   child: SingleChildScrollView(
                     child: Column(
