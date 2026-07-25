@@ -44,6 +44,7 @@ import 'package:party_app/widgets/party_view_mode_sheet.dart';
 import 'package:party_app/widgets/video_mute_button.dart';
 import 'package:party_app/widgets/main/main_top_bar.dart';
 import 'package:party_app/widgets/place_category_nav_bar.dart';
+import 'package:party_app/widgets/main/day_date_filter_bar.dart';
 import 'package:party_app/widgets/main/main_filter_panel.dart';
 import 'package:party_app/widgets/main/main_preview_panel.dart';
 import 'package:party_app/screens/party_register_screen.dart';
@@ -87,8 +88,8 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin {
 
   // ── 헤더 배너 낮/밤 버전 토글 ──────────────────────────────────────
   // 낮 버전 이미지(header_logo_last/header_half)는 나중에 별도로 다시
-  // 디자인할 예정이라 지금은 그대로 두고, 밤 버전만 header_logo_night/
-  // header_half_night로 교체해 보여준다. _headerCollapsed(스크롤 축소)와는
+  // 디자인할 예정이라 지금은 그대로 두고, 밤 버전만 header_logo_night1/
+  // header_half_night1로 교체해 보여준다. _headerCollapsed(스크롤 축소)와는
   // 독립적인 별개의 상태 — 두 축이 곱해져 4가지 이미지 중 하나가 보인다.
   bool _isNightMode = false;
 
@@ -1080,10 +1081,10 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin {
     // 낮 버전은 아직 이 두 파일(header_logo_last/header_half) 그대로 —
     // 나중에 별도로 다시 디자인할 예정이라 지금은 손대지 않는다.
     final fullAsset = _isNightMode
-        ? 'assets/images/header_logo_night.png'
+        ? 'assets/images/header_logo_night1.png'
         : 'assets/images/header_logo_last.png';
     final halfAsset = _isNightMode
-        ? 'assets/images/header_half_night.png'
+        ? 'assets/images/header_half_night1.png'
         : 'assets/images/header_half.jpg';
     return AnimatedCrossFade(
       duration: const Duration(milliseconds: 220),
@@ -1489,14 +1490,17 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin {
           child: Row(
             mainAxisSize: MainAxisSize.min,
             children: [
-              const Flexible(
+              Flexible(
                 child: Text(
                   '파티 목록',
+                  // 밤 모드에선 배경이 검정이라 기본(회색) 글자색이 묻힌다 —
+                  // 이때만 흰색으로 올리고, 낮 모드는 기존 상속색 그대로.
                   style: TextStyle(
                     fontFamily: 'SeoulHangang',
                     fontSize: 20,
                     fontWeight: FontWeight.w500,
-                    shadows: [
+                    color: _isNightMode ? Colors.white : null,
+                    shadows: const [
                       Shadow(color: Colors.black87, offset: Offset(0.3, 0)),
                       Shadow(color: Colors.black87, offset: Offset(-0.3, 0)),
                       Shadow(color: Colors.black87, offset: Offset(0, 0.3)),
@@ -2650,6 +2654,9 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin {
     ];
     return PlaceCategoryNavBar(
       items: items,
+      // 사선 타일 형태는 그대로 두고 재질만 바꾼다 — 밤은 다크 글래스,
+      // 낮은 화이트 글래스(파티 탭의 알약 필터와 같은 낮 팔레트).
+      night: _isNightMode,
       isSelected: (item) {
         if (item.value == _shopCategoryValue) return _placeShowShopCategory;
         if (_placeShowShopCategory) return false;
@@ -3893,7 +3900,28 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin {
   // 겉모습만 바뀐다.
   static const Color _kNeonBarPink = Color(0xFFFF5FA8);
 
+  // 낮 모드는 같은 필터/같은 순서를 유지하되 겉모습만 파스텔 알약 UI로
+  // 바꾼다(DayDateFilterBar) — 검정 네온 바는 밤 모드 전용이 되어 두
+  // 모드의 분위기가 확실히 갈린다. 선택 로직(_toggleCategoryTab)과 상세검색
+  // 진입(_openDetailSearch)은 양쪽이 그대로 공유한다.
   Widget _buildCategorySection() {
+    if (!_isNightMode) return _buildDayCategorySection();
+    return _buildNeonCategorySection();
+  }
+
+  Widget _buildDayCategorySection() {
+    return DayDateFilterBar(
+      tabs: _categoryTabs,
+      isSelected: (tab) => tab == _kAllCategoryTab
+          ? _isAllCategorySelected
+          : _selectedCategories.contains(tab),
+      onTapTab: _toggleCategoryTab,
+      onOpenDetailSearch: _openDetailSearch,
+      detailFilterActive: _filter.isActive,
+    );
+  }
+
+  Widget _buildNeonCategorySection() {
     const barHeight = 42.0;
     final children = <Widget>[];
     for (int i = 0; i < _categoryTabs.length; i++) {
