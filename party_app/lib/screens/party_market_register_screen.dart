@@ -5,8 +5,10 @@ import 'package:image_picker/image_picker.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:party_app/models/address_result.dart';
 import 'package:party_app/models/listing_constants.dart';
+import 'package:party_app/models/draft_type.dart';
 import 'package:party_app/screens/address_search_screen.dart';
 import 'package:party_app/services/cloudflare_service.dart';
+import 'package:party_app/utils/draftable_register.dart';
 import 'package:party_app/utils/format_utils.dart';
 import 'package:party_app/utils/register_return_signal.dart';
 import 'package:party_app/utils/user_session.dart';
@@ -14,15 +16,170 @@ import 'package:party_app/widgets/single_video_picker.dart';
 import 'package:party_app/widgets/web_frame.dart';
 
 class PartyMarketRegisterScreen extends StatefulWidget {
-  const PartyMarketRegisterScreen({super.key});
+  /// 마이페이지 "임시저장" 목록에서 "이어서 작성"으로 열 때 true.
+  final bool autoRestoreDraft;
+
+  const PartyMarketRegisterScreen({super.key, this.autoRestoreDraft = false});
 
   @override
   State<PartyMarketRegisterScreen> createState() =>
       _PartyMarketRegisterScreenState();
 }
 
-class _PartyMarketRegisterScreenState
-    extends State<PartyMarketRegisterScreen> {
+class _PartyMarketRegisterScreenState extends State<PartyMarketRegisterScreen>
+    with WidgetsBindingObserver, DraftableRegister<PartyMarketRegisterScreen> {
+  @override
+  void setState(VoidCallback fn) {
+    markDraftDirty();
+    super.setState(fn);
+  }
+
+  @override
+  DraftType get draftType => DraftType.market;
+
+  @override
+  bool get draftAutoRestore => widget.autoRestoreDraft;
+
+  @override
+  String get draftTitle => _nameCtrl.text;
+
+  /// 대표 이미지가 아직 로컬 파일이라 목록에 보여줄 원격 URL이 없다.
+  @override
+  String? get draftCoverImageUrl => null;
+
+  @override
+  Map<String, dynamic> buildDraftPayload() {
+    return <String, dynamic>{
+      'name': _nameCtrl.text,
+      'description': _descCtrl.text,
+      'isActive': _isActive,
+      'address': _selectedAddress == null
+          ? null
+          : {
+              'placeName': _selectedAddress!.placeName,
+              'address': _selectedAddress!.address,
+              'roadAddress': _selectedAddress!.roadAddress,
+              'jibunAddress': _selectedAddress!.jibunAddress,
+              'latitude': _selectedAddress!.latitude,
+              'longitude': _selectedAddress!.longitude,
+            },
+      'detailAddress': _detailAddressCtrl.text,
+      'deliveryOpts': _deliveryOpts.toList(),
+      'autoMessages': {
+        for (final e in _autoMsgCtrls.entries) e.key: e.value.text,
+      },
+      'hasCoupon': _hasCoupon,
+      'couponDiscType': _couponDiscType,
+      'couponMin': _couponMinCtrl.text,
+      'couponValue': _couponValueCtrl.text,
+      // 상품 목록 — XFile은 JSON으로 못 담으므로 경로만 남긴다.
+      'products': _localProducts.map((p) {
+        final copy = Map<String, dynamic>.from(p)..remove('_localImages');
+        copy['_localImagePaths'] =
+            ((p['_localImages'] as List<XFile>?) ?? const <XFile>[])
+                .map((f) => f.path)
+                .toList();
+        return copy;
+      }).toList(),
+      // 로컬 미디어 경로(최선; 파일이 사라지면 복원 시 재선택 안내).
+      'mainImagePath': _mainImage?.path,
+      'introImagePaths': _introImages.map((f) => f.path).toList(),
+      'videoNewFilePath': _videoKey.currentState?.newVideoFile?.path,
+    };
+  }
+
+  @override
+  void applyDraftPayload(Map<String, dynamic> p) {
+    _nameCtrl.text = (p['name'] as String?) ?? '';
+    _descCtrl.text = (p['description'] as String?) ?? '';
+    _detailAddressCtrl.text = (p['detailAddress'] as String?) ?? '';
+    _isActive = p['isActive'] as bool? ?? true;
+
+    final addr = p['address'] as Map?;
+    _selectedAddress = addr == null
+        ? null
+        : AddressResult(
+            placeName: addr['placeName'] as String? ?? '',
+            address: addr['address'] as String? ?? '',
+            roadAddress: addr['roadAddress'] as String? ?? '',
+            jibunAddress: addr['jibunAddress'] as String? ?? '',
+            latitude: (addr['latitude'] as num?)?.toDouble() ?? 0,
+            longitude: (addr['longitude'] as num?)?.toDouble() ?? 0,
+          );
+
+    _deliveryOpts
+      ..clear()
+      ..addAll((p['deliveryOpts'] as List?)?.cast<String>() ?? const []);
+    final msgs = p['autoMessages'] as Map?;
+    for (final entry in _autoMsgCtrls.entries) {
+      entry.value.text = (msgs?[entry.key] as String?) ?? '';
+    }
+
+    _hasCoupon = p['hasCoupon'] as bool? ?? false;
+    _couponDiscType = p['couponDiscType'] as String? ?? '퍼센트 할인';
+    _couponMinCtrl.text = (p['couponMin'] as String?) ?? '';
+    _couponValueCtrl.text = (p['couponValue'] as String?) ?? '';
+
+    bool anyMissing = false;
+
+    // 상품 — 이미지 경로가 살아있는 것만 되살린다.
+    _localProducts.clear();
+    for (final raw in (p['products'] as List?) ?? const []) {
+      final m = Map<String, dynamic>.from(raw as Map);
+      final paths =
+          (m.remove('_localImagePaths') as List?)?.cast<String>() ?? const [];
+      final files = <XFile>[];
+      for (final path in paths) {
+        if (File(path).existsSync()) {
+          files.add(XFile(path));
+        } else {
+          anyMissing = true;
+        }
+      }
+      m['_localImages'] = files;
+      _localProducts.add(m);
+    }
+
+    final mainPath = p['mainImagePath'] as String?;
+    if (mainPath != null) {
+      if (File(mainPath).existsSync()) {
+        _mainImage = XFile(mainPath);
+      } else {
+        anyMissing = true;
+      }
+    }
+    _introImages.clear();
+    for (final path
+        in (p['introImagePaths'] as List?)?.cast<String>() ?? const []) {
+      if (File(path).existsSync()) {
+        _introImages.add(XFile(path));
+      } else {
+        anyMissing = true;
+      }
+    }
+    // SingleVideoPicker에는 로컬 파일을 되돌려 넣을 방법이 없어, 동영상이
+    // 있었다면 항상 재선택 안내 대상이다(플레이스 등록과 동일).
+    if ((p['videoNewFilePath'] as String?) != null) anyMissing = true;
+
+    draftMediaNeedsReselect = anyMissing;
+  }
+
+  @override
+  void initState() {
+    super.initState();
+    for (final c in [
+      _nameCtrl,
+      _descCtrl,
+      _detailAddressCtrl,
+      _couponMinCtrl,
+      _couponValueCtrl,
+      ..._autoMsgCtrls.values,
+    ]) {
+      c.addListener(markDraftDirty);
+    }
+    initDraft();
+  }
+
   // ── 기본 정보 ─────────────────────────────────────────────────────
   final _nameCtrl = TextEditingController();
   final _descCtrl = TextEditingController();
@@ -80,6 +237,7 @@ class _PartyMarketRegisterScreenState
 
   @override
   void dispose() {
+    disposeDraft();
     _nameCtrl.dispose();
     _descCtrl.dispose();
     _detailAddressCtrl.dispose();
@@ -234,6 +392,9 @@ class _PartyMarketRegisterScreenState
         });
       }
 
+      // 최종 등록 완료 — 파티샵 임시저장은 자동 삭제.
+      await deleteCurrentDraft();
+
       if (!mounted) return;
       // 등록 화면이 몇 단계 깊이 열려 있었든(모바일: RegisterTypeScreen 경유,
       // 데스크톱: MainScreen에서 바로) 곧장 메인화면 플레이스 탭의 파티샵
@@ -254,7 +415,14 @@ class _PartyMarketRegisterScreenState
   // ── 빌드 ─────────────────────────────────────────────────────────
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
+    return PopScope(
+      canPop: !draftDirty,
+      onPopInvokedWithResult: (didPop, result) async {
+        if (didPop) return;
+        final leave = await confirmLeaveWithDraftSave();
+        if (leave && mounted) Navigator.of(context).pop();
+      },
+      child: Scaffold(
       backgroundColor: const Color(0xFFFFF4F8),
       appBar: AppBar(
         title: const Text('파티샵 등록',
@@ -263,10 +431,13 @@ class _PartyMarketRegisterScreenState
         backgroundColor: Colors.white,
         foregroundColor: Colors.black,
         elevation: 0,
+        actions: [draftSaveAction()],
+        bottom: buildAutoSaveIndicator(),
       ),
       body: SingleChildScrollView(
         padding: const EdgeInsets.fromLTRB(20, 20, 20, 100),
         child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          if (draftMediaNeedsReselect) buildMediaReselectBanner(),
 
           // ── 1. 샵 이름 ───────────────────────────────────────────
           _label('샵 이름', required: true),
@@ -366,6 +537,7 @@ class _PartyMarketRegisterScreenState
             ),
           ),
         ]),
+      ),
       ),
     );
   }

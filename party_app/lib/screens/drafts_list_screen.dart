@@ -6,7 +6,10 @@ import 'package:party_app/screens/party_register_screen.dart';
 import 'package:party_app/screens/place_register_screen.dart';
 import 'package:party_app/screens/event_register_screen.dart';
 import 'package:party_app/screens/crew_register_screen.dart';
+import 'package:party_app/screens/party_market_register_screen.dart';
+import 'package:party_app/screens/party_place_combo_register_screen.dart';
 import 'package:party_app/screens/party_shop_product_register_screen.dart';
+import 'package:party_app/screens/place_party_combo_register_screen.dart';
 import 'package:party_app/utils/user_session.dart';
 import 'package:party_app/widgets/web_frame.dart';
 
@@ -47,6 +50,15 @@ class DraftsListScreen extends StatelessWidget {
       case DraftType.crewSeek:
         target = const CrewRegisterScreen(
             autoRestoreDraft: true, initialCrewType: '구직');
+        break;
+      case DraftType.market:
+        target = const PartyMarketRegisterScreen(autoRestoreDraft: true);
+        break;
+      case DraftType.stayPartyCombo:
+        target = const PartyPlaceComboRegisterScreen(autoRestoreDraft: true);
+        break;
+      case DraftType.placePartyCombo:
+        target = const PlacePartyComboRegisterScreen(autoRestoreDraft: true);
         break;
       case DraftType.shop:
         // 파티샵 상품은 특정 샵에 속하므로 payload에 저장해둔 샵 정보로 연다.

@@ -9,7 +9,13 @@ enum DraftType {
   shop('shop', '파티샵 상품'),
   crewRecruit('crew_recruit', '파티크루 구인'),
   crewSeek('crew_seek', '파티크루 구직'),
-  event('event', '플레이스');
+  event('event', '플레이스'),
+  // 파티샵 "샵 자체" 등록 — 위 [shop]('파티샵 상품')은 이미 만들어진 샵에
+  // 상품을 추가하는 화면이라 서로 다른 폼이다.
+  market('market', '파티샵'),
+  // 콤보 등록 두 종류 — 각각 폼이 완전히 달라 별도 유형으로 나눈다.
+  stayPartyCombo('stay_party_combo', '숙박+파티'),
+  placePartyCombo('place_party_combo', '플레이스+파티');
 
   const DraftType(this.key, this.label);
 

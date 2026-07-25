@@ -4,6 +4,7 @@ import 'package:image_picker/image_picker.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:party_app/models/address_result.dart';
+import 'package:party_app/models/draft_type.dart';
 import 'package:party_app/models/listing_constants.dart';
 import 'package:party_app/models/party_auto_description_style.dart';
 import 'package:party_app/models/party_description_mode.dart';
@@ -14,8 +15,10 @@ import 'package:party_app/screens/address_search_screen.dart';
 import 'package:party_app/screens/party_media_picker_screen.dart';
 import 'package:party_app/services/cloudflare_service.dart';
 import 'package:party_app/utils/age_range_utils.dart';
+import 'package:party_app/utils/draftable_register.dart';
 import 'package:party_app/utils/register_return_signal.dart';
 import 'package:party_app/utils/user_session.dart';
+import 'package:party_app/widgets/combo_intro_card.dart';
 import 'package:party_app/widgets/party_form/age_restriction_sheet.dart';
 import 'package:party_app/widgets/party_form/date_time_sheet.dart';
 import 'package:party_app/widgets/party_form/party_title_field.dart';
@@ -43,7 +46,13 @@ const _kAccent = Color(0xFFFF6FA0);
 /// `places` 컬렉션을 하드코딩해서 조회하므로, 같은 필드명을 재사용하면
 /// 엉뚱한 컬렉션을 조회하게 된다.
 class PlacePartyComboRegisterScreen extends StatefulWidget {
-  const PlacePartyComboRegisterScreen({super.key});
+  /// 마이페이지 "임시저장" 목록에서 "이어서 작성"으로 열 때 true.
+  final bool autoRestoreDraft;
+
+  const PlacePartyComboRegisterScreen({
+    super.key,
+    this.autoRestoreDraft = false,
+  });
 
   @override
   State<PlacePartyComboRegisterScreen> createState() =>
@@ -51,9 +60,182 @@ class PlacePartyComboRegisterScreen extends StatefulWidget {
 }
 
 class _PlacePartyComboRegisterScreenState
-    extends State<PlacePartyComboRegisterScreen> {
+    extends State<PlacePartyComboRegisterScreen>
+    with
+        WidgetsBindingObserver,
+        DraftableRegister<PlacePartyComboRegisterScreen> {
   final _formKey = GlobalKey<FormState>();
   final _scrollCtrl = ScrollController();
+
+  // ── 임시저장 ─────────────────────────────────────────────────────────
+  // 파티 등록 화면과 동일한 방식(1초 debounce 자동저장 + 임시저장 버튼 +
+  // 재진입 복구 팝업)을 공용 믹스인으로 붙인다.
+
+  @override
+  void setState(VoidCallback fn) {
+    markDraftDirty();
+    super.setState(fn);
+  }
+
+  @override
+  DraftType get draftType => DraftType.placePartyCombo;
+
+  @override
+  bool get draftAutoRestore => widget.autoRestoreDraft;
+
+  @override
+  String get draftTitle => _nameCtrl.text;
+
+  @override
+  String? get draftCoverImageUrl =>
+      _mediaExistingImageUrls.isNotEmpty ? _mediaExistingImageUrls.first : null;
+
+  @override
+  Map<String, dynamic> buildDraftPayload() {
+    return <String, dynamic>{
+      // 공통 정보
+      'name': _nameCtrl.text,
+      'detailAddress': _detailAddressCtrl.text,
+      'contact': _contactCtrl.text,
+      'description': _descCtrl.text,
+      'address': _selectedAddress == null
+          ? null
+          : {
+              'placeName': _selectedAddress!.placeName,
+              'address': _selectedAddress!.address,
+              'roadAddress': _selectedAddress!.roadAddress,
+              'jibunAddress': _selectedAddress!.jibunAddress,
+              'latitude': _selectedAddress!.latitude,
+              'longitude': _selectedAddress!.longitude,
+            },
+      // 미디어 — 업로드된 URL은 그대로, 아직 업로드 안 된 로컬 파일은 경로만.
+      'existingImageUrls': _mediaExistingImageUrls,
+      'existingVideoUrl': _mediaExistingVideoUrl,
+      'existingVideoUid': _mediaExistingVideoUid,
+      'existingVideoThumbnailUrl': _mediaExistingVideoThumbnailUrl,
+      'newFilePaths': _mediaNewFiles.map((f) => f.path).toList(),
+      'coverPick': _mediaCoverPick == null
+          ? null
+          : {
+              'existingImageUrl': _mediaCoverPick!.existingImageUrl,
+              'isExistingVideo': _mediaCoverPick!.isExistingVideo,
+              'newImageOrdinal': _mediaCoverPick!.newImageOrdinal,
+              'isNewVideo': _mediaCoverPick!.isNewVideo,
+            },
+      // 플레이스 정보
+      'themeTags': _themeTags.toList(),
+      'isOngoing': _isOngoing,
+      'startDateMs': _startDate?.millisecondsSinceEpoch,
+      'endDateMs': _endDate?.millisecondsSinceEpoch,
+      'hasTimeRange': _hasTimeRange,
+      'startTime': DraftableRegister.timeToMap(_startTime),
+      'endTime': DraftableRegister.timeToMap(_endTime),
+      'isActive': _isActive,
+      // 파티 정보
+      'partyDateMs': _partyDate?.millisecondsSinceEpoch,
+      'partyStartTime': DraftableRegister.timeToMap(_partyStartTime),
+      'partyEndTime': DraftableRegister.timeToMap(_partyEndTime),
+      'partyRecruitDeadlineTime':
+          DraftableRegister.timeToMap(_partyRecruitDeadlineTime),
+      'partyCapacity': _partyCapacityCtrl.text,
+      'partyFee': _partyFeeCtrl.text,
+      'partyDesc': _partyDescCtrl.text,
+      'ageRestrictionEnabled': _ageRestrictionEnabled,
+      'minBirthYear': _minBirthYear,
+      'maxBirthYear': _maxBirthYear,
+    };
+  }
+
+  @override
+  void applyDraftPayload(Map<String, dynamic> p) {
+    _nameCtrl.text = (p['name'] as String?) ?? '';
+    _detailAddressCtrl.text = (p['detailAddress'] as String?) ?? '';
+    _contactCtrl.text = (p['contact'] as String?) ?? '';
+    _descCtrl.text = (p['description'] as String?) ?? '';
+    final addr = p['address'] as Map?;
+    _selectedAddress = addr == null
+        ? null
+        : AddressResult(
+            placeName: addr['placeName'] as String? ?? '',
+            address: addr['address'] as String? ?? '',
+            roadAddress: addr['roadAddress'] as String? ?? '',
+            jibunAddress: addr['jibunAddress'] as String? ?? '',
+            latitude: (addr['latitude'] as num?)?.toDouble() ?? 0,
+            longitude: (addr['longitude'] as num?)?.toDouble() ?? 0,
+          );
+
+    _mediaExistingImageUrls =
+        [...((p['existingImageUrls'] as List?)?.cast<String>() ?? const [])];
+    _mediaExistingVideoUrl = p['existingVideoUrl'] as String?;
+    _mediaExistingVideoUid = p['existingVideoUid'] as String?;
+    _mediaExistingVideoThumbnailUrl = p['existingVideoThumbnailUrl'] as String?;
+    bool anyMissing = false;
+    _mediaNewFiles = [];
+    for (final path
+        in (p['newFilePaths'] as List?)?.cast<String>() ?? const []) {
+      if (File(path).existsSync()) {
+        _mediaNewFiles.add(XFile(path));
+      } else {
+        anyMissing = true;
+      }
+    }
+    final coverPick = p['coverPick'] as Map?;
+    _mediaCoverPick = coverPick == null
+        ? null
+        : PartyCoverPick(
+            existingImageUrl: coverPick['existingImageUrl'] as String?,
+            isExistingVideo: coverPick['isExistingVideo'] as bool? ?? false,
+            newImageOrdinal: (coverPick['newImageOrdinal'] as num?)?.toInt(),
+            isNewVideo: coverPick['isNewVideo'] as bool? ?? false,
+          );
+
+    _themeTags
+      ..clear()
+      ..addAll((p['themeTags'] as List?)?.cast<String>() ?? const []);
+    _isOngoing = p['isOngoing'] as bool? ?? true;
+    final sMs = (p['startDateMs'] as num?)?.toInt();
+    final eMs = (p['endDateMs'] as num?)?.toInt();
+    _startDate = sMs != null ? DateTime.fromMillisecondsSinceEpoch(sMs) : null;
+    _endDate = eMs != null ? DateTime.fromMillisecondsSinceEpoch(eMs) : null;
+    _hasTimeRange = p['hasTimeRange'] as bool? ?? false;
+    _startTime = DraftableRegister.timeFromMap(p['startTime']);
+    _endTime = DraftableRegister.timeFromMap(p['endTime']);
+    _isActive = p['isActive'] as bool? ?? true;
+
+    final pdMs = (p['partyDateMs'] as num?)?.toInt();
+    _partyDate = pdMs != null ? DateTime.fromMillisecondsSinceEpoch(pdMs) : null;
+    _partyStartTime = DraftableRegister.timeFromMap(p['partyStartTime']);
+    _partyEndTime = DraftableRegister.timeFromMap(p['partyEndTime']);
+    _partyRecruitDeadlineTime =
+        DraftableRegister.timeFromMap(p['partyRecruitDeadlineTime']);
+    _partyCapacityCtrl.text = (p['partyCapacity'] as String?) ?? '';
+    _partyFeeCtrl.text = (p['partyFee'] as String?) ?? '';
+    _partyDescCtrl.text = (p['partyDesc'] as String?) ?? '';
+    _ageRestrictionEnabled = p['ageRestrictionEnabled'] as bool? ?? false;
+    _minBirthYear =
+        (p['minBirthYear'] as num?)?.toInt() ?? birthYearFromAge(31);
+    _maxBirthYear =
+        (p['maxBirthYear'] as num?)?.toInt() ?? birthYearFromAge(23);
+
+    draftMediaNeedsReselect = anyMissing;
+  }
+
+  @override
+  void initState() {
+    super.initState();
+    for (final c in [
+      _nameCtrl,
+      _detailAddressCtrl,
+      _contactCtrl,
+      _descCtrl,
+      _partyCapacityCtrl,
+      _partyFeeCtrl,
+      _partyDescCtrl,
+    ]) {
+      c.addListener(markDraftDirty);
+    }
+    initDraft();
+  }
 
   // 섹션별 스크롤 앵커
   final _basicInfoKey = GlobalKey();
@@ -107,6 +289,7 @@ class _PlacePartyComboRegisterScreenState
 
   @override
   void dispose() {
+    disposeDraft();
     _scrollCtrl.dispose();
     _nameCtrl.dispose();
     _detailAddressCtrl.dispose();
@@ -574,6 +757,9 @@ class _PlacePartyComboRegisterScreenState
       batch.set(partyRef, partyFields);
       await batch.commit();
 
+      // 최종 등록 완료 — 플레이스+파티 임시저장은 자동 삭제.
+      await deleteCurrentDraft();
+
       if (!mounted) return;
       setState(() {
         _isUploading = false;
@@ -836,7 +1022,14 @@ class _PlacePartyComboRegisterScreenState
 
   @override
   Widget build(BuildContext context) {
-    return Stack(
+    return PopScope(
+      canPop: !draftDirty,
+      onPopInvokedWithResult: (didPop, result) async {
+        if (didPop) return;
+        final leave = await confirmLeaveWithDraftSave();
+        if (leave && mounted) Navigator.of(context).pop();
+      },
+      child: Stack(
       children: [
         Scaffold(
           backgroundColor: const Color(0xFFF3F4F6),
@@ -858,6 +1051,8 @@ class _PlacePartyComboRegisterScreenState
             backgroundColor: Colors.white,
             foregroundColor: Colors.black,
             elevation: 0,
+            actions: [draftSaveAction()],
+            bottom: buildAutoSaveIndicator(),
           ),
           body: Form(
             key: _formKey,
@@ -865,6 +1060,8 @@ class _PlacePartyComboRegisterScreenState
               controller: _scrollCtrl,
               padding: const EdgeInsets.all(16),
               children: [
+                _buildIntroCard(),
+                if (draftMediaNeedsReselect) buildMediaReselectBanner(),
                 SizedBox(key: _basicInfoKey, height: 0),
                 _buildCommonInfo(),
                 SizedBox(key: _photosKey, height: 0),
@@ -911,8 +1108,35 @@ class _PlacePartyComboRegisterScreenState
             ),
           ),
       ],
+      ),
     );
   }
+
+  // ── 섹션: 안내 카드 ──────────────────────────────────────────────────
+
+  /// 이 등록이 어떤 기능인지 알려주는 접이식 안내 — 숙박+파티 등록과 같은
+  /// 컴포넌트를 써서 두 콤보 화면의 안내 모양을 통일한다.
+  Widget _buildIntroCard() => const ComboIntroCard(
+        summary: '🍻 혼술바·술집·카페 등 매장을 운영하면서 파티도 함께 진행하시나요?',
+        sections: [
+          ComboIntroSection(
+            heading: '플레이스+파티 등록은 이런 분들을 위한 기능입니다.',
+            lines: [
+              '🍺 혼술바, 술집, 카페 등 매장을 운영하면서 파티도 함께 진행하는 사장님',
+              '🎉 정기 모임, 번개 모임, 이벤트, DJ 파티 등을 함께 홍보하고 싶은 매장',
+              '📍 플레이스 소개와 파티를 서로 연결하여 더 많은 고객에게 노출하고 싶은 경우',
+            ],
+          ),
+          ComboIntroSection(
+            heading: '이렇게 등록하면',
+            lines: [
+              '🏪 매장 정보와 파티를 한 번에 등록할 수 있어요.',
+              '🔗 플레이스 상세와 파티 상세가 서로 연결되어 노출돼요.',
+              '📈 매장을 홍보하면서 자연스럽게 파티 참가자도 모집할 수 있어요.',
+            ],
+          ),
+        ],
+      );
 
   // ── 섹션: 공통 정보 ──────────────────────────────────────────────────
 

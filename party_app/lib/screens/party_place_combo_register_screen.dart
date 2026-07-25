@@ -9,6 +9,7 @@ import 'package:party_app/models/party_auto_description_style.dart';
 import 'package:party_app/models/party_constants.dart';
 import 'package:party_app/models/party_description_mode.dart';
 import 'package:party_app/models/party_detail_block.dart';
+import 'package:party_app/models/draft_type.dart';
 import 'package:party_app/models/party_detail_decoration_intensity.dart';
 import 'package:party_app/models/party_detail_theme_key.dart';
 import 'package:party_app/models/region_data.dart';
@@ -19,6 +20,7 @@ import 'package:party_app/screens/party_media_picker_screen.dart';
 import 'package:party_app/screens/party_refund_policy_screen.dart';
 import 'package:party_app/services/cloudflare_service.dart';
 import 'package:party_app/utils/age_range_utils.dart';
+import 'package:party_app/utils/draftable_register.dart';
 import 'package:party_app/utils/early_bird.dart';
 import 'package:party_app/utils/refund_policy.dart';
 import 'package:party_app/utils/register_return_signal.dart';
@@ -30,6 +32,7 @@ import 'package:party_app/widgets/party_form/fee_sheet.dart';
 import 'package:party_app/widgets/party_form/gender_capacity_sheet.dart';
 import 'package:party_app/widgets/party_form/party_date_list_sheet.dart';
 import 'package:party_app/widgets/party_form/party_detail_block_draft.dart';
+import 'package:party_app/widgets/combo_intro_card.dart';
 import 'package:party_app/widgets/party_form/party_detail_description_mode_sheet.dart';
 import 'package:party_app/widgets/party_form/party_title_field.dart';
 import 'package:party_app/widgets/party_form/party_type_vibe_sheet.dart';
@@ -66,7 +69,13 @@ const _kAccent = Color(0xFF7C5CBF);
 /// 아코디언(한 번에 하나만 펼침)으로 접어둔다 — 공통 정보/사진은 항상
 /// 보이고, 나머지는 사용자가 탭한 쪽만 펼쳐진다.
 class PartyPlaceComboRegisterScreen extends StatefulWidget {
-  const PartyPlaceComboRegisterScreen({super.key});
+  /// 마이페이지 "임시저장" 목록에서 "이어서 작성"으로 열 때 true.
+  final bool autoRestoreDraft;
+
+  const PartyPlaceComboRegisterScreen({
+    super.key,
+    this.autoRestoreDraft = false,
+  });
 
   @override
   State<PartyPlaceComboRegisterScreen> createState() =>
@@ -74,9 +83,397 @@ class PartyPlaceComboRegisterScreen extends StatefulWidget {
 }
 
 class _PartyPlaceComboRegisterScreenState
-    extends State<PartyPlaceComboRegisterScreen> {
+    extends State<PartyPlaceComboRegisterScreen>
+    with
+        WidgetsBindingObserver,
+        DraftableRegister<PartyPlaceComboRegisterScreen> {
   final _formKey = GlobalKey<FormState>();
   final _scrollCtrl = ScrollController();
+
+  // ── 임시저장 ─────────────────────────────────────────────────────────
+  // 파티 등록 화면과 동일한 방식(1초 debounce 자동저장 + 임시저장 버튼 +
+  // 재진입 복구 팝업)을 공용 믹스인으로 붙인다. 파티 파트의 직렬화는 파티
+  // 등록 화면(_toDraftPayload)과 같은 키·형식을 쓴다.
+
+  /// 룸별 복원 데이터(RoomCard의 initialData로 전달) — _roomKeys와 인덱스가
+  /// 1:1 대응한다. 신규 룸은 null.
+  final List<Map<String, dynamic>?> _roomInitialData = [];
+
+  @override
+  void setState(VoidCallback fn) {
+    markDraftDirty();
+    super.setState(fn);
+  }
+
+  @override
+  DraftType get draftType => DraftType.stayPartyCombo;
+
+  @override
+  bool get draftAutoRestore => widget.autoRestoreDraft;
+
+  @override
+  String get draftTitle => _nameCtrl.text;
+
+  @override
+  String? get draftCoverImageUrl =>
+      _mediaExistingImageUrls.isNotEmpty ? _mediaExistingImageUrls.first : null;
+
+  @override
+  Map<String, dynamic> buildDraftPayload() {
+    return <String, dynamic>{
+      // 공통 정보
+      'name': _nameCtrl.text,
+      'detailAddress': _detailAddressCtrl.text,
+      'contact': _contactCtrl.text,
+      'description': _descCtrl.text,
+      'address': _selectedAddress == null
+          ? null
+          : {
+              'placeName': _selectedAddress!.placeName,
+              'address': _selectedAddress!.address,
+              'roadAddress': _selectedAddress!.roadAddress,
+              'jibunAddress': _selectedAddress!.jibunAddress,
+              'latitude': _selectedAddress!.latitude,
+              'longitude': _selectedAddress!.longitude,
+            },
+      'expandedSection': _expandedSection,
+      // 미디어 — 업로드된 URL은 그대로, 아직 업로드 안 된 로컬 파일은 경로만.
+      'existingImageUrls': _mediaExistingImageUrls,
+      'existingVideoUrl': _mediaExistingVideoUrl,
+      'existingVideoUid': _mediaExistingVideoUid,
+      'existingVideoThumbnailUrl': _mediaExistingVideoThumbnailUrl,
+      'newFilePaths': _mediaNewFiles.map((f) => f.path).toList(),
+      'coverPick': _mediaCoverPick == null
+          ? null
+          : {
+              'existingImageUrl': _mediaCoverPick!.existingImageUrl,
+              'isExistingVideo': _mediaCoverPick!.isExistingVideo,
+              'newImageOrdinal': _mediaCoverPick!.newImageOrdinal,
+              'isNewVideo': _mediaCoverPick!.isNewVideo,
+            },
+      // 숙박 정보
+      'placeType': _placeType,
+      'checkInTime': DraftableRegister.timeToMap(_checkInTime),
+      'checkOutTime': DraftableRegister.timeToMap(_checkOutTime),
+      'commonFacilities': _commonFacilities.toList(),
+      'customCommonFacilities': _customCommonFacilities.toList(),
+      'bookingLink': _bookingLinkCtrl.text,
+      'rooms': _roomDraftList(),
+      // 파티 날짜/시간
+      'dateSlots': _dateSlots
+          .map((s) => {
+                'dateMs': DateTime(s.date.year, s.date.month, s.date.day)
+                    .millisecondsSinceEpoch,
+                'start': DraftableRegister.timeToMap(s.startTime),
+                'end': DraftableRegister.timeToMap(s.endTime),
+                'auto': s.isAutoGenerated,
+              })
+          .toList(),
+      'recruitDeadlineTime':
+          DraftableRegister.timeToMap(_recruitDeadlineTime),
+      'weeklyRepeatEnabled': _weeklyRepeatEnabled,
+      'weeklyRepeatEndDateMs': _weeklyRepeatEndDate?.millisecondsSinceEpoch,
+      'weeklyRepeatCount': _weeklyRepeatCount,
+      'weeklyRepeatExcludedDates': _weeklyRepeatExcludedDates.toList(),
+      // 다차수 라운드
+      'hasMultipleRounds': _hasMultipleRounds,
+      'roundCapacityMode': _roundCapacityMode,
+      'extraRounds': _extraRounds
+          .map((r) => {
+                'id': r.id,
+                'label': r.labelCtrl.text,
+                'time': DraftableRegister.timeToMap(r.time),
+                'capacity': r.capacityCtrl.text,
+                'maleCapacity': r.maleCapacityCtrl.text,
+                'femaleCapacity': r.femaleCapacityCtrl.text,
+                'maleFee': r.maleFeeCtrl.text,
+                'femaleFee': r.femaleFeeCtrl.text,
+              })
+          .toList(),
+      // 성별·인원
+      'genderLimit': _genderLimit,
+      'genderCapacityMode': _genderCapacityMode,
+      'genderMode': _genderMode,
+      'capacityText': _capacityCtrl.text,
+      'maleCapacityText': _maleCapacityCtrl.text,
+      'femaleCapacityText': _femaleCapacityCtrl.text,
+      // 참가비 + 얼리버드
+      'maleFeeText': _maleFeeCtrl.text,
+      'femaleFeeText': _femaleFeeCtrl.text,
+      'earlyBirdEnabled': _earlyBirdEnabled,
+      'earlyBirdPercentText': _earlyBirdPercentCtrl.text,
+      'earlyBirdEndDateMs': _earlyBirdEndDate?.millisecondsSinceEpoch,
+      'earlyBirdEndTime': DraftableRegister.timeToMap(_earlyBirdEndTime),
+      // 환불 규정 · 연령 · 유형
+      'refundPolicy': RefundTier.listToMaps(_refundTiers),
+      'ageRestrictionEnabled': _ageRestrictionEnabled,
+      'minBirthYear': _minBirthYear,
+      'maxBirthYear': _maxBirthYear,
+      'partyTypes': _partyTypes.toList(),
+      'vibes': _vibes.toList(),
+      'tags': _tags,
+      // 상세 소개
+      'introText': _introCtrl.text,
+      'descriptionMode': _descriptionMode.name,
+      'autoDescriptionStyle': _autoDescriptionStyle.toMap(),
+      'detailBlocks': PartyDetailBlock.listToMaps(
+          _detailBlocks.map((d) => d.toBlock()).toList()),
+      'detailBlockLocalFiles': {
+        for (final d in _detailBlocks)
+          if (d.newImageFile != null || d.newVideoFile != null)
+            d.id: {
+              'image': d.newImageFile?.path,
+              'video': d.newVideoFile?.path,
+            },
+      },
+      'detailTheme': _detailTheme.name,
+      'detailDecorationIntensity': _detailDecorationIntensity.name,
+      'detailDecorationVariantSeed': _detailDecorationVariantSeed,
+      // 패키지 옵션
+      'packageBookingEnabled': _packageBookingEnabled,
+      'packagePriceNote': _packagePriceNoteCtrl.text,
+    };
+  }
+
+  /// 객실 목록의 임시저장 스냅샷.
+  ///
+  /// 지금은 "숙박 등록" 아코디언을 접어도 AnimatedCrossFade가 RoomCard를
+  /// 높이 0으로 트리에 남겨두므로 `currentState`가 살아 있다. 다만 복원 직후
+  /// 첫 프레임처럼 아직 안 그려진 순간에는 null이라, 그때는 복원 데이터를
+  /// 쓴다. 마운트돼 있는 동안 읽은 값은 [_roomInitialData]에 계속 덮어써
+  /// 폴백이 항상 최신이게 한다(접기 방식이 바뀌어 실제로 언마운트되더라도
+  /// 편집 내용이 옛 값으로 되돌아가지 않는다).
+  List<Map<String, dynamic>> _roomDraftList() {
+    final rooms = <Map<String, dynamic>>[];
+    for (int i = 0; i < _roomKeys.length; i++) {
+      while (_roomInitialData.length <= i) {
+        _roomInitialData.add(null);
+      }
+      final live = _roomKeys[i].currentState?.getDraftData();
+      if (live != null) _roomInitialData[i] = live;
+      rooms.add(live ?? _roomInitialData[i] ?? const <String, dynamic>{});
+    }
+    return rooms;
+  }
+
+  @override
+  void applyDraftPayload(Map<String, dynamic> p) {
+    String s(String key) => (p[key] as String?) ?? '';
+    _nameCtrl.text = s('name');
+    _detailAddressCtrl.text = s('detailAddress');
+    _contactCtrl.text = s('contact');
+    _descCtrl.text = s('description');
+    final addr = p['address'] as Map?;
+    _selectedAddress = addr == null
+        ? null
+        : AddressResult(
+            placeName: addr['placeName'] as String? ?? '',
+            address: addr['address'] as String? ?? '',
+            roadAddress: addr['roadAddress'] as String? ?? '',
+            jibunAddress: addr['jibunAddress'] as String? ?? '',
+            latitude: (addr['latitude'] as num?)?.toDouble() ?? 0,
+            longitude: (addr['longitude'] as num?)?.toDouble() ?? 0,
+          );
+    _expandedSection = p['expandedSection'] as String?;
+
+    // 미디어
+    _mediaExistingImageUrls =
+        [...((p['existingImageUrls'] as List?)?.cast<String>() ?? const [])];
+    _mediaExistingVideoUrl = p['existingVideoUrl'] as String?;
+    _mediaExistingVideoUid = p['existingVideoUid'] as String?;
+    _mediaExistingVideoThumbnailUrl = p['existingVideoThumbnailUrl'] as String?;
+    bool anyMissing = false;
+    _mediaNewFiles = [];
+    for (final path
+        in (p['newFilePaths'] as List?)?.cast<String>() ?? const []) {
+      if (File(path).existsSync()) {
+        _mediaNewFiles.add(XFile(path));
+      } else {
+        anyMissing = true;
+      }
+    }
+    final coverPick = p['coverPick'] as Map?;
+    _mediaCoverPick = coverPick == null
+        ? null
+        : PartyCoverPick(
+            existingImageUrl: coverPick['existingImageUrl'] as String?,
+            isExistingVideo: coverPick['isExistingVideo'] as bool? ?? false,
+            newImageOrdinal: (coverPick['newImageOrdinal'] as num?)?.toInt(),
+            isNewVideo: coverPick['isNewVideo'] as bool? ?? false,
+          );
+
+    // 숙박 정보
+    _placeType = p['placeType'] as String? ?? ListingConstants.placeTypes.first;
+    _checkInTime = DraftableRegister.timeFromMap(p['checkInTime']);
+    _checkOutTime = DraftableRegister.timeFromMap(p['checkOutTime']);
+    _commonFacilities
+      ..clear()
+      ..addAll((p['commonFacilities'] as List?)?.cast<String>() ?? const []);
+    _customCommonFacilities
+      ..clear()
+      ..addAll(
+          (p['customCommonFacilities'] as List?)?.cast<String>() ?? const []);
+    _bookingLinkCtrl.text = s('bookingLink');
+
+    // 객실 재구성 — 새 GlobalKey + 복원 데이터(initialData)로 다시 그린다.
+    _roomKeys.clear();
+    _roomInitialData.clear();
+    for (final raw in (p['rooms'] as List?) ?? const []) {
+      final m = Map<String, dynamic>.from(raw as Map);
+      if (m['_hasUnsavedImages'] == true) anyMissing = true;
+      _roomKeys.add(GlobalKey<RoomCardState>());
+      _roomInitialData.add(m);
+    }
+
+    // 파티 날짜 슬롯
+    _dateSlots = ((p['dateSlots'] as List?) ?? const [])
+        .map((raw) {
+          final m = raw as Map;
+          final ms = (m['dateMs'] as num?)?.toInt();
+          if (ms == null) return null;
+          final d = DateTime.fromMillisecondsSinceEpoch(ms);
+          return PartyDateSlot(
+            id: newPartyDateSlotId(),
+            date: DateTime(d.year, d.month, d.day),
+            startTime: DraftableRegister.timeFromMap(m['start']),
+            endTime: DraftableRegister.timeFromMap(m['end']),
+            isAutoGenerated: m['auto'] as bool? ?? false,
+          );
+        })
+        .whereType<PartyDateSlot>()
+        .toList();
+    _recruitDeadlineTime =
+        DraftableRegister.timeFromMap(p['recruitDeadlineTime']);
+    _weeklyRepeatEnabled = p['weeklyRepeatEnabled'] as bool? ?? false;
+    final wrMs = (p['weeklyRepeatEndDateMs'] as num?)?.toInt();
+    _weeklyRepeatEndDate =
+        wrMs != null ? DateTime.fromMillisecondsSinceEpoch(wrMs) : null;
+    _weeklyRepeatCount = (p['weeklyRepeatCount'] as num?)?.toInt();
+    _weeklyRepeatExcludedDates = {
+      ...((p['weeklyRepeatExcludedDates'] as List?)?.cast<String>() ?? const [])
+    };
+
+    // 다차수 라운드 — 기존 것을 정리하고 새로 만든다.
+    for (final r in _extraRounds) {
+      r.dispose();
+    }
+    _extraRounds.clear();
+    _hasMultipleRounds = p['hasMultipleRounds'] as bool? ?? false;
+    _roundCapacityMode = p['roundCapacityMode'] as String? ?? 'unified';
+    for (final raw in (p['extraRounds'] as List?) ?? const []) {
+      final m = raw as Map;
+      _extraRounds.add(PartyRoundDraft(
+        id: m['id'] as String?,
+        label: m['label'] as String? ?? '',
+        time: DraftableRegister.timeFromMap(m['time']),
+        capacity: m['capacity'] as String?,
+        maleCapacity: m['maleCapacity'] as String?,
+        femaleCapacity: m['femaleCapacity'] as String?,
+        maleFee: m['maleFee'] as String?,
+        femaleFee: m['femaleFee'] as String?,
+      ));
+    }
+
+    // 성별·인원·참가비
+    _genderLimit = p['genderLimit'] as String? ?? 'all';
+    _genderCapacityMode = p['genderCapacityMode'] as String? ?? 'unlimited';
+    _genderMode = p['genderMode'] as String? ?? '';
+    _capacityCtrl.text = s('capacityText');
+    _maleCapacityCtrl.text = s('maleCapacityText');
+    _femaleCapacityCtrl.text = s('femaleCapacityText');
+    _maleFeeCtrl.text = s('maleFeeText');
+    _femaleFeeCtrl.text = s('femaleFeeText');
+    _earlyBirdEnabled = p['earlyBirdEnabled'] as bool? ?? false;
+    _earlyBirdPercentCtrl.text = s('earlyBirdPercentText');
+    final ebMs = (p['earlyBirdEndDateMs'] as num?)?.toInt();
+    _earlyBirdEndDate =
+        ebMs != null ? DateTime.fromMillisecondsSinceEpoch(ebMs) : null;
+    _earlyBirdEndTime = DraftableRegister.timeFromMap(p['earlyBirdEndTime']);
+
+    _refundTiers = RefundTier.listFromDynamic(p['refundPolicy']);
+    _ageRestrictionEnabled = p['ageRestrictionEnabled'] as bool? ?? false;
+    _minBirthYear =
+        (p['minBirthYear'] as num?)?.toInt() ?? birthYearFromAge(31);
+    _maxBirthYear =
+        (p['maxBirthYear'] as num?)?.toInt() ?? birthYearFromAge(23);
+    _partyTypes
+      ..clear()
+      ..addAll((p['partyTypes'] as List?)?.cast<String>() ?? const []);
+    _vibes
+      ..clear()
+      ..addAll((p['vibes'] as List?)?.cast<String>() ?? const []);
+    _tags = [...((p['tags'] as List?)?.cast<String>() ?? const [])];
+
+    // 상세 소개 — 기존 블록을 정리하고 새로 만든다.
+    _introCtrl.text = s('introText');
+    for (final d in _detailBlocks) {
+      d.dispose();
+    }
+    _detailBlocks = PartyDetailBlock.listFromDynamic(p['detailBlocks'])
+        .map((b) => PartyDetailBlockDraft.fromBlock(b))
+        .toList();
+    final blockFiles = p['detailBlockLocalFiles'] as Map?;
+    if (blockFiles != null) {
+      for (final block in _detailBlocks) {
+        final entry = blockFiles[block.id] as Map?;
+        if (entry == null) continue;
+        final imgPath = entry['image'] as String?;
+        final vidPath = entry['video'] as String?;
+        if (imgPath != null) {
+          if (File(imgPath).existsSync()) {
+            block.newImageFile = XFile(imgPath);
+          } else {
+            anyMissing = true;
+          }
+        }
+        if (vidPath != null) {
+          if (File(vidPath).existsSync()) {
+            block.newVideoFile = XFile(vidPath);
+          } else {
+            anyMissing = true;
+          }
+        }
+      }
+    }
+    _descriptionMode =
+        partyDescriptionModeFromString(p['descriptionMode'] as String?);
+    _autoDescriptionStyle = PartyAutoDescriptionStyle.fromMap(
+        p['autoDescriptionStyle'] as Map<String, dynamic>?);
+    _detailTheme = partyDetailThemeKeyFromString(p['detailTheme'] as String?);
+    _detailDecorationIntensity = partyDetailDecorationIntensityFromString(
+        p['detailDecorationIntensity'] as String?);
+    _detailDecorationVariantSeed =
+        (p['detailDecorationVariantSeed'] as num?)?.toInt() ?? 0;
+
+    _packageBookingEnabled = p['packageBookingEnabled'] as bool? ?? false;
+    _packagePriceNoteCtrl.text = s('packagePriceNote');
+
+    draftMediaNeedsReselect = anyMissing;
+  }
+
+  @override
+  void initState() {
+    super.initState();
+    for (final c in [
+      _nameCtrl,
+      _detailAddressCtrl,
+      _contactCtrl,
+      _descCtrl,
+      _customFacilityCtrl,
+      _bookingLinkCtrl,
+      _capacityCtrl,
+      _maleCapacityCtrl,
+      _femaleCapacityCtrl,
+      _maleFeeCtrl,
+      _femaleFeeCtrl,
+      _earlyBirdPercentCtrl,
+      _introCtrl,
+      _packagePriceNoteCtrl,
+    ]) {
+      c.addListener(markDraftDirty);
+    }
+    initDraft();
+  }
 
   // 섹션별 스크롤 앵커
   final _basicInfoKey = GlobalKey();
@@ -188,6 +585,7 @@ class _PartyPlaceComboRegisterScreenState
 
   @override
   void dispose() {
+    disposeDraft();
     _scrollCtrl.dispose();
     _nameCtrl.dispose();
     _detailAddressCtrl.dispose();
@@ -263,10 +661,14 @@ class _PartyPlaceComboRegisterScreenState
 
   void _addRoom() => setState(() {
     _roomKeys.add(GlobalKey<RoomCardState>());
+    _roomInitialData.add(null);
     _showRoomError = false;
   });
 
-  void _removeRoom(int index) => setState(() => _roomKeys.removeAt(index));
+  void _removeRoom(int index) => setState(() {
+    _roomKeys.removeAt(index);
+    if (index < _roomInitialData.length) _roomInitialData.removeAt(index);
+  });
 
   // ── 편의시설 ─────────────────────────────────────────────────────────
 
@@ -1389,6 +1791,9 @@ class _PartyPlaceComboRegisterScreenState
             .add(roomDataList[i]);
       }
 
+      // 최종 등록 완료 — 숙박+파티 임시저장은 자동 삭제.
+      await deleteCurrentDraft();
+
       if (!mounted) return;
       setState(() {
         _isUploading = false;
@@ -1610,7 +2015,14 @@ class _PartyPlaceComboRegisterScreenState
 
   @override
   Widget build(BuildContext context) {
-    return Stack(
+    return PopScope(
+      canPop: !draftDirty,
+      onPopInvokedWithResult: (didPop, result) async {
+        if (didPop) return;
+        final leave = await confirmLeaveWithDraftSave();
+        if (leave && mounted) Navigator.of(context).pop();
+      },
+      child: Stack(
       children: [
         Scaffold(
           backgroundColor: const Color(0xFFF3F4F6),
@@ -1620,6 +2032,8 @@ class _PartyPlaceComboRegisterScreenState
             backgroundColor: Colors.white,
             foregroundColor: Colors.black,
             elevation: 0,
+            actions: [draftSaveAction()],
+            bottom: buildAutoSaveIndicator(),
           ),
           body: Form(
             key: _formKey,
@@ -1627,6 +2041,8 @@ class _PartyPlaceComboRegisterScreenState
               controller: _scrollCtrl,
               padding: const EdgeInsets.all(16),
               children: [
+                _buildIntroCard(),
+                if (draftMediaNeedsReselect) buildMediaReselectBanner(),
                 SizedBox(key: _basicInfoKey, height: 0),
                 _buildCommonInfo(),
                 SizedBox(key: _photosKey, height: 0),
@@ -1689,8 +2105,26 @@ class _PartyPlaceComboRegisterScreenState
             ),
           ),
       ],
+      ),
     );
   }
+
+  // ── 섹션: 안내 카드 ──────────────────────────────────────────────────
+
+  /// 이 등록이 어떤 기능인지 알려주는 접이식 안내 — 폼을 가리지 않도록
+  /// 기본은 요약 한 줄만 보여준다(플레이스+파티 등록과 같은 컴포넌트).
+  Widget _buildIntroCard() => const ComboIntroCard(
+        summary: '게스트하우스·펜션 등에서 숙박과 파티를 함께 운영하시나요?',
+        sections: [
+          ComboIntroSection(
+            lines: [
+              '🛏️ 객실과 파티 정보를 한 번에 등록할 수 있어요.',
+              '🎉 숙박 이용객에게 진행되는 파티를 함께 소개할 수 있어요.',
+              '🔗 숙박 상세페이지와 파티 상세페이지가 서로 연결돼요.',
+            ],
+          ),
+        ],
+      );
 
   // ── 섹션: 공통 정보 ──────────────────────────────────────────────────
 
@@ -1869,6 +2303,9 @@ class _PartyPlaceComboRegisterScreenState
                 index: i,
                 onRemove: () => _removeRoom(i),
                 getPreviousData: i > 0 ? () => _roomKeys[i - 1].currentState?.getRoomData() : null,
+                // 임시저장에서 복원된 객실이면 그 데이터로 초기화한다(신규는 null).
+                initialData:
+                    i < _roomInitialData.length ? _roomInitialData[i] : null,
               ),
             ),
             OutlinedButton.icon(
