@@ -136,6 +136,9 @@ class _PackageBookingScreenState extends State<PackageBookingScreen> {
       (_activeData['maxCapacity'] as num?)?.toInt() ??
       50;
 
+  // 기준인원 — 예약 화면 인원 섹션에 "기준 X인 / 최대 Y인" 안내로 표시.
+  int get _baseCapacity => (_activeData['capacityMin'] as num?)?.toInt() ?? 1;
+
   int get _pricePerHour => (_activeData['pricePerHour'] as num?)?.toInt() ?? 0;
 
   static int _parseTimeStr(String t) {
@@ -543,6 +546,13 @@ class _PackageBookingScreenState extends State<PackageBookingScreen> {
           const SizedBox(height: 16),
         ],
         _sectionTitle('인원'),
+        Padding(
+          padding: const EdgeInsets.only(top: 2, bottom: 4),
+          child: Text(
+            '기준 $_baseCapacity인 / 최대 $_capacity인',
+            style: const TextStyle(fontSize: 12, color: Colors.black45),
+          ),
+        ),
         const SizedBox(height: 8),
         Row(
           children: [

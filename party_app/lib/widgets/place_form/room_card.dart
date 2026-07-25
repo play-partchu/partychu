@@ -213,6 +213,19 @@ class RoomCardState extends State<RoomCard> {
     super.dispose();
   }
 
+  /// 기준인원/최대 수용 가능 인원 검증 오류 메시지(정상이면 null).
+  /// 기준인원은 비워두면 1로 간주한다(컨트롤러 기본값 '1').
+  String? _capacityErrorText() {
+    final maxText = _capacityMaxCtrl.text.trim();
+    if (maxText.isEmpty) return '최대 수용 가능 인원을 입력해주세요';
+    final minVal = int.tryParse(_capacityMinCtrl.text.trim()) ?? 1;
+    final maxVal = int.tryParse(maxText) ?? 0;
+    if (maxVal < minVal) {
+      return '최대 수용 가능 인원은 기준인원($minVal명)보다 작을 수 없어요';
+    }
+    return null;
+  }
+
   // 부모가 저장 전 유효성 검사 시 호출
   bool validate() {
     bool ok = true;
@@ -220,7 +233,7 @@ class RoomCardState extends State<RoomCard> {
       setState(() => _showNameError = true);
       ok = false;
     }
-    if (_capacityMaxCtrl.text.trim().isEmpty) {
+    if (_capacityErrorText() != null) {
       setState(() => _showCapacityError = true);
       ok = false;
     }
@@ -718,40 +731,52 @@ class RoomCardState extends State<RoomCard> {
         ),
         _label('룸 사진 (최대 10장)'),
         _buildRoomPhotos(),
-        _label('수용 인원 *'),
         Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Expanded(
-              child: TextField(
-                controller: _capacityMinCtrl,
-                keyboardType: TextInputType.number,
-                onChanged: (_) => setState(() => _showCapacityError = false),
-                decoration: _inputDeco('최소'),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  _label('기준인원 *'),
+                  TextField(
+                    controller: _capacityMinCtrl,
+                    keyboardType: TextInputType.number,
+                    inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+                    onChanged: (_) =>
+                        setState(() => _showCapacityError = false),
+                    decoration: _inputDeco('예: 2'),
+                  ),
+                ],
               ),
             ),
-            const Padding(
-              padding: EdgeInsets.symmetric(horizontal: 8),
-              child: Text('~', style: TextStyle(fontSize: 16)),
-            ),
+            const SizedBox(width: 12),
             Expanded(
-              child: TextField(
-                controller: _capacityMaxCtrl,
-                keyboardType: TextInputType.number,
-                onChanged: (_) => setState(() => _showCapacityError = false),
-                decoration: _inputDeco('최대 *').copyWith(
-                  errorText:
-                      _showCapacityError && _capacityMaxCtrl.text.trim().isEmpty
-                      ? '최대 인원을 입력해주세요'
-                      : null,
-                  errorBorder: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(12),
-                    borderSide: const BorderSide(color: Colors.redAccent),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  _label('최대 수용 가능 인원 *'),
+                  TextField(
+                    controller: _capacityMaxCtrl,
+                    keyboardType: TextInputType.number,
+                    inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+                    onChanged: (_) =>
+                        setState(() => _showCapacityError = false),
+                    decoration: _inputDeco('예: 4'),
                   ),
-                ),
+                ],
               ),
             ),
           ],
         ),
+        if (_showCapacityError && _capacityErrorText() != null)
+          Padding(
+            padding: const EdgeInsets.only(top: 6, left: 4),
+            child: Text(
+              _capacityErrorText()!,
+              style: const TextStyle(color: Colors.redAccent, fontSize: 12),
+            ),
+          ),
         _label('예약 방식 *'),
         Wrap(
           spacing: 8,

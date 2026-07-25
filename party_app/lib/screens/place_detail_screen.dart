@@ -1364,7 +1364,7 @@ class _PlaceDetailScreenState extends State<PlaceDetailScreen> {
                       ),
                       const SizedBox(height: 4),
                       Text(
-                        '$capMin ~ $capMax명  ·  ${_fmtPrice(price)} / 시간',
+                        '기준 $capMin인 / 최대 $capMax인  ·  ${_fmtPrice(price)} / 시간',
                         style: const TextStyle(
                           fontSize: 12,
                           color: Colors.black54,
