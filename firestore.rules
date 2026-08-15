@@ -37,22 +37,8 @@ service cloud.firestore {
               userBirth <= partyData.get('maxBirthYear', 9999));
     }
 
-    // 신청자가 수정 가능한 필드 목록 (applicants + 참가자 수 필드)
-    function isApplicantUpdateOnly() {
-      return request.resource.data.diff(resource.data).affectedKeys().hasOnly([
-        'applicants', 'currentParticipants', 'currentMaleCount',
-        'currentFemaleCount', 'people'
-      ]);
-    }
-
-    // 신청자가 applicants 배열에 자신의 uid만 추가하는지 검증
-    // → 타인 uid를 대신 추가하는 변조 방지
-    // resource.data에 applicants 필드가 없는 경우(구 데이터)를 위해 .get() 사용
-    function onlyAddsSelfToApplicants() {
-      let prev = resource.data.get('applicants', []);
-      let added = request.resource.data.applicants.toSet().difference(prev.toSet());
-      return added.hasOnly([uid()]);
-    }
+    // (신청자 직접 쓰기 경로가 제거되면서 isApplicantUpdateOnly /
+    //  onlyAddsSelfToApplicants 헬퍼도 함께 삭제됐다 — parties 규칙 주석 참고.)
 
     // ── users 컬렉션 ───────────────────────────────────────────────────
     // 정책:
@@ -98,9 +84,10 @@ service cloud.firestore {
         !request.resource.data.keys().hasAny([
           'isVerified', 'identityVerified', 'identityVerifiedAt',
           'gender', 'birthYear', 'birthMonth', 'birthDay',
-          'name', 'di', 'ci',
+          'name', 'di', 'ci', 'identityCiHash',
           'verifiedAt', 'verificationProvider', 'phoneNumber',
           'profileCompleted',
+          'role',
           'nicknameLower', 'nameLower', 'emailLower', 'stats',
           'isHost', 'hostSince',
           'activityRoles',
@@ -109,25 +96,46 @@ service cloud.firestore {
           'isTestAccount', 'lastLoginAt'
         ]);
 
-      // 본인확인 전: 인증 잠금 필드 외 모든 필드 수정 가능
-      // 본인확인 후: 인증 잠금 필드는 추가로 수정 불가 (실명·생년월일·성별 등 위변조 방지)
-      // 파생 필드(nicknameLower 등)는 인증 여부와 무관하게 항상 수정 불가
-      // signupProvider 최초 1회 기록은 위 두 경로와 별개로 항상 허용한다.
+      // 인증 잠금 필드 — 본인확인 전후를 가리지 않고 클라이언트가 절대 쓸 수
+      // 없다. Admin SDK(niceAuthResult / niceIntcResult)만 기록한다.
+      //
+      // 예전에는 "아직 미인증이면 잠금 필드도 쓸 수 있다"는 예외가 있었는데,
+      // 그러면 클라이언트가 스스로 identityVerified: true와 ci를 써넣어 NICE
+      // 인증을 통째로 건너뛸 수 있었다 — "1명의 실사용자 = 계정 1개" 정책은
+      // CI가 서버에서만 기록될 때만 성립하므로 이 예외를 제거했다.
+      // (앱은 nickname/profileImageUrl/settlementInfo/signupProvider/
+      //  lastActiveAt만 쓰므로 이 강화로 깨지는 화면은 없다.)
+      function isVerificationFieldChange() {
+        return request.resource.data.diff(resource.data).affectedKeys().hasAny([
+          'isVerified', 'identityVerified', 'identityVerifiedAt',
+          'gender', 'birthYear', 'birthMonth', 'birthDay',
+          'name', 'di', 'ci', 'identityCiHash',
+          'verifiedAt', 'verificationProvider', 'phoneNumber',
+          'profileCompleted'
+        ]);
+      }
+
+      // 권한 필드 — 클라이언트가 절대 쓸 수 없다.
+      //
+      // isAdmin()도, 서버의 adminUpdateMember / backfillIdentityLinks /
+      // adminUpdate* 계열 Function도 전부 users/{uid}.role 하나만 보고 관리자를
+      // 판정한다. 이 필드를 본인 문서에 쓸 수 있으면 누구나 role: 'admin'을
+      // 써넣어 (1) 전 회원 문서(ci·di·실명·연락처 포함)를 읽고 (2) 회원 문서를
+      // 삭제하고 (3) 관리자 전용 Function을 호출할 수 있다 — 서버측 권한 검증이
+      // 읽는 값 자체를 공격자가 통제하게 되므로 검증이 무의미해진다.
+      // 관리자 지정은 Firebase 콘솔/Admin SDK로만 한다(앱은 role을 읽기만 한다).
+      function isPrivilegeFieldChange() {
+        return request.resource.data.diff(resource.data).affectedKeys().hasAny(['role']);
+      }
+
+      // 파생 필드(nicknameLower 등)도 인증 여부와 무관하게 항상 수정 불가.
+      // signupProvider 최초 1회 기록만 위 제한들과 별개로 허용한다.
       allow update: if isSignedIn() && uid() == userId && (
         isSignupProviderFirstWrite() ||
-        (
-          isDerivedFieldOnlyChange() && (
-          (!resource.data.get('isVerified', false) &&
-           !resource.data.get('identityVerified', false)) ||
-          !request.resource.data.diff(resource.data).affectedKeys().hasAny([
-            'isVerified', 'identityVerified', 'identityVerifiedAt',
-            'gender', 'birthYear', 'birthMonth', 'birthDay',
-            'name', 'di', 'ci',
-            'verifiedAt', 'verificationProvider', 'phoneNumber',
-            'profileCompleted'
-          ])
-        )
-      ));
+        (isDerivedFieldOnlyChange() &&
+         !isVerificationFieldChange() &&
+         !isPrivilegeFieldChange())
+      );
 
       allow delete: if isAdmin();
     }
@@ -142,12 +150,16 @@ service cloud.firestore {
     //   - 로그인된 사용자만 생성 가능
     //   - hostId는 반드시 자신의 auth.uid와 일치해야 함 (타인 사칭 방지)
     //
-    //   [수정 — 2가지 경로]
-    //   a) 파티장: hostId·createdAt 제외 모든 필드 수정 가능
-    //      (승인/거절, 모집상태, 파티 정보 수정)
-    //   b) 비파티장(신청자): applicants·참가자 수 필드만 수정 가능,
-    //      AND applicants에 자신의 uid만 추가 가능
-    //      → approvedApplicants, rejectedApplicants, recruitStatus 등 무단 수정 불가
+    //   [수정]
+    //   - 파티장만: hostId·createdAt 제외 모든 필드 수정 가능
+    //     (승인/거절, 모집상태, 파티 정보 수정)
+    //   - 참가 신청은 클라이언트가 직접 쓸 수 없다. 반드시 applyToParty /
+    //     createPendingPackageBooking Function(Admin SDK)을 거쳐야 하며,
+    //     거기서 모집상태·마감시각·정원·연령·성별을 검증하고 참가비
+    //     스냅샷(applications 서브컬렉션)까지 함께 기록한다.
+    //     정기 파티(scheduleType: 'recurring')는 고정 recruitDeadlineAt이
+    //     없으므로 서버가 recurringSchedule로 회차별 마감을 계산해 막는다
+    //     (functions/partySchedule.js).
     //
     //   [삭제]
     //   - 파티장 또는 관리자만 가능
@@ -160,17 +172,16 @@ service cloud.firestore {
       allow create: if isSignedIn() &&
         request.resource.data.hostId == uid();
 
-      allow update: if isSignedIn() && (
-        // [a] 파티장 경로: hostId·createdAt은 변경 불가
-        (resource.data.hostId == uid() &&
-         !request.resource.data.diff(resource.data).affectedKeys()
-           .hasAny(['hostId', 'createdAt'])) ||
-        // [b] 신청자 경로 (심층 방어): applyToParty Functions 배포 후 제거 가능.
-        //     Functions Admin SDK가 이미 서버에서 적격성 검증 + 업데이트를 처리하므로
-        //     클라이언트 직접 쓰기는 이 경로에 도달하지 않음.
-        //     단, 배포 전 전환 기간 또는 Functions 장애 시 fallback으로 유지.
-        (isApplicantUpdateOnly() && onlyAddsSelfToApplicants())
-      );
+      // 파티장 경로만 허용 — hostId·createdAt은 변경 불가.
+      //
+      // 예전에는 신청자가 applicants 배열에 자기 uid만 추가하는 경로를
+      // fallback으로 열어뒀지만, 그 경로는 마감·정원·연령·성별 검증을 전부
+      // 건너뛰고 참가비 기록도 남기지 않아 제거했다. 신청은 반드시
+      // applyToParty(Functions)를 거친다.
+      allow update: if isSignedIn() &&
+        resource.data.hostId == uid() &&
+        !request.resource.data.diff(resource.data).affectedKeys()
+          .hasAny(['hostId', 'createdAt']);
 
       allow delete: if isSignedIn() &&
         (resource.data.hostId == uid() || isAdmin());
@@ -212,10 +223,43 @@ service cloud.firestore {
     // [읽기] 신청자 본인, 해당 파티 호스트, 관리자
     // [쓰기] 클라이언트 직접 쓰기 전면 차단 — Functions Admin SDK 전용
     //        (verificationSessions 컬렉션과 동일한 보호 패턴)
+    //
+    // 호스트 판정은 신청서 자신의 hostId를 **먼저** 본다. 결제가 있었던
+    // 신청서는 거래기록이라 파티를 삭제해도 남는데(contentCleanup.js),
+    // 그때 부모 파티 문서가 없어 get()이 null이 되면 규칙 평가 자체가
+    // 실패해 호스트가 자기 거래내역을 못 읽게 된다. ||는 앞이 참이면
+    // 뒤를 평가하지 않으므로, hostId가 있는 문서는 get()까지 가지 않는다
+    // (get()은 hostId가 없던 옛 신청서용 폴백으로만 남긴다).
     match /parties/{partyId}/applications/{applicationId} {
       allow read: if isSignedIn() && (
         resource.data.uid == uid() ||
+        resource.data.get('hostId', '') == uid() ||
         get(/databases/$(database)/documents/parties/$(partyId)).data.hostId == uid() ||
+        isAdmin()
+      );
+      allow write: if false;
+    }
+
+    // ── applications 컬렉션 그룹 조회 ────────────────────────────────────
+    // 마이페이지 "참가"(개수 뱃지 + 목록)는 collectionGroup('applications')로
+    // 내 uid가 걸린 신청서를 파티 전체에서 한 번에 긁어온다
+    // (my_page_screen.dart의 _MyJoinedPartyList).
+    //
+    // **위의 /parties/{partyId}/applications/{applicationId} 규칙은 컬렉션 그룹
+    // 쿼리에 적용되지 않는다** — Firestore는 중첩 경로로 명시한 규칙을 컬렉션
+    // 그룹 쿼리에 쓰지 않고, 재귀 와일드카드(`/{path=**}/applications/{id}`)로
+    // 따로 선언한 규칙만 본다. 이 규칙이 없어서 참가 조회가 통째로
+    // permission-denied로 떨어졌고, 개수는 0개로 목록은 무한 로딩으로 보였다.
+    //
+    // 권한 범위는 위 규칙과 같다(본인 신청서 · 그 파티 호스트 · 관리자).
+    // 다만 여기서는 경로에 partyId가 없어 부모 파티를 get()으로 되짚을 수
+    // 없으므로, 호스트 판정은 신청서에 저장된 hostId만 쓴다 — hostId가 없던
+    // 옛 신청서를 호스트가 읽는 경로는 위의 문서 경로 규칙이 그대로 담당한다
+    // (두 규칙은 OR로 평가되므로 이 규칙을 추가해도 기존 접근이 좁아지지 않는다).
+    match /{path=**}/applications/{applicationId} {
+      allow read: if isSignedIn() && (
+        resource.data.uid == uid() ||
+        resource.data.get('hostId', '') == uid() ||
         isAdmin()
       );
       allow write: if false;
@@ -357,6 +401,28 @@ service cloud.firestore {
       allow write: if false;
     }
 
+    // ── niceAuthSessions 컬렉션 ─────────────────────────────────────────
+    // NICE 통합인증 v2(niceAuth.js) 전용 세션 저장소. verificationSessions와
+    // 완전히 같은 보호 패턴 — ticket/iterators가 들어 있으므로 클라이언트
+    // 쓰기는 전면 차단하고, 읽기도 본인 문서로만 제한한다.
+    match /niceAuthSessions/{userId} {
+      allow read: if isSignedIn() && uid() == userId;
+      allow write: if false;
+    }
+
+    // ── identityLinks 컬렉션 ────────────────────────────────────────────
+    // "1명의 실사용자 = 파티츄 계정 1개" 정책의 CI ↔ 계정 연결 대장.
+    // 문서 경로: identityLinks/{sha256(ci)} (CI 1개당 문서 1개)
+    //
+    // 클라이언트가 읽을 수 있으면 "이 CI가 이미 가입돼 있는지"를 해시만으로
+    // 조회할 수 있게 되고(개인정보 조회 채널), 쓸 수 있으면 남의 CI를 선점하거나
+    // 자기 링크를 지워 중복 가입을 뚫을 수 있다. 그래서 읽기·쓰기를 모두 막고
+    // Admin SDK(niceAuthResult / niceIntcResult / adminUpdateMember /
+    // backfillIdentityLinks)에서만 다룬다.
+    match /identityLinks/{ciHash} {
+      allow read, write: if false;
+    }
+
     // ── places 컬렉션 ─────────────────────────────────────────────────
     // [읽기] 비로그인 사용자도 목록·상세 조회 가능 (공개 컬렉션)
     // [생성] 로그인된 사용자가 자신의 hostId로만 등록 가능
@@ -445,6 +511,124 @@ service cloud.firestore {
           resource.data.hostId == uid() || isAdmin()
         );
       }
+    }
+
+    // ── orders 컬렉션 (파티샵 상품 주문) ───────────────────────────────
+    // ⚠ 예전에는 이 컬렉션의 규칙이 아예 없었다 — 매칭되는 규칙이 없으면
+    //   기본 거부이므로 클라이언트의 주문 생성은 항상 실패했고, 그 코드는
+    //   결제 검증 없이 status:'paid'를 직접 쓰려 하고 있었다.
+    //
+    // 이제 결제가 걸린 다른 흐름(placeReservationGroups / packageBookings /
+    // placeProductOrders)과 동일하게 **Functions 전용**으로 못박는다. 주문
+    // 생성·확정·취소는 전부 Admin SDK를 쓰는 Cloud Functions에서만 일어나고,
+    // 결제 금액/상태는 서버가 PortOne에 직접 조회해 검증한다. 클라이언트는
+    // 자기 주문(구매자) 또는 자기 샵 주문(판매자)만 읽을 수 있다.
+    match /orders/{orderId} {
+      allow read: if isSignedIn() && (
+        resource.data.buyerId == uid() ||
+        resource.data.sellerId == uid() ||
+        isAdmin()
+      );
+
+      allow write: if false;
+    }
+
+    // ── placeProducts 컬렉션 (플레이스 공통 상품·이용권) ────────────────
+    // 술집·바·카페(events)와 공간대여·숙박(places)이 같은 구조를 공유한다.
+    // 어느 쪽 플레이스인지는 문서의 placeCollection 필드로 구분한다.
+    //
+    // [읽기] 공개 — 플레이스 상세의 '상품·이용권' 목록에 쓰인다.
+    // [생성] 본인 hostId로만. 판매 수량(soldCount)은 반드시 0에서 시작한다.
+    // [수정] 호스트/관리자. 단 soldCount·hostId는 못 바꾼다 — 판매 수량은
+    //        결제 확정 시 Functions만 올리는 값이라, 여기서 손댈 수 있으면
+    //        재고를 되돌려 무한히 팔 수 있게 된다.
+    // [삭제] 한 개라도 팔린 상품은 삭제할 수 없다 — 이미 발급된 이용권이
+    //        가리킬 상품이 사라지면 QR 검증이 불가능해진다. 판매를 멈추려면
+    //        manuallyStopped(판매 중지)를 쓴다.
+    match /placeProducts/{productId} {
+      allow read: if true;
+
+      allow create: if isSignedIn() &&
+        request.resource.data.hostId == uid() &&
+        request.resource.data.soldCount == 0;
+
+      allow update: if isSignedIn() &&
+        (resource.data.hostId == uid() || isAdmin()) &&
+        request.resource.data.soldCount == resource.data.soldCount &&
+        request.resource.data.hostId == resource.data.hostId;
+
+      allow delete: if isSignedIn() &&
+        (resource.data.hostId == uid() || isAdmin()) &&
+        resource.data.soldCount == 0;
+    }
+
+    // ── placeProductOrders 컬렉션 (상품 주문 = QR 이용권) ───────────────
+    // 결제·사용 처리 전 구간이 Functions 전용이다(placeBookings와 같은 정책).
+    // 클라이언트가 직접 쓸 수 있으면 '사용 가능' 상태나 결제 금액을 위조해
+    // 이용권을 무한히 만들거나 되살릴 수 있다.
+    //
+    // [읽기] 구매자 본인, 해당 상품의 판매자(호스트), 관리자.
+    //        사장님이 QR을 스캔해 주문을 확인하는 경로도 이 읽기 권한을 쓴다.
+    // [쓰기] 전면 차단 — createPendingProductOrder / verifyAndConfirmProductOrder
+    //        / cancelProductOrder / redeemProductVoucher / expireStaleProductOrders
+    match /placeProductOrders/{orderId} {
+      allow read: if isSignedIn() && (
+        resource.data.buyerId == uid() ||
+        resource.data.hostId == uid() ||
+        isAdmin()
+      );
+
+      allow write: if false;
+    }
+
+    // ── placeMenus 컬렉션 (매장 메뉴) ────────────────────────────────────
+    // "하이볼 8,000원"처럼 매장에서 시켜 먹는 것만 담는다. 앱에서 결제하는
+    // 이용권은 placeProducts이고, 여기에는 재고·주문·QR이 아예 없다.
+    //
+    // 결제가 걸리지 않으므로 placePromotions와 **완전히 같은 정책**을 쓴다.
+    //
+    // [읽기] 공개 — 플레이스 상세에서 손님에게 보여준다.
+    // [생성] 본인 hostId로만.
+    // [수정·삭제] 호스트 또는 관리자. hostId는 바꿀 수 없다(남의 플레이스
+    //             메뉴로 옮겨 붙이는 걸 막는다).
+    match /placeMenus/{menuId} {
+      allow read: if true;
+
+      allow create: if isSignedIn() &&
+        request.resource.data.hostId == uid();
+
+      allow update: if isSignedIn() &&
+        (resource.data.hostId == uid() || isAdmin()) &&
+        request.resource.data.hostId == resource.data.hostId;
+
+      allow delete: if isSignedIn() &&
+        (resource.data.hostId == uid() || isAdmin());
+    }
+
+    // ── placePromotions 컬렉션 (매장 이벤트·프로모션) ────────────────────
+    // "오늘 혼술 환영", "직장인 할인"처럼 **결제가 없는 홍보**만 담는다.
+    // 결제가 걸리는 내용은 placeProducts로 등록하고, 프로모션에서는
+    // linkedProductIds로 연결만 한다.
+    //
+    // 재고·주문·이용권이 없어 서버 함수를 거칠 이유가 없으므로, 다른 공개
+    // 등록물(events·placeRooms·partyServices)과 같은 단순 정책을 쓴다.
+    //
+    // [읽기] 공개 — 플레이스 상세에서 보여준다.
+    // [생성] 본인 hostId로만.
+    // [수정·삭제] 호스트 또는 관리자. hostId는 바꿀 수 없다(남의 플레이스
+    //             프로모션으로 옮겨 붙이는 걸 막는다).
+    match /placePromotions/{promotionId} {
+      allow read: if true;
+
+      allow create: if isSignedIn() &&
+        request.resource.data.hostId == uid();
+
+      allow update: if isSignedIn() &&
+        (resource.data.hostId == uid() || isAdmin()) &&
+        request.resource.data.hostId == resource.data.hostId;
+
+      allow delete: if isSignedIn() &&
+        (resource.data.hostId == uid() || isAdmin());
     }
 
     // ── events 컬렉션 (이벤트) ────────────────────────────────────────
@@ -536,6 +720,35 @@ service cloud.firestore {
       allow write: if false;
     }
 
+    // ── events/{placeId}/visitSlots 서브컬렉션 (플레이스 방문 예약 — 공개) ───
+    // 무료 방문 예약이 시간대별로 **몇 명 잡혔는지**만 담은 문서다 — 필드는
+    // date/startAt/endAt/capacity/reservedPeople 뿐(placeVisitReservations.js
+    // 참고). 예약자 이름·연락처·요청사항은 전부 placeVisitReservations
+    // (비공개)에만 있다.
+    // [읽기] 개인정보가 없고, 예약 화면이 "이 시간 자리 있나"를 보여주려면
+    //        필요하다 — 장소대여의 reservationSlots와 같은 공개 수준.
+    // [쓰기] createVisitReservation/decideVisitReservation/
+    //        cancelVisitReservation/expireStaleVisitReservations Admin SDK 전용.
+    match /events/{placeId}/visitSlots/{slotId} {
+      allow read: if true;
+      allow write: if false;
+    }
+
+    // ── placeVisitReservations 컬렉션 (플레이스 방문 예약 1건 — 비공개) ──────
+    // 결제가 없는 "방문 요청" 1건 — 유료 좌석 상품(placeProductOrders)이나
+    // 장소대여 공간 예약(placeReservationGroups)과는 별개 기능이다. 예약자
+    // 이름·연락처·요청사항을 담고 있으므로 본인·해당 매장 업주·관리자만 읽는다.
+    // [읽기] 예약자 본인(requesterId), 매장 업주(hostId), 관리자만.
+    // [쓰기] 클라이언트 직접 불가 — placeVisitReservations.js Admin SDK 전용
+    //        (승인 상태나 정원을 클라이언트가 위조할 수 없도록 전면 차단).
+    match /placeVisitReservations/{reservationId} {
+      allow read: if isSignedIn() &&
+        (resource.data.requesterId == uid() ||
+         resource.data.hostId == uid() ||
+         isAdmin());
+      allow write: if false;
+    }
+
     // ── packageBookings 컬렉션 (숙박+파티 패키지 예약 1건 단위 — 비공개) ────
     // placeReservationGroups와 동일한 보호 패턴 — 방 예약 + 파티 신청을
     // 하나로 묶은 패키지 예약 문서. 예약자 이름·연락처·인원·결제금액 등
@@ -583,6 +796,21 @@ service cloud.firestore {
       allow create, update: if isSignedIn() &&
         request.resource.data.userId == uid() &&
         draftId == uid() + '__' + request.resource.data.type;
+    }
+
+    // 알림 — 서버(Cloud Functions)만 쓰고, 본인 것만 읽는다.
+    // 지금은 최소 모집 인원 미달 자동 취소 안내가 여기 쌓인다.
+    // 읽음 표시(read)만 본인이 바꿀 수 있고 내용은 못 고친다.
+    match /notifications/{notificationId} {
+      allow read, delete: if isSignedIn() && resource.data.uid == uid();
+
+      allow update: if isSignedIn() &&
+        resource.data.uid == uid() &&
+        request.resource.data.diff(resource.data).affectedKeys()
+          .hasOnly(['read']);
+
+      // 생성은 서버 전용(Admin SDK는 규칙을 우회한다).
+      allow create: if false;
     }
   }
 }
