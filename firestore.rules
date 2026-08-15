@@ -194,16 +194,31 @@ service cloud.firestore {
     // [삭제] 본인 또는 관리자만
     // [수정] 없음 — 찜은 생성/삭제만 존재, 필드 변경 개념이 없음
     //
-    // read/delete는 resource.data를 절대 참조하지 않고 문서 id(favoriteId)
-    // 자체로 소유권을 판별한다 — 아직 존재하지 않는 문서를 get()/snapshots()로
-    // 읽으면 resource가 null이 되는데, 그 상태에서 resource.data에 접근하면
-    // 규칙 평가 자체가 실패해 존재 여부와 무관하게 항상 PERMISSION_DENIED가
-    // 난다. toggleFavorite()이 매번 get()으로 존재 여부를 먼저 확인하므로,
-    // 이전 버전(resource.data.userId 참조) 규칙에서는 모든 최초 찜 시도가
-    // 이 이유로 항상 실패했다.
+    // ⚠️ 읽기는 get(문서 하나)과 list(컬렉션 쿼리)를 **반드시 나눠야 한다.**
+    // 둘을 read 하나로 묶으면 둘 중 하나는 반드시 깨진다.
+    //
+    // · get  — 문서 id(favoriteId)로만 판별한다. 아직 없는 문서를 get()/
+    //   snapshots()로 읽으면 resource가 null이라, resource.data를 참조하는
+    //   규칙은 평가 자체가 실패해 항상 PERMISSION_DENIED가 난다. 찜 버튼은
+    //   watchFavorited()로 없는 문서를 구독하고 toggleFavorite()도 매번
+    //   get()으로 존재 여부를 먼저 확인하므로, resource.data를 참조하면
+    //   모든 최초 찜 시도가 실패한다.
+    //
+    // · list — 반대로 문서 id로 판별할 수 없다. 컬렉션 쿼리는 "이 쿼리가
+    //   돌려줄 수 있는 문서가 전부 규칙을 통과하는가"로 평가되는데, 쿼리에는
+    //   문서 id 제약이 없어서 favoriteId 패턴 조건을 만족시킬 방법이 없다.
+    //   그래서 read를 id 기반으로 통일했을 때 관심 목록 화면의
+    //   watchFavoritesByType() 쿼리가 통째로 PERMISSION_DENIED가 났다
+    //   ("찜은 눌리는데 관심 목록에는 아무것도 안 뜬다"의 원인). list는
+    //   클라이언트가 이미 where('userId','==',uid)로 거르고 있으므로
+    //   resource.data.userId로 판별한다(list는 실제 결과 문서에 대해
+    //   평가되므로 resource가 null일 수 없다).
     match /favorites/{favoriteId} {
-      allow read: if isSignedIn() &&
+      allow get: if isSignedIn() &&
         (favoriteId.matches(uid() + '_.*') || isAdmin());
+
+      allow list: if isSignedIn() &&
+        (resource.data.userId == uid() || isAdmin());
 
       allow create: if isSignedIn() &&
         request.resource.data.userId == uid() &&
