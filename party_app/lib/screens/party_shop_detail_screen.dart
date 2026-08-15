@@ -629,27 +629,24 @@ class _ProductSheetState extends State<_ProductSheet> {
         appointmentAt:  _scheduledDate,
       );
 
-      // ④ 자동 안내문 예약
-      final autoMsgs = pData['autoMessages'] as Map<String, dynamic>?;
-      final autoText = autoMsgs?[_deliveryMethod!] as String?;
-      if (autoText != null && autoText.isNotEmpty) {
-        final base = _scheduledDate != null
-            ? DateTime(_scheduledDate!.year, _scheduledDate!.month,
-                _scheduledDate!.day, 10, 0)
-            : DateTime.now().add(const Duration(hours: 2));
-        final sendAt = base.subtract(const Duration(hours: 2));
-        await ChatService.schedulePendingAutoMessage(
-          roomId:   roomId,
-          hostId:   sellerId,
-          hostName: sellerName,
-          message:  autoText,
-          sendAt:   sendAt,
+      // ④ 자동 안내문 예약 — 문구(상품의 수령방법별 autoMessages)와 발송 시각은
+      //    서버가 상품 문서를 보고 정한다. 여기서 넘기는 건 "어느 상품의 어느
+      //    수령 방법인지"와 수령 예정일뿐이다.
+      //
+      //    실패해도 주문은 이미 성립했다 — 안내 문구 때문에 결제 결과 안내를
+      //    통째로 놓치면 안 되므로 여기서만 따로 삼킨다.
+      try {
+        await ChatService.scheduleAutoMessage(
+          roomId:         roomId,
+          productId:      widget.productId,
+          deliveryMethod: _deliveryMethod,
+          appointmentAt:  _scheduledDate,
         );
-      }
+      } catch (_) {}
 
       if (!mounted) { return; }
       Navigator.pop(context); // 시트 닫기
-      _showSuccessDialog(context, roomId, sellerName, productName);
+      _showSuccessDialog(context, roomId, sellerName, pending.paymentStatus);
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(

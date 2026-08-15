@@ -27,8 +27,10 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
   @override
   void initState() {
     super.initState();
-    // 입장 시 자동발송 대기 메시지 체크
-    ChatService.flushPendingAutoMessages(widget.roomId);
+    // 입장 시 자동발송 대기 메시지 체크 — 서버가 발송하고, 결과는 메시지
+    // 스트림으로 알아서 들어온다. 실패해도 대화 자체는 열려야 하므로 삼킨다
+    // (다음 입장 때 다시 시도된다).
+    ChatService.flushPendingAutoMessages(widget.roomId).catchError((_) {});
   }
 
   @override

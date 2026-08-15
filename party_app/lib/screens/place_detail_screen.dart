@@ -699,25 +699,12 @@ class _PlaceDetailScreenState extends State<PlaceDetailScreen> {
         appointmentAt: _selectedDate,
       );
 
-      // 자동발송 등록: 장소에 autoMessage가 설정된 경우
-      final autoText = widget.data['autoMessage'] as String?;
-      if (autoText != null && autoText.isNotEmpty && _selectedDate != null) {
-        final appt = _selectedDate!;
-        final sendAt = DateTime(
-          appt.year,
-          appt.month,
-          appt.day,
-          10,
-          0,
-        ).subtract(const Duration(hours: 2));
-        await ChatService.schedulePendingAutoMessage(
-          roomId: roomId,
-          hostId: hostId,
-          hostName: hostName,
-          message: autoText,
-          sendAt: sendAt,
-        );
-      }
+      // 자동발송 등록 — 장소에 autoMessage가 설정돼 있으면 이용일 아침에 나간다.
+      // 문구와 발송 시각 판단은 서버 몫이고, 앱은 이용일만 알려준다.
+      await ChatService.scheduleAutoMessage(
+        roomId:        roomId,
+        appointmentAt: _selectedDate,
+      );
     } catch (_) {
       // 채팅방 생성 실패해도 예약 완료는 유지
     }

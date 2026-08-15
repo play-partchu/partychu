@@ -1,7 +1,11 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:cloud_functions/cloud_functions.dart';
 
 class ChatService {
   static final _db = FirebaseFirestore.instance;
+
+  static FirebaseFunctions get _fn =>
+      FirebaseFunctions.instanceFor(region: 'asia-northeast3');
 
   // ── 채팅방 생성 또는 기존 채팅방 반환 ──────────────────────────────
   // 동일한 (hostId, guestId, relatedType, relatedId) 조합이면 재사용
@@ -50,12 +54,16 @@ class ChatService {
   }
 
   // ── 메시지 전송 ──────────────────────────────────────────────────
+  //
+  // 여기는 **사람이 직접 친 말**만 지나간다. senderId는 언제나 보내는 본인의
+  // uid여야 하고, 규칙이 그것을 못 박는다(firestore.rules의 messages create).
+  // 호스트 이름으로 나가는 자동 안내는 이 경로를 쓰지 않는다 — 서버에서만
+  // 만들어진다(chatAutoMessages.js).
   static Future<void> sendMessage({
     required String roomId,
     required String senderId,
     required String senderName,
     required String text,
-    bool isAuto = false,
   }) async {
     final batch = _db.batch();
 
@@ -68,7 +76,7 @@ class ChatService {
       'senderId':   senderId,
       'senderName': senderName,
       'text':       text,
-      'isAuto':     isAuto,
+      'isAuto':     false,
       'createdAt':  FieldValue.serverTimestamp(),
     });
 
@@ -81,49 +89,40 @@ class ChatService {
     await batch.commit();
   }
 
-  // ── 자동발송 예약 등록 ──────────────────────────────────────────
-  static Future<void> schedulePendingAutoMessage({
+  // ── 자동 안내 예약 (서버 전용) ──────────────────────────────────
+  //
+  // 예전에는 앱이 pendingAutoMessages 문서를 직접 만들고, 채팅방에 들어갈 때
+  // **호스트의 uid를 senderId로 박아** 메시지를 대신 썼다. 그래서 규칙이
+  // senderId를 uid()로 못 박지 못했고, 참가자끼리 서로를 사칭할 수 있었다.
+  //
+  // 이제 앱은 roomId만 넘긴다. 보내는 사람도, 문구 원문도, 발송 시각도 전부
+  // 서버가 방 문서와 원본 글에서 되짚어 정한다(functions/chatAutoMessages.js).
+  // pendingAutoMessages는 서버 전용 컬렉션이라 앱에서 읽지도 쓰지도 못한다.
+  //
+  // [productId]·[deliveryMethod]·[appointmentAt]은 파티샵처럼 같은 방에서
+  // 주문마다 안내가 갈리는 경우에만 필요하다 — "어느 상품의 어느 수령 방법"인지
+  // 고르는 값일 뿐, 누구 이름으로 나갈지에는 영향을 주지 않는다.
+  static Future<void> scheduleAutoMessage({
     required String roomId,
-    required String hostId,
-    required String hostName,
-    required String message,
-    required DateTime sendAt,
+    String? productId,
+    String? deliveryMethod,
+    DateTime? appointmentAt,
   }) async {
-    await _db.collection('pendingAutoMessages').add({
-      'roomId':    roomId,
-      'hostId':    hostId,
-      'hostName':  hostName,
-      'message':   message,
-      'sendAt':    Timestamp.fromDate(sendAt),
-      'sent':      false,
-      'createdAt': FieldValue.serverTimestamp(),
+    await _fn.httpsCallable('scheduleChatAutoMessage').call<void>({
+      'roomId':          roomId,
+      'productId':       productId,
+      'deliveryMethod':  deliveryMethod,
+      'appointmentAtMs': appointmentAt?.millisecondsSinceEpoch,
     });
   }
 
-  // ── 자동발송 실행 (채팅방 입장 시 체크) ─────────────────────────
-  // pendingAutoMessages 중 sendAt <= now && sent == false 인 것을 발송
+  // ── 자동 안내 발송 (채팅방 입장 시 체크) ────────────────────────
+  // 발송 시각이 지난 예약을 서버가 호스트 이름으로 내보낸다. 실제 쓰기는 전부
+  // 서버에서 일어나고, 앱은 방을 열었다는 신호만 준다.
   static Future<void> flushPendingAutoMessages(String roomId) async {
-    final now   = Timestamp.now();
-    final snap  = await _db
-        .collection('pendingAutoMessages')
-        .where('roomId', isEqualTo: roomId)
-        .where('sent', isEqualTo: false)
-        .get();
-
-    for (final doc in snap.docs) {
-      final d      = doc.data();
-      final sendAt = d['sendAt'] as Timestamp;
-      if (sendAt.compareTo(now) > 0) continue; // 아직 시간 안 됨
-
-      await sendMessage(
-        roomId:     roomId,
-        senderId:   d['hostId']   as String,
-        senderName: d['hostName'] as String,
-        text:       d['message']  as String,
-        isAuto:     true,
-      );
-      await doc.reference.update({'sent': true});
-    }
+    await _fn.httpsCallable('flushChatAutoMessages').call<void>({
+      'roomId': roomId,
+    });
   }
 
   // ── 채팅방 실시간 스트림 ─────────────────────────────────────────
