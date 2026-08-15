@@ -66,53 +66,80 @@ class _RefundRequestsScreenState extends State<RefundRequestsScreen> {
   }) async {
     final account = data['account'] as Map<String, dynamic>?;
     final label = reject ? '반려' : '환불 완료';
+    // 반려 사유는 **필수**다 — 참가자는 이 문구만 보고 무엇을 고쳐 다시
+    // 내야 할지 판단한다. 서버도 빈 사유를 거절한다.
+    final reasonCtrl = TextEditingController();
     final ok = await showDialog<bool>(
       context: context,
-      builder: (ctx) => AlertDialog(
-        title: Text('$label 처리'),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(
-              reject
-                  ? '이 환불 요청을 반려할까요?\n신청자에게는 환불 대기로 남습니다.'
-                  : '아래 계좌로 송금을 마쳤나요?\n완료 처리하면 되돌릴 수 없습니다.',
-              style: const TextStyle(height: 1.5),
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setLocal) => AlertDialog(
+          title: Text('$label 처리'),
+          content: SizedBox(
+            width: 420,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  reject
+                      ? '이 환불 요청을 반려할까요?\n'
+                            '신청자에게 사유가 그대로 전달되고, 계좌를 고쳐 다시 낼 수 있습니다.'
+                      : '아래 계좌로 송금을 마쳤나요?\n완료 처리하면 되돌릴 수 없습니다.',
+                  style: const TextStyle(height: 1.5),
+                ),
+                const SizedBox(height: 12),
+                Text(
+                  '${_won(data['refundAmount'])}  ·  '
+                  '${account?['bankName'] ?? '-'} '
+                  '${account?['accountNumber'] ?? '-'} '
+                  '(${account?['accountHolder'] ?? '-'})',
+                  style: const TextStyle(fontWeight: FontWeight.bold),
+                ),
+                if (reject) ...[
+                  const SizedBox(height: 14),
+                  TextField(
+                    controller: reasonCtrl,
+                    autofocus: true,
+                    maxLines: 2,
+                    decoration: const InputDecoration(
+                      labelText: '반려 사유 (필수)',
+                      hintText: '예: 예금주가 신청자 본인과 달라요',
+                      border: OutlineInputBorder(),
+                    ),
+                    onChanged: (_) => setLocal(() {}),
+                  ),
+                ],
+              ],
             ),
-            const SizedBox(height: 12),
-            Text(
-              '${_won(data['refundAmount'])}  ·  '
-              '${account?['bankName'] ?? '-'} '
-              '${account?['accountNumber'] ?? '-'} '
-              '(${account?['accountHolder'] ?? '-'})',
-              style: const TextStyle(fontWeight: FontWeight.bold),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(ctx, false),
+              child: const Text('취소'),
+            ),
+            ElevatedButton(
+              onPressed: (reject && reasonCtrl.text.trim().isEmpty)
+                  ? null
+                  : () => Navigator.pop(ctx, true),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: reject ? Colors.grey : AdminTheme.accent,
+                foregroundColor: Colors.white,
+              ),
+              child: Text(label),
             ),
           ],
         ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx, false),
-            child: const Text('취소'),
-          ),
-          ElevatedButton(
-            onPressed: () => Navigator.pop(ctx, true),
-            style: ElevatedButton.styleFrom(
-              backgroundColor: reject ? Colors.grey : AdminTheme.accent,
-              foregroundColor: Colors.white,
-            ),
-            child: Text(label),
-          ),
-        ],
       ),
     );
+    final reason = reasonCtrl.text.trim();
+    reasonCtrl.dispose();
     if (ok != true) return;
 
     setState(() => _busy.add(id));
     try {
       await FirebaseFunctions.instanceFor(region: 'asia-northeast3')
           .httpsCallable('completeRefundRequest')
-          .call({'requestId': id, 'reject': reject});
+          .call({'requestId': id, 'reject': reject, 'memo': reason});
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(

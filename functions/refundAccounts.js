@@ -28,11 +28,19 @@ const admin = require('firebase-admin');
 
 
 
-/** 환불 요청 상태 — 자동 송금이 없으므로 운영자가 손으로 넘긴다. */
+/**
+ * 환불 요청 상태 — 자동 송금이 없으므로 운영자가 손으로 넘긴다.
+ *
+ * rejected는 **막다른 길이 아니다**: 계좌를 잘못 적어 반려된 참가자가 계좌를
+ * 고쳐 다시 낼 수 있어야 한다. 그 재제출은 기존 문서를 덮어쓰지 않고
+ * **새 요청 문서**로 만든다(resubmittedFrom으로 앞 건을 가리킨다) — 반려된
+ * 요청의 계좌 사본이 조용히 바뀌면 "어느 계좌로 보내려다 반려됐는지"가
+ * 사라져 이력을 추적할 수 없다.
+ */
 const REFUND_REQUEST_STATUS = {
   requested: 'requested', // 접수됨 — 운영자 확인 대기
   completed: 'completed', // 송금 완료
-  rejected: 'rejected', // 반려(중복·오입력 등)
+  rejected: 'rejected', // 반려 — 참가자가 계좌를 고쳐 재제출할 수 있다
 };
 
 /**
@@ -84,6 +92,10 @@ function buildRefundRequest({
   account,
   hostId = null,
   title = null,
+  /** 반려된 앞 요청을 고쳐 다시 낸 것이면 그 문서 id. 이력 추적용. */
+  resubmittedFrom = null,
+  /** 재제출 회차 — 처음 접수는 1. */
+  attempt = 1,
 }) {
   return {
     requesterId,
@@ -96,10 +108,13 @@ function buildRefundRequest({
     // 요청 시점의 계좌 사본 — 사용자가 나중에 계좌를 바꿔도 이 값은 그대로다.
     account: { ...account },
     status: REFUND_REQUEST_STATUS.requested,
+    resubmittedFrom,
+    attempt,
     createdAt: admin.firestore.FieldValue.serverTimestamp(),
     completedAt: null,
     completedBy: null,
     adminMemo: null,
+    rejectedReason: null,
   };
 }
 
