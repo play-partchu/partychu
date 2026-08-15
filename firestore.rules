@@ -442,15 +442,28 @@ service cloud.firestore {
     // [읽기] 비로그인 사용자도 목록·상세 조회 가능 (공개 컬렉션)
     // [생성] 로그인된 사용자가 자신의 hostId로만 등록 가능
     // [수정·삭제] 장소 호스트 또는 관리자만 가능
+    // ⚠ 이 문서는 **누구나 읽는다**(손님이 장소 상세를 보려면 열려 있어야
+    //   한다). 그래서 여기에는 개인 계좌 같은 비공개 정보를 절대 두지 않는다.
+    //
+    //   예전에는 장소 등록 폼이 payoutAccount{bank, accountNumber,
+    //   accountHolder}를 이 문서에 저장했다 — 호스트의 은행·계좌번호·예금주가
+    //   비로그인 사용자에게까지 그대로 공개되고 있었다. 정산계좌는
+    //   users/{uid}.settlementInfo(본인·관리자만 read)로 옮겼고, 아래 조건으로
+    //   이 문서에 계좌가 **다시 들어오는 것 자체를** 막는다.
+    function hasNoPayoutAccount() {
+      return !request.resource.data.keys().hasAny(['payoutAccount']);
+    }
+
     match /places/{placeId} {
       allow read: if true;
 
       allow create: if isSignedIn() &&
-        request.resource.data.hostId == uid();
+        request.resource.data.hostId == uid() &&
+        hasNoPayoutAccount();
 
-      allow update: if isSignedIn() && (
-        resource.data.hostId == uid() || isAdmin()
-      );
+      allow update: if isSignedIn() &&
+        (resource.data.hostId == uid() || isAdmin()) &&
+        hasNoPayoutAccount();
 
       allow delete: if isSignedIn() && (
         resource.data.hostId == uid() || isAdmin()
@@ -902,6 +915,27 @@ service cloud.firestore {
         // 보낸 말은 고치거나 지울 수 없다.
         allow update, delete: if false;
       }
+    }
+
+    // ── refundRequests (환불 요청 큐) ───────────────────────────────────────
+    // 참가자가 무통장입금 건을 취소해 **돌려줄 돈이 생겼을 때** 서버가 만드는
+    // 문서. 자동 송금이 없어 운영자가 손으로 보내고, 보낸 뒤 상태를 넘긴다.
+    //
+    // 문서 안에는 **참가자의 환불계좌 사본**(은행·계좌번호·예금주)이 들어 있다.
+    // 그래서 읽기를 본인과 관리자로만 좁힌다 — 호스트도 남의 계좌를 볼 이유가
+    // 없다(정산은 파티츄가 하지 호스트가 참가자에게 직접 보내지 않는다).
+    //
+    // 쓰기는 전부 서버(Admin SDK)다: 접수는 cancelApplication이, 완료/반려는
+    // completeRefundRequest가 한다. 클라이언트가 쓸 수 있으면 환불액이나
+    // 처리 상태를 스스로 조작할 수 있다.
+    match /refundRequests/{requestId} {
+      allow get: if isSignedIn() &&
+        (resource.data.requesterId == uid() || isAdmin());
+      // 목록은 "내 것만" 또는 관리자 전체. 필터 없는 조회는 여기서 걸러진다.
+      allow list: if isSignedIn() &&
+        (resource.data.requesterId == uid() || isAdmin());
+
+      allow create, update, delete: if false;
     }
 
     // ── pendingAutoMessages (자동 안내 발송 대기열) ─────────────────────────
