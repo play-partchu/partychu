@@ -1,9 +1,7 @@
 import 'package:flutter/material.dart';
 
 import 'package:party_app/screens/chat_room_screen.dart';
-import 'package:party_app/screens/my_visit_reservations_screen.dart';
 import 'package:party_app/screens/party_detail_screen.dart';
-import 'package:party_app/screens/visit_reservation_manage_screen.dart';
 
 /// 알림 하나가 가리키는 화면을 고르는 **단 하나의 규칙**.
 ///
@@ -37,12 +35,14 @@ Widget? notificationTarget(Map<String, dynamic> data) {
   }
 
   // ── 플레이스 방문 예약 ──────────────────────────────────────────────
-  // 업주에게 간 알림('host')은 승인 화면으로, 이용자 알림은 내 예약으로.
-  if (type.startsWith('visit_reservation')) {
-    return read('role') == 'host'
-        ? const VisitReservationManageScreen()
-        : const MyVisitReservationsScreen();
-  }
+  // 갈 화면(내 방문 예약 · 예약 승인)이 아직 이 트리에 없다. 여기서 그 화면을
+  // 이름으로 부르는 순간 빌드가 깨진다 — 지연 import도 컴파일 시점에 파일이
+  // 있어야 하므로 우회할 방법이 없다. 그래서 지금은 갈 곳 없음으로 두고 부르는
+  // 쪽의 기본 처리에 맡긴다(푸시는 알림함을 열고, 알림함은 탭을 막는다).
+  //
+  // 화면이 들어오면 여기를 role로 가르는 분기로 되살린다 — 업주에게 간
+  // 알림('host')은 승인 화면으로, 이용자 알림은 내 방문 예약으로.
+  if (type.startsWith('visit_reservation')) return null;
 
   // ── 그 밖의 파티 알림 ───────────────────────────────────────────────
   final partyId = read('partyId');
