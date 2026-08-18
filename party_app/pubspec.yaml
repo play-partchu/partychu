@@ -35,6 +35,16 @@ dependencies:
   firebase_auth: ^5.3.1
   cloud_firestore: ^5.4.4
   cloud_functions: ^5.1.3
+  # 푸시 알림 — 토큰 발급/갱신과 메시지 수신(firebase_messaging), 앱이 열려
+  # 있을 때의 알림 표시(flutter_local_notifications), 권한 4상태 구분과
+  # 시스템 설정 열기(permission_handler).
+  #
+  # firebase_messaging만으로도 권한을 요청할 수는 있지만 "거부"와 "다시 묻지
+  # 않음"을 가려내지 못한다 — 그 둘을 구분해야 설정앱으로 보낼지, 다시 물을지
+  # 정할 수 있어서 permission_handler를 함께 쓴다.
+  firebase_messaging: ^15.1.3
+  flutter_local_notifications: ^18.0.1
+  permission_handler: ^11.3.1
   cupertino_icons: ^1.0.8
   hugeicons: ^1.1.7
   google_sign_in: ^6.2.1
@@ -63,6 +73,7 @@ dependencies:
   video_trimmer: ^5.0.0
   flutter_web_plugins:
     sdk: flutter
+  app_settings: ^9.0.0
   # The following adds the Cupertino Icons font to your application.
   # Use with the CupertinoIcons class for iOS style icons.
 

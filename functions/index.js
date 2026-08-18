@@ -61,6 +61,17 @@ Object.assign(exports, require('./packageBookings'));
 // 구조분해로만 참조 — Object.assign(exports,...) 대상은 Cloud Functions만).
 Object.assign(exports, require('./memberManagement'));
 Object.assign(exports, require('./crmExportFunction'));
+
+// 푸시 토큰(기기) 등록/해제 — users/{uid}/devices 서브컬렉션은 규칙이
+// 클라이언트 쓰기를 막아두었고, 계정 전환 시 "다른 사용자 밑에 남은 같은 토큰"을
+// 지우려면 서버 권한이 필요하다. 자세한 배경은 pushTokens.js 상단 주석.
+Object.assign(exports, require('./pushTokens'));
+
+// 알림 문서/채팅 메시지를 실제 푸시로 바꾸는 트리거. 알림을 만드는 쪽에 발송
+// 호출을 심지 않고 문서 생성 트리거로 받는 이유(트랜잭션 재시도 중복 발송)는
+// pushDispatch.js 상단 주석 참고.
+Object.assign(exports, require('./pushDispatch'));
+
 const {
   logUserActivity,
   addActivityRole,

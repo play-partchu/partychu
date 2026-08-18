@@ -16,6 +16,7 @@ import 'package:party_app/admin/admin_app.dart';
 import 'package:party_app/screens/main_screen.dart';
 import 'package:party_app/services/analytics_service.dart';
 import 'package:party_app/services/deep_link_service.dart';
+import 'package:party_app/services/push_notification_service.dart';
 import 'package:party_app/utils/user_session.dart';
 import 'package:party_app/widgets/app_update_gate.dart';
 
@@ -71,6 +72,21 @@ void main() async {
   if (!kIsWeb) {
     FlutterNativeSplash.remove();
   }
+
+  // 이미 로그인된 사용자의 기기를 다시 등록한다.
+  //
+  // 토큰 등록은 로그인 성공 시점에만 걸려 있는데, 세션이 남아 있으면 앱을
+  // 다시 켜도 그 지점을 지나지 않는다. 그래서 로그인 당시 등록이 실패했다면
+  // (오프라인·서버 오류) **다시 로그인하기 전까지 영영 복구되지 않는다.**
+  // 여기서 한 번 더 부르면 다음 실행에서 저절로 복구된다.
+  //
+  // 권한이 없으면 registerForUser가 아무것도 하지 않으므로 팝업은 뜨지 않고,
+  // 문서 id가 토큰이라 재등록해도 문서는 하나로 합쳐진다(lastSeenAt만 갱신).
+  // await하지 않는 이유는 등록 실패나 지연이 앱 시작을 막으면 안 되기 때문.
+  if (!kIsWeb && FirebaseAuth.instance.currentUser != null) {
+    unawaited(PushNotificationService.registerForUser());
+  }
+
   runApp(const MyApp());
 }
 
@@ -114,6 +130,11 @@ class _AuthGateState extends State<_AuthGate> {
     // 로그인 여부와 무관하게 파티 상세는 누구나 볼 수 있어, 로딩 화면 위에서든
     // 메인 화면 위에서든 링크가 도착하는 즉시 처리할 수 있도록 바로 등록한다.
     DeepLinkService.init(navigatorKey);
+    // 푸시 수신 준비(채널 생성·포그라운드 표시·탭 이동). 링크와 같은 자리에
+    // 거는 이유도 같다 — 알림을 눌러 들어온 사용자는 로그인 복원이 끝나기 전에
+    // 이미 화면을 기다리고 있고, 이동은 로딩 화면 위로도 얹을 수 있어야 한다.
+    // 권한을 묻지는 않는다(그건 PushPermissionGate가 맥락이 생겼을 때 한다).
+    unawaited(PushNotificationService.initMessaging(navigatorKey));
   }
 
   Future<void> _init() async {

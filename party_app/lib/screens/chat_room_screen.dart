@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:party_app/services/chat_service.dart';
+import 'package:party_app/services/push_notification_service.dart';
+import 'package:party_app/services/push_permission_gate.dart';
 import 'package:party_app/utils/user_session.dart';
 
 class ChatRoomScreen extends StatefulWidget {
@@ -31,10 +33,32 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
     // 스트림으로 알아서 들어온다. 실패해도 대화 자체는 열려야 하므로 삼킨다
     // (다음 입장 때 다시 시도된다).
     ChatService.flushPendingAutoMessages(widget.roomId).catchError((_) {});
+
+    // 이 방을 보고 있는 동안에는 이 방의 푸시를 그리지 않는다 — 지금 읽고 있는
+    // 메시지가 알림으로 또 뜨는 건 잡음이다. 서버는 누가 방을 열어뒀는지 알 수
+    // 없어 그냥 보내므로, 걸러내는 건 앱의 몫이다.
+    PushNotificationService.activeChatRoomId = widget.roomId;
+
+    // 채팅방에 들어온 지금이 "알림이 왜 필요한지" 가장 잘 이해되는 자리다 —
+    // 상대의 답장을 기다리는 시점이기 때문. 첫 프레임 뒤로 미루는 이유는
+    // initState 시점의 context로는 bottom sheet를 띄울 수 없어서다.
+    //
+    // 이미 허용했거나 최근에 '나중에'를 누른 사람에게는 아무것도 뜨지 않는다
+    // (PushPermissionGate가 판단한다).
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      PushPermissionGate.ensure(context, PushPromptReason.chat);
+    });
   }
 
   @override
   void dispose() {
+    // 방을 나가면 다시 알림을 받아야 한다. 다른 방이 이미 열려 있다면(알림을
+    // 눌러 새 방으로 이동한 직후 이 방이 정리되는 경우) 그 방의 표시를 지우지
+    // 않도록 내 방일 때만 되돌린다.
+    if (PushNotificationService.activeChatRoomId == widget.roomId) {
+      PushNotificationService.activeChatRoomId = null;
+    }
     _textCtrl.dispose();
     _scrollCtrl.dispose();
     super.dispose();

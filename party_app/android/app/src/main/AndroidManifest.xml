@@ -6,6 +6,10 @@
     <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION"/>
     <!-- 프로필 사진 촬영(카메라로 원형 크롭) 기능에 필요 -->
     <uses-permission android:name="android.permission.CAMERA"/>
+    <!-- Android 13(API 33)부터 알림은 런타임 권한이다. 이 선언이 없으면
+         권한 요청 자체가 즉시 거부되고 푸시가 조용히 사라진다. 12 이하에서는
+         선언만 있고 요청은 일어나지 않는다(설치 시 자동 허용). -->
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS"/>
     <!-- 카메라가 없는 기기(태블릿 등)도 스토어에서 제외되지 않도록 필수 아님으로 선언 -->
     <uses-feature android:name="android.hardware.camera" android:required="false"/>
 
@@ -13,6 +17,14 @@
         android:label="@string/app_name"
         android:name="${applicationName}"
         android:icon="@mipmap/ic_launcher">
+
+        <!-- 앱이 백그라운드/종료 상태일 때 시스템이 알림을 그릴 채널.
+             이 채널을 미리 만들어두지 않으면 Android 8+ 에서 알림이 기본
+             채널로 떨어져 사용자가 종류별로 끌 수 없다. 채널 자체는
+             PushNotificationService가 앱 시작 시 같은 id로 생성한다. -->
+        <meta-data
+            android:name="com.google.firebase.messaging.default_notification_channel_id"
+            android:value="partychu_default" />
 
         <meta-data
             android:name="com.naver.maps.map.CLIENT_ID"

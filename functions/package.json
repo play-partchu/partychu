@@ -3,7 +3,8 @@
   "description": "Cloud Functions for partychu",
   "scripts": {
     "deploy": "firebase deploy --only functions",
-    "logs": "firebase functions:log"
+    "logs": "firebase functions:log",
+    "check:push": "node pushNotifications.selfcheck.js"
   },
   "engines": {
     "node": "20"
