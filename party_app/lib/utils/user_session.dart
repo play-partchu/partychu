@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/foundation.dart';
+import 'package:party_app/services/push_notification_service.dart';
 
 class UserSession {
   static String _userId = '';
@@ -68,6 +69,11 @@ class UserSession {
 
   /// Firebase Auth + Firestore 세션 초기화 (로그아웃)
   static Future<void> signOut() async {
+    // 이 기기를 계정에서 먼저 떼어낸다 — **signOut보다 먼저** 해야 한다.
+    // 해제는 로그인 상태에서만 부를 수 있는 onCall이라, Firebase 세션이 끊긴
+    // 뒤에 부르면 unauthenticated로 실패해 토큰이 그대로 남는다(= 로그아웃한
+    // 기기로 알림이 계속 간다).
+    await PushNotificationService.unregisterForUser();
     await FirebaseAuth.instance.signOut();
     clear();
   }

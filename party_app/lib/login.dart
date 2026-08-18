@@ -14,6 +14,7 @@ import 'package:cloud_functions/cloud_functions.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:party_app/utils/user_session.dart';
 import 'package:party_app/utils/last_login_method.dart';
+import 'package:party_app/services/push_notification_service.dart';
 import 'package:party_app/screens/identity_verification_screen.dart';
 import 'package:party_app/widgets/web_frame.dart';
 
@@ -99,6 +100,12 @@ class _LoginPageState extends State<LoginPage> {
     debugPrint('[Login] _onLoginSuccess uid=${UserSession.userId}');
 
     unawaited(_recordLogin());
+
+    // 이 기기를 이 계정의 푸시 대상으로 등록한다. 권한이 아직 없으면 아무것도
+    // 하지 않으므로(PushNotificationService.registerForUser) 여기서 권한
+    // 팝업이 뜨지는 않는다 — 알림 권한은 "왜 필요한지 아는 시점"에 따로
+    // 요청한다. 등록 실패가 로그인을 막지 않도록 기다리지 않는다.
+    unawaited(PushNotificationService.registerForUser());
 
     try {
       await UserSession.loadFromFirestore();

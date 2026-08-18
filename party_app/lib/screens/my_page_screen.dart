@@ -30,6 +30,8 @@ import 'package:party_app/screens/my_package_bookings_screen.dart';
 import 'package:party_app/screens/my_reservations_screen.dart';
 import 'package:party_app/screens/event_edit_screen.dart';
 import 'package:party_app/screens/drafts_list_screen.dart';
+import 'package:party_app/services/push_notification_service.dart';
+import 'package:party_app/services/push_permission_gate.dart';
 import 'package:party_app/widgets/web_frame.dart';
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -461,6 +463,8 @@ class _MyPageScreenState extends State<MyPageScreen> {
               webFramedRoute((_) => const DraftsListScreen()),
             ),
           ),
+          const Divider(height: 1, indent: 16, endIndent: 16),
+          const _PushNotificationTile(),
           // 웹에서만 노출 — 모바일 앱은 스토어 소개 화면이 이 역할을 대신하므로
           // 마이페이지에 중복 노출할 필요가 없다.
           if (kIsWeb) ...[
@@ -968,6 +972,105 @@ class _MyPageScreenState extends State<MyPageScreen> {
         ).showSnackBar(SnackBar(content: Text('사진 삭제에 실패했어요: $e')));
       }
     }
+  }
+}
+
+/// 마이페이지의 **알림 설정** 한 줄.
+///
+/// 다른 진입점(채팅·예약 직후)은 맥락이 생겼을 때 알아서 묻지만, 그 자리에서
+/// '나중에'를 눌렀거나 시스템 설정에서 꺼버린 사람에게는 **스스로 켜러 올 자리**
+/// 가 있어야 한다. 그게 없으면 한 번 거절한 사용자는 알림을 다시 켤 방법이 앱
+/// 안에 아예 없다(OS 팝업은 다시 뜨지 않는다).
+///
+/// 그래서 여기서만 [PushPermissionGate.ensure]를 `force: true`로 부른다 —
+/// 유예 기간은 조르지 않기 위한 장치지, 사용자가 직접 누른 버튼까지 막으라는
+/// 뜻은 아니기 때문이다.
+class _PushNotificationTile extends StatefulWidget {
+  const _PushNotificationTile();
+
+  @override
+  State<_PushNotificationTile> createState() => _PushNotificationTileState();
+}
+
+class _PushNotificationTileState extends State<_PushNotificationTile>
+    with WidgetsBindingObserver {
+  PushPermissionState? _state;
+
+  @override
+  void initState() {
+    super.initState();
+    // 설정앱에서 알림을 켜고 돌아오면 앱은 resume만 받고 화면은 그대로다.
+    // 다시 읽지 않으면 방금 켠 사용자에게 계속 '꺼짐'이라고 보여주게 된다.
+    WidgetsBinding.instance.addObserver(this);
+    _reload();
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) _reload();
+  }
+
+  Future<void> _reload() async {
+    final next = await PushNotificationService.currentState();
+    if (mounted) setState(() => _state = next);
+  }
+
+  ({String text, Color color}) get _status => switch (_state) {
+    null => (text: '확인 중…', color: Colors.black45),
+    PushPermissionState.granted => (
+      text: '켜짐 · 채팅 · 예약 소식을 받고 있어요',
+      color: const Color(0xFF047857),
+    ),
+    PushPermissionState.blocked => (
+      text: '꺼짐 · 기기 설정에서 켜야 알림이 와요',
+      color: const Color(0xFFB45309),
+    ),
+    _ => (text: '꺼짐 · 눌러서 알림을 켤 수 있어요', color: Colors.black54),
+  };
+
+  @override
+  Widget build(BuildContext context) {
+    final on = _state?.isGranted ?? false;
+    final status = _status;
+
+    return ListTile(
+      leading: Icon(
+        on ? Icons.notifications_active_outlined : Icons.notifications_off_outlined,
+        color: on ? const Color(0xFF047857) : Colors.black87,
+      ),
+      title: const Text('알림 설정'),
+      subtitle: Text(
+        status.text,
+        style: TextStyle(fontSize: 12, color: status.color),
+      ),
+      trailing: const Icon(Icons.chevron_right, color: Colors.black45),
+      onTap: () async {
+        if (UserSession.userId.isEmpty) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('로그인 후 알림을 설정할 수 있어요.')),
+          );
+          return;
+        }
+        // 이미 켜져 있으면 물어볼 게 없다 — 끄러 온 사람도 있으니 설정앱으로
+        // 보낸다(앱 안에서 OS 권한을 끌 수는 없다).
+        if (on) {
+          await PushNotificationService.openSettings();
+        } else {
+          await PushPermissionGate.ensure(
+            context,
+            PushPromptReason.settings,
+            force: true,
+          );
+        }
+        await _reload();
+      },
+    );
   }
 }
 
