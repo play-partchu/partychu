@@ -44,6 +44,7 @@ import 'package:party_app/screens/place_detail_screen.dart';
 import 'package:party_app/screens/event_detail_screen.dart';
 import 'package:party_app/models/listing_constants.dart';
 import 'package:party_app/services/analytics_service.dart';
+import 'package:party_app/services/push_permission_gate.dart';
 import 'package:party_app/widgets/share_bottom_sheet.dart';
 import 'package:party_app/widgets/web_frame.dart';
 
@@ -123,6 +124,14 @@ class _PartyDetailScreenState extends State<PartyDetailScreen> {
         ScaffoldMessenger.of(
           context,
         ).showSnackBar(SnackBar(content: Text(msg)));
+
+        // 신청을 막 마친 지금이 알림을 권하기 좋은 자리다 — 승인·입금 확인·
+        // 시작 1시간 전 안내가 전부 이 신청에 딸려 오기 때문. 스낵바가 먼저
+        // 보이도록 한 프레임 뒤로 미룬다.
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (!context.mounted) return;
+          PushPermissionGate.ensure(context, PushPromptReason.booking);
+        });
       }
     } catch (e) {
       if (context.mounted) {

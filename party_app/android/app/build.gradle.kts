@@ -29,6 +29,11 @@ android {
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
+
+        // flutter_local_notifications가 알림 예약에 java.time을 쓴다. 이 앱의
+        // minSdk에는 그 API가 없으므로 desugaring 없이는 AAR 검사 단계에서
+        // 빌드가 멈춘다(그래서 켠다). analyze로는 잡히지 않는 종류의 요구사항.
+        isCoreLibraryDesugaringEnabled = true
     }
 
     kotlinOptions {
@@ -68,6 +73,12 @@ android {
             }
         }
     }
+}
+
+dependencies {
+    // isCoreLibraryDesugaringEnabled의 짝. flutter_local_notifications 18.x가
+    // 요구하는 최소 버전이 2.1.4다.
+    coreLibraryDesugaring("com.android.tools:desugar_jdk_libs:2.1.4")
 }
 
 flutter {
