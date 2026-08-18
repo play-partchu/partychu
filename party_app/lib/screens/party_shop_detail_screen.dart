@@ -646,7 +646,7 @@ class _ProductSheetState extends State<_ProductSheet> {
 
       if (!mounted) { return; }
       Navigator.pop(context); // 시트 닫기
-      _showSuccessDialog(context, roomId, sellerName, pending.paymentStatus);
+      _showSuccessDialog(context, roomId, sellerName, productName);
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
