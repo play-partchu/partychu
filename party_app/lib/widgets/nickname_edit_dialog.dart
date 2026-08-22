@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:party_app/utils/nickname_service.dart';
 import 'package:party_app/utils/user_session.dart';
 
@@ -66,6 +67,16 @@ class _NicknameEditDialogState extends State<_NicknameEditDialog> {
     try {
       await NicknameService.save(_controller.text);
       if (mounted) Navigator.pop(context, true);
+    } on StateError catch (e) {
+      // 중복 닉네임("이미 사용 중인 닉네임이에요…")처럼 **무엇을 고쳐야 하는지**
+      // 알려주는 문구가 여기로 온다. 예전처럼 일괄 '저장에 실패했어요'로 덮으면
+      // 사용자는 몇 번을 다시 눌러도 같은 이름으로 계속 실패한다.
+      if (mounted) {
+        setState(() {
+          _saving = false;
+          _error = e.message;
+        });
+      }
     } catch (_) {
       if (mounted) {
         setState(() {
@@ -105,8 +116,18 @@ class _NicknameEditDialogState extends State<_NicknameEditDialog> {
             autofocus: true,
             maxLength: NicknameService.maxLength,
             enabled: !_saving,
+            // 허용 문자만 입력되게 막는다 — 특수문자·공백·이모지가 아예 타이핑
+            // 되지 않아, 저장을 눌러야 알게 되는 실패가 줄어든다. 검증 자체는
+            // 이 포매터에 기대지 않는다(붙여넣기·IME 조합 중 값은 여기를 그대로
+            // 통과할 수 있어서, 최종 판정은 validate와 서버가 한다).
+            inputFormatters: [
+              FilteringTextInputFormatter.allow(RegExp(r'[가-힣a-zA-Z0-9]')),
+            ],
             decoration: InputDecoration(
-              hintText: '닉네임 입력 (2~12자)',
+              hintText:
+                  '닉네임 입력 (${NicknameService.minLength}~${NicknameService.maxLength}자)',
+              helperText: NicknameService.charsetHint,
+              helperMaxLines: 2,
               errorText: _error,
               border: const OutlineInputBorder(),
             ),

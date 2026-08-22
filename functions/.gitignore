@@ -1,0 +1,20 @@
+# 로컬 의존성
+node_modules/
+
+# ⚠️ 시크릿 파일은 커밋하지 않는다.
+#
+# firebase-functions의 defineSecret 파라미터는 dotenv로도 해결되기 때문에
+# (firebase-tools의 resolveParams), .env에 실제 키를 적어 두면 그 값이 그대로
+# 소스에 박힌다. 자리표시자만 있더라도 파일 자체를 추적하지 않는 편이 안전하다.
+# 진짜 키는 `firebase functions:secrets:set <NAME>`으로 Secret Manager에만 넣는다.
+#
+# 필요한 환경변수 **이름**은 .env.example에 남긴다.
+.env
+.env.*
+!.env.example
+
+# Firebase 로컬 산출물
+.firebase/
+firebase-debug.log
+firestore-debug.log
+ui-debug.log
