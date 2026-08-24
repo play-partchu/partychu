@@ -1610,3 +1610,7 @@ exports.niceIntcResult = onCall(
     return { success: true };
   },
 );
+
+exports.verifyPayoutAccount = require('./payoutAccounts').verifyPayoutAccount;
+exports.getPayoutAccountStatus =
+  require('./payoutAccounts').getPayoutAccountStatus;
