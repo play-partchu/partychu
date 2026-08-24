@@ -4,7 +4,42 @@
   "scripts": {
     "deploy": "firebase deploy --only functions",
     "logs": "firebase functions:log",
-    "check:push": "node pushNotifications.selfcheck.js"
+    "check:schedule": "node partySchedule.selfcheck.js",
+    "check:pricing": "node partyPricing.selfcheck.js",
+    "check:earlybird": "node earlyBird.selfcheck.js",
+    "check:rooms": "node roomAvailability.selfcheck.js",
+    "check:products": "node placeProductOrders.selfcheck.js",
+    "check:social": "node socialAuth.selfcheck.js",
+    "check:mincapacity": "node partyMinCapacity.selfcheck.js",
+    "check:roundcapacity": "node partyRoundCapacity.selfcheck.js",
+    "check:payment": "node paymentInfo.selfcheck.js",
+    "check:policy": "node paymentPolicy.selfcheck.js",
+    "check:rental": "node placeReservationFlow.selfcheck.js",
+    "check:package": "node packageBookings.selfcheck.js",
+    "check:shop": "node shopOrders.selfcheck.js",
+    "check:chat": "node chatAutoMessages.selfcheck.js",
+    "check:refund": "node refundAccounts.selfcheck.js",
+    "check:bizverify": "node businessVerification.selfcheck.js",
+    "check:openstate": "node partyOpenState.selfcheck.js",
+    "check:refundsnapshot": "node refundPolicySnapshot.selfcheck.js",
+    "check:partyactivity": "node partyActivityLog.selfcheck.js",
+    "check:push": "node pushNotifications.selfcheck.js",
+    "check:withdrawal": "node accountWithdrawal.selfcheck.js",
+    "check:hostinbox": "node hostInbox.selfcheck.js",
+    "check:identity": "node identityGuard.selfcheck.js",
+    "check:chatrooms": "node chatRooms.selfcheck.js",
+    "check": "npm run check:schedule && npm run check:pricing && npm run check:earlybird && npm run check:rooms && npm run check:products && npm run check:social && npm run check:mincapacity && npm run check:roundcapacity && npm run check:payment && npm run check:policy && npm run check:rental && npm run check:package && npm run check:shop && npm run check:chat && npm run check:refund && npm run check:bizverify && npm run check:openstate && npm run check:refundsnapshot && npm run check:partyactivity && npm run check:push && npm run check:withdrawal && npm run check:questions && npm run check:backcompat && npm run check:canceltarget && npm run check:hostinbox && npm run check:payout && npm run check:identity && npm run check:chatrooms && npm run check:partyregister && npm run check:agerestriction && npm run check:genderrecruit && npm run check:uploads && npm run check:uploads-e2e && npm run check:cleanup && npm run check:nickname",
+    "check:questions": "node applicationQuestions.selfcheck.js",
+    "check:backcompat": "node applicationBackcompat.selfcheck.js",
+    "check:canceltarget": "node partyApplicationTargets.selfcheck.js",
+    "check:payout": "node payoutAccounts.selfcheck.js",
+    "check:partyregister": "node partyRegistration.selfcheck.js",
+    "check:agerestriction": "node partyAgeRestriction.selfcheck.js",
+    "check:genderrecruit": "node partyGenderRecruit.selfcheck.js",
+    "check:uploads": "node mediaUploads.selfcheck.js",
+    "check:uploads-e2e": "node mediaUploadsE2e.selfcheck.js",
+    "check:cleanup": "node contentCleanup.selfcheck.js",
+    "check:nickname": "node nicknames.selfcheck.js"
   },
   "engines": {
     "node": "20"
@@ -14,7 +49,8 @@
     "exceljs": "^4.4.0",
     "firebase-admin": "^12.0.0",
     "firebase-functions": "^6.0.0",
-    "googleapis": "^144.0.0"
+    "googleapis": "^144.0.0",
+    "popbill": "^1.64.2"
   },
   "private": true
 }
