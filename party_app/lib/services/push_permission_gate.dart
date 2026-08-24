@@ -60,6 +60,9 @@ extension _ReasonCopy on PushPromptReason {
 ///    팝업이 뜨지 않아 사용자에게는 "눌러도 아무 일이 없는 버튼"이 된다.
 ///    대신 설정앱으로 보낸다.
 /// 3. '나중에'를 누른 사람에게 매번 다시 묻지 않는다(진입점별 유예 기간).
+/// 4. **안내는 화면에 한 번에 하나만, 지금 보고 있는 화면 위에만 뜬다.**
+///    이 두 가지가 없으면 시트가 겹쳐 쌓여 "닫아도 계속 다시 뜨는" 화면이
+///    된다 — 아래 [_prompting]·[_shownThisRun] 주석 참고.
 class PushPermissionGate {
   PushPermissionGate._();
 
@@ -71,6 +74,26 @@ class PushPermissionGate {
   /// 진입점별 유예(7일·3일)는 그대로 두고, 그보다 짧은 이 유예를 함께 건다.
   static const _quietKey = 'push_prompt_quiet_until';
   static const _quietPeriod = Duration(hours: 24);
+
+  /// 지금 안내가 하나 떠 있는가.
+  ///
+  /// 진입점이 여럿이고 모두 `await` 없이(화면을 막지 않으려고) 부르기 때문에,
+  /// 두 진입이 겹치는 순간이 실제로 있다 — 채팅방에 들어간 직후 알림을 눌러
+  /// 다른 방으로 이동하거나, 신청 직후 안내와 채팅 진입 안내가 맞물리는 경우다.
+  /// 그러면 시트가 **라우트로 겹겹이 쌓이고**, 사용자는 뒤로가기로 한 겹을
+  /// 걷어낼 때마다 아래에 있던 시트가 다시 올라오는 걸 본다 — "뒤로가기를
+  /// 누르면 바텀시트가 계속 다시 나타나 화면을 빠져나갈 수 없다"의 정체다.
+  /// 그래서 안내는 **동시에 하나만** 띄운다.
+  static bool _prompting = false;
+
+  /// 이번 실행에서 이미 안내를 보여준 진입점.
+  ///
+  /// 유예는 SharedPreferences에 쓰이므로 기록이 남기까지 시차가 있고,
+  /// blocked 분기는 애초에 유예를 걸 자리가 아니었다(설정앱에서 켜고 오면
+  /// 사라질 상태라고 보고 아무 기록도 남기지 않았다). 그 탓에 같은 실행 안에서
+  /// 화면을 드나들 때마다 같은 안내가 다시 떴다. 저장소와 무관하게 **앱을 켠
+  /// 동안 진입점당 한 번**으로 묶는다. 사용자가 직접 누른 경우(force)는 예외다.
+  static final _shownThisRun = <PushPromptReason>{};
 
   static Future<bool> _isSnoozed(PushPromptReason reason) async {
     final prefs = await SharedPreferences.getInstance();
@@ -103,10 +126,24 @@ class PushPermissionGate {
     );
   }
 
+  /// 안내를 띄워도 되는 자리인가 — **부른 화면이 지금 맨 위에 있을 때만.**
+  ///
+  /// 권한 상태를 읽는 동안(비동기) 사용자는 이미 다른 화면으로 넘어갔을 수
+  /// 있다. 그때 시트를 띄우면 사용자가 보지도 않은 라우트 위에 얹혀 있다가
+  /// **뒤로가기로 그 화면에 돌아오는 순간 튀어나온다.** 화면이 아직 살아있는지
+  /// (mounted)만 보면 이 경우를 못 걸러낸다.
+  static bool _isVisible(BuildContext context) {
+    if (!context.mounted) return false;
+    final route = ModalRoute.of(context);
+    // 라우트를 못 찾으면(테스트용 트리 등) 막지 않는다 — 판단 근거가 없을 뿐
+    // 화면이 가려졌다는 뜻은 아니다.
+    return route == null || route.isCurrent;
+  }
+
   /// 권한이 없으면 맥락에 맞는 안내를 띄우고, 동의하면 OS 팝업까지 이어간다.
   ///
-  /// [force]가 true면 유예 기간을 무시한다(사용자가 직접 '알림 켜기'를 누른
-  /// 설정 화면에서 쓴다).
+  /// [force]가 true면 유예 기간과 '이번 실행 1회' 제한을 무시한다(사용자가
+  /// 직접 '알림 켜기'를 누른 설정 화면에서 쓴다).
   ///
   /// 반환값은 **최종적으로 알림을 받을 수 있는 상태인지**다.
   static Future<bool> ensure(
@@ -117,6 +154,10 @@ class PushPermissionGate {
     // 로그인하지 않았으면 등록할 계정이 없다 — 물어봐야 의미가 없다.
     if (UserSession.userId.isEmpty) return false;
 
+    // 상태는 **언제나 OS에 직접 묻는다.** 앱이 들고 있는 값으로 판단하면,
+    // 설정앱에서 방금 알림을 켜고 돌아온 사람에게 "알림을 켤까요?"를 다시
+    // 띄우게 된다(currentState는 permission_handler + FCM 설정을 그때그때
+    // 읽는다 — 캐시가 없다).
     var state = await PushNotificationService.currentState();
     if (state.isGranted) {
       // 이미 허용된 상태인데 토큰이 아직 없을 수 있다(권한만 먼저 켠 경우).
@@ -124,42 +165,60 @@ class PushPermissionGate {
       return true;
     }
 
-    if (!context.mounted) return false;
-
-    // ── 시스템에서 꺼둔 경우: 팝업 대신 설정앱으로 ──────────────────────
-    if (state.needsSettings) {
-      final go = await PushBlockedSheet.show(
-        context,
-        message: reason.blockedMessage,
-      );
-      if (go) await PushNotificationService.openSettings();
-      return false;
-    }
-
+    // 안내가 이미 하나 떠 있으면 두 번째는 띄우지 않는다(겹쳐 쌓이면 하나를
+    // 닫아도 아래에서 또 나온다).
+    if (_prompting) return false;
+    if (!force && _shownThisRun.contains(reason)) return false;
     if (!force && await _isSnoozed(reason)) return false;
-    if (!context.mounted) return false;
+    if (!context.mounted || !_isVisible(context)) return false;
 
-    // ── 사전 안내 → OS 팝업 ────────────────────────────────────────────
-    final agreed = await PushPermissionSheet.show(
-      context,
-      title: reason.title,
-      message: reason.message,
-    );
-    if (!agreed) {
+    _prompting = true;
+    _shownThisRun.add(reason);
+    try {
+      // ── 시스템에서 꺼둔 경우: 팝업 대신 설정앱으로 ────────────────────
+      if (state.needsSettings) {
+        final go = await PushBlockedSheet.show(
+          context,
+          message: reason.blockedMessage,
+        );
+        // 닫았든 설정앱으로 갔든 유예를 건다. 예전에는 이 분기만 아무 기록도
+        // 남기지 않아, 기기 알림이 꺼진 사용자는 **채팅방에 들어갈 때마다**
+        // 같은 안내를 다시 봤다. 설정에서 켜고 오면 위 isGranted에서 걸러지므로
+        // 유예가 걸려도 켠 사람에게 손해가 없다.
+        await _snooze(reason);
+        if (go) await PushNotificationService.openSettings();
+        return false;
+      }
+
+      // ── 사전 안내 → OS 팝업 ──────────────────────────────────────────
+      final agreed = await PushPermissionSheet.show(
+        context,
+        title: reason.title,
+        message: reason.message,
+      );
+      // '나중에'(또는 시트를 그냥 닫음) — 시트만 닫고 끝낸다. 여기서 아무것도
+      // 더 띄우지 않으므로 사용자는 곧바로 화면을 계속 쓸 수 있다.
+      if (!agreed) {
+        await _snooze(reason);
+        return false;
+      }
+
+      state = await PushNotificationService.requestPermission();
+      // 허용 여부는 OS 팝업의 반환값이 아니라 **권한 상태를 다시 읽어** 판단한다
+      // (requestPermission이 currentState를 다시 읽어 돌려준다). 허용됐다면
+      // 여기서 끝 — 시트는 이미 닫혔고 다시 띄우지 않는다.
+      if (state.isGranted) {
+        await PushNotificationService.registerForUser();
+        return true;
+      }
+
+      // 여기서 거부됐다면 다음 기회를 위해 유예만 걸어둔다. Android 13+ 는
+      // 두 번째 거부부터 blocked로 굳으므로, 그 뒤로는 위 needsSettings 분기가
+      // 받아 설정앱으로 안내한다.
       await _snooze(reason);
       return false;
+    } finally {
+      _prompting = false;
     }
-
-    state = await PushNotificationService.requestPermission();
-    if (state.isGranted) {
-      await PushNotificationService.registerForUser();
-      return true;
-    }
-
-    // 여기서 거부됐다면 다음 기회를 위해 유예만 걸어둔다. Android 13+ 는
-    // 두 번째 거부부터 blocked로 굳으므로, 그 뒤로는 위 needsSettings 분기가
-    // 받아 설정앱으로 안내한다.
-    await _snooze(reason);
-    return false;
   }
 }
