@@ -3,5 +3,7 @@
 
     <string name="naver_client_id">tBOknHSARfVEHyCuRYT2</string>
     <string name="naver_client_secret">ddmdtebOFi</string>
-    <string name="naver_client_name">party_app</string>
+    <!-- 네이버 로그인 동의 화면에 뜨는 서비스명 — 사용자에게 보이는 값이라
+         브랜드명이어야 한다. iOS의 Info.plist NidAppName과 같아야 한다. -->
+    <string name="naver_client_name">파티츄</string>
 </resources>

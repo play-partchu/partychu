@@ -3,10 +3,11 @@ import 'dart:async' show unawaited;
 import 'package:flutter/foundation.dart' show kDebugMode, kIsWeb;
 import 'package:flutter/gestures.dart' show TapGestureRecognizer;
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart' show SystemUiOverlayStyle;
-import 'package:google_sign_in/google_sign_in.dart';
+import 'package:flutter/services.dart'
+    show MissingPluginException, SystemUiOverlayStyle;
 import 'package:kakao_flutter_sdk_user/kakao_flutter_sdk_user.dart';
 import 'package:flutter_naver_login/flutter_naver_login.dart';
+import 'package:flutter_naver_login/interface/types/naver_login_result.dart';
 import 'package:flutter_naver_login/interface/types/naver_login_status.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
@@ -14,9 +15,8 @@ import 'package:cloud_functions/cloud_functions.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:party_app/utils/user_session.dart';
 import 'package:party_app/utils/last_login_method.dart';
+import 'package:party_app/utils/social_session.dart';
 import 'package:party_app/services/push_notification_service.dart';
-import 'package:party_app/screens/identity_verification_screen.dart';
-import 'package:party_app/widgets/web_frame.dart';
 
 // Firebase Functions 리전 (functions/index.js의 region과 일치해야 함)
 const _functionsRegion = 'asia-northeast3';
@@ -36,8 +36,6 @@ class LoginPage extends StatefulWidget {
 }
 
 class _LoginPageState extends State<LoginPage> {
-  final GoogleSignIn _googleSignIn = GoogleSignIn();
-
   LastLoginMethod? _lastMethod;
 
   late final TapGestureRecognizer _termsRecognizer = TapGestureRecognizer()
@@ -71,10 +69,9 @@ class _LoginPageState extends State<LoginPage> {
     final uid = FirebaseAuth.instance.currentUser?.uid;
     if (uid == null) return;
     try {
-      await FirebaseFirestore.instance
-          .collection('users')
-          .doc(uid)
-          .set({'signupProvider': provider}, SetOptions(merge: true));
+      await FirebaseFirestore.instance.collection('users').doc(uid).set({
+        'signupProvider': provider,
+      }, SetOptions(merge: true));
     } catch (e) {
       debugPrint('[Login] signupProvider 기록 생략(이미 기록됨 등): $e');
     }
@@ -86,9 +83,9 @@ class _LoginPageState extends State<LoginPage> {
   // 실패해도 로그인 자체를 막지 않는다.
   Future<void> _recordLogin() async {
     try {
-      await FirebaseFunctions.instanceFor(region: _functionsRegion)
-          .httpsCallable('recordLogin')
-          .call();
+      await FirebaseFunctions.instanceFor(
+        region: _functionsRegion,
+      ).httpsCallable('recordLogin').call();
     } catch (e) {
       debugPrint('[Login] recordLogin 호출 실패(non-fatal): $e');
     }
@@ -96,8 +93,12 @@ class _LoginPageState extends State<LoginPage> {
 
   /// 소셜 로그인 성공 후 공통 처리.
   /// Firestore 로드 실패는 로그인 자체를 막지 않는다.
-  Future<void> _onLoginSuccess(BuildContext context) async {
+  Future<void> _onLoginSuccess(BuildContext context, {String? provider}) async {
     debugPrint('[Login] _onLoginSuccess uid=${UserSession.userId}');
+
+    // 계정 선택을 강제하는 표시는 "명시적 로그아웃 후 첫 로그인" 한 번만
+    // 쓰고 지운다. 다음부터는 각 SDK의 평소 흐름 그대로 로그인한다.
+    await SocialSession.setChooseAccountNextLogin(false);
 
     unawaited(_recordLogin());
 
@@ -107,30 +108,62 @@ class _LoginPageState extends State<LoginPage> {
     // 요청한다. 등록 실패가 로그인을 막지 않도록 기다리지 않는다.
     unawaited(PushNotificationService.registerForUser());
 
-    try {
-      await UserSession.loadFromFirestore();
-      debugPrint('[Login] loadFromFirestore done. identityVerified=${UserSession.identityVerified}');
-    } catch (e) {
-      debugPrint('[Login] loadFromFirestore error (non-fatal): $e');
-    }
+    // 서버(users/{uid})를 실제로 읽어 세션의 본인확인 상태를 확정해 둔다.
+    //
+    // **여기서는 화면을 고르지 않는다.** 예전에는 이 자리에서 미인증이면
+    // 본인확인 화면으로 갈아치웠는데, 그 화면은 뒤로가기로 닫혔고 앱을 다시
+    // 켜면 아무도 다시 묻지 않았다. 이제 첫 화면을 고르는 곳은 루트 게이트
+    // 하나뿐이다(main.dart의 _AuthGate · utils/root_gate.dart) — 이 읽기가
+    // 끝나 세션 상태가 바뀌면 게이트가 스스로 다시 평가한다.
+    //
+    // 그래서 이 함수가 할 일은 **로그인 화면을 닫는 것뿐**이다. 미인증이든
+    // 확인 실패든, 게이트가 그 아래에서 이미 알맞은 화면으로 바뀌어 있다.
+    final verified = await UserSession.resolveIdentityVerified(force: true);
+    debugPrint('[Login] identityVerified=$verified (null=확인 실패)');
+
+    // 가입 경로 기록은 **프로필을 다 읽은 뒤**에 한다.
+    //
+    // 이 쓰기는 users/{uid}에 대한 merge라 Firestore가 로컬 캐시에 곧바로
+    // 반영한다 — 읽기보다 먼저 나가면 캐시에 `signupProvider`만 든 문서가
+    // 생긴다. 그 상태에서 서버 읽기가 실패해 캐시 폴백을 타면
+    // (_loadOnce의 마지막 시도) "문서는 있는데 identityVerified가 없다"가 되어
+    // **인증을 마친 계정이 미인증처럼 읽힌다.** 순서를 뒤로 미루는 것만으로
+    // 그 오염 경로가 사라진다.
+    //
+    // 통계용이라 실패해도 로그인을 막지 않는다.
+    if (provider != null) unawaited(_recordSignupProviderOnce(provider));
 
     if (!context.mounted) return;
-
-    if (!UserSession.identityVerified) {
-      // 본인인증 미완료 → LoginPage를 닫고 본인확인 화면으로 대체
-      // (LoginPage 뒤에는 MainScreen이 있으므로 인증 완료 후 pop 시 MainScreen으로 복귀)
-      Navigator.of(context).pushReplacement(
-        webFramedRoute((_) => const IdentityVerificationScreen()),
-      );
-    } else {
-      Navigator.of(context).pop();
-    }
+    Navigator.of(context).pop();
   }
 
   // ─── Google ──────────────────────────────────────────────────────────────
   Future<void> signInWithGoogle(BuildContext context) async {
+    // iOS는 클라이언트 ID가 없으면 로그인이 "실패"하지 않고 **앱이 죽는다** —
+    // GIDSignIn이 던진 NSException을 플러그인이 그대로 다시 raise 하기
+    // 때문에(FLTGoogleSignInPlugin.m:169-171) Dart의 catch까지 오지 않는다.
+    // 그래서 부르기 전에 막는다.
+    if (SocialSession.googleClientIdMissing) {
+      debugPrint(
+        '[Login] Google 설정 없음 — GoogleService-Info.plist가 번들에 없고 '
+        '.env의 GOOGLE_IOS_CLIENT_ID도 비어 있다. signIn()을 부르면 크래시한다.',
+      );
+      _showError(context, '구글 로그인 설정이 준비되지 않았습니다. 다른 방법으로 로그인해주세요.');
+      return;
+    }
     try {
-      final googleUser = await _googleSignIn.signIn();
+      // 명시적으로 로그아웃한 뒤의 첫 로그인이면 SDK에 캐시된 직전 계정을 한 번
+      // 더 비운다 — 로그아웃 당시 정리가 실패했더라도(오프라인 등) 여기서
+      // 계정 선택 화면이 뜨도록 보장한다.
+      if (await SocialSession.shouldChooseAccount()) {
+        try {
+          await SocialSession.google.signOut();
+        } catch (e) {
+          debugPrint('[Login] Google 이전 세션 정리 실패(무시): $e');
+        }
+      }
+
+      final googleUser = await SocialSession.google.signIn();
       if (googleUser == null) {
         debugPrint('[Login] Google signIn cancelled by user');
         return;
@@ -150,11 +183,10 @@ class _LoginPageState extends State<LoginPage> {
         if (context.mounted) _showError(context, '구글 로그인에 실패했습니다.');
         return;
       }
-      UserSession.userId = uid;
+      UserSession.beginSession(uid);
       await LastLoginMethod.google.save();
-      await _recordSignupProviderOnce('google');
 
-      if (context.mounted) await _onLoginSuccess(context);
+      if (context.mounted) await _onLoginSuccess(context, provider: 'google');
     } catch (error, st) {
       debugPrint('[Login] Google error: $error\n$st');
       if (context.mounted) _showError(context, '구글 로그인에 실패했습니다.');
@@ -164,18 +196,28 @@ class _LoginPageState extends State<LoginPage> {
   // ─── Kakao ───────────────────────────────────────────────────────────────
   Future<void> signInWithKakao(BuildContext context) async {
     try {
+      // 카카오톡 앱으로 로그인하면 계정이 그 앱에 로그인된 계정으로 고정된다
+      // (카카오가 계정 선택 화면을 제공하지 않는다). 그래서 명시적 로그아웃
+      // 직후 한 번은 카카오계정 로그인으로 돌리고 prompt=select_account를 붙여
+      // 계정을 다시 고를 수 있게 한다. 평소(설치+미로그아웃)에는 기존처럼
+      // 카카오톡 로그인을 그대로 쓴다.
+      //
       // 웹에는 "카카오톡 앱 설치 여부" 개념이 없다 — 항상 계정 로그인(웹은
       // SDK가 내부적으로 팝업 창을 띄워 처리)으로 진행한다.
+      final chooseAccount = await SocialSession.shouldChooseAccount();
       OAuthToken token;
-      if (!kIsWeb && await isKakaoTalkInstalled()) {
+      if (!kIsWeb && !chooseAccount && await isKakaoTalkInstalled()) {
         token = await UserApi.instance.loginWithKakaoTalk();
       } else {
-        token = await UserApi.instance.loginWithKakaoAccount();
+        token = await UserApi.instance.loginWithKakaoAccount(
+          prompts: chooseAccount ? const [Prompt.selectAccount] : null,
+        );
       }
       debugPrint('[Login] Kakao token acquired');
 
-      final callable = FirebaseFunctions.instanceFor(region: _functionsRegion)
-          .httpsCallable('kakaoCustomToken');
+      final callable = FirebaseFunctions.instanceFor(
+        region: _functionsRegion,
+      ).httpsCallable('kakaoCustomToken');
       final result = await callable.call({'token': token.accessToken});
       final customToken = result.data['customToken'] as String;
       debugPrint('[Login] Kakao customToken acquired');
@@ -188,15 +230,27 @@ class _LoginPageState extends State<LoginPage> {
         if (context.mounted) _showError(context, '카카오 로그인에 실패했습니다.');
         return;
       }
-      UserSession.userId = uid;
+      UserSession.beginSession(uid);
       await LastLoginMethod.kakao.save();
-      await _recordSignupProviderOnce('kakao');
 
-      if (context.mounted) await _onLoginSuccess(context);
+      if (context.mounted) await _onLoginSuccess(context, provider: 'kakao');
     } catch (error, st) {
       debugPrint('[Login] Kakao error: $error\n$st');
       if (context.mounted) _showError(context, '카카오 로그인에 실패했습니다.');
     }
+  }
+
+  /// 네이버 로그인이 **사용자 취소**로 끝났는가.
+  ///
+  /// flutter_naver_login의 상태값은 `loggedIn / loggedOut / error` 셋뿐이고
+  /// 취소 전용 값이 없다. 취소는 두 모양으로 온다:
+  ///   · `loggedOut`  — 로그인하지 않은 채 돌아왔다(뒤로가기 등)
+  ///   · `error` + 메시지에 취소 표시(SDK가 네이버가 준 문구를 그대로 싣는다)
+  /// 둘 다 사용자의 선택이므로 실패 문구를 띄우지 않는다.
+  bool _naverUserCancelled(NaverLoginResult result) {
+    if (result.status == NaverLoginStatus.loggedOut) return true;
+    final message = (result.errorMessage ?? '').toLowerCase();
+    return message.contains('cancel') || message.contains('취소');
   }
 
   // ─── Naver ───────────────────────────────────────────────────────────────
@@ -208,17 +262,46 @@ class _LoginPageState extends State<LoginPage> {
       return;
     }
     try {
+      // 네이버 SDK에는 구글/카카오 같은 "계정 선택 강제" 옵션이 없다. 명시적
+      // 로그아웃 직후라면 SDK에 남은 토큰을 한 번 더 비워, 저장된 토큰으로
+      // 조용히 재로그인되지 않고 네이버 로그인 화면을 거치게 하는 것까지가
+      // 할 수 있는 전부다(네이버 앱/브라우저에 로그인 세션이 남아 있으면
+      // 그 화면에서 계정이 이미 선택돼 있을 수 있다).
+      if (await SocialSession.shouldChooseAccount()) {
+        try {
+          await FlutterNaverLogin.logOut();
+        } catch (e) {
+          debugPrint('[Login] Naver 이전 세션 정리 실패(무시): $e');
+        }
+      }
+
       final loginResult = await FlutterNaverLogin.logIn();
       if (loginResult.status != NaverLoginStatus.loggedIn) {
-        debugPrint('[Login] Naver logIn status=${loginResult.status}');
+        // errorMessage까지 남긴다 — status만 찍으면 'error' 한 단어뿐이라
+        // 무엇이 잘못됐는지 로그에서도 사라진다(이번 릴리즈 장애를 진단할 때
+        // 실제로 여기서 막혔다).
+        debugPrint(
+          '[Login] Naver logIn 실패. status=${loginResult.status} '
+          'errorMessage=${loginResult.errorMessage}',
+        );
+        // 사용자가 스스로 취소한 것은 실패가 아니다 — 구글(signIn()==null)·
+        // 카카오와 같이 조용히 끝낸다. 취소에 실패 문구를 띄우면 뒤로가기를
+        // 누른 사람에게 매번 오류가 뜬다.
+        if (_naverUserCancelled(loginResult)) return;
+        if (context.mounted) {
+          _showError(context, '네이버 로그인에 실패했습니다. 다시 시도해주세요.');
+        }
         return;
       }
 
       final tokenResult = await FlutterNaverLogin.getCurrentAccessToken();
-      debugPrint('[Login] Naver token acquired. empty=${tokenResult.accessToken.isEmpty}');
+      debugPrint(
+        '[Login] Naver token acquired. empty=${tokenResult.accessToken.isEmpty}',
+      );
 
-      final callable = FirebaseFunctions.instanceFor(region: _functionsRegion)
-          .httpsCallable('naverCustomToken');
+      final callable = FirebaseFunctions.instanceFor(
+        region: _functionsRegion,
+      ).httpsCallable('naverCustomToken');
       final result = await callable.call({'token': tokenResult.accessToken});
       final customToken = result.data['customToken'] as String;
       debugPrint('[Login] Naver customToken acquired');
@@ -231,13 +314,24 @@ class _LoginPageState extends State<LoginPage> {
         if (context.mounted) _showError(context, '네이버 로그인에 실패했습니다.');
         return;
       }
-      UserSession.userId = uid;
+      UserSession.beginSession(uid);
       await LastLoginMethod.naver.save();
-      await _recordSignupProviderOnce('naver');
 
-      if (context.mounted) await _onLoginSuccess(context);
+      if (context.mounted) await _onLoginSuccess(context, provider: 'naver');
+    } on MissingPluginException catch (error) {
+      // iOS 플러그인은 Info.plist의 NidClientID/NidClientSecret/NidAppName/
+      // NidUrlScheme 중 하나라도 없으면 **메서드 채널 자체를 등록하지 않는다**
+      // (FlutterNaverLoginPlugin.swift:110-116). 그래서 로그인 실패가 아니라
+      // "그런 메서드 없음"으로 온다 — 원인이 전혀 다르므로 갈라서 남긴다.
+      debugPrint(
+        '[Login] Naver 플러그인 미등록: $error\n'
+        '  → iOS Info.plist의 Nid* 네 키를 확인할 것.',
+      );
+      if (context.mounted) {
+        _showError(context, '네이버 로그인 설정이 준비되지 않았습니다. 다른 방법으로 로그인해주세요.');
+      }
     } catch (error, st) {
-      debugPrint('[Login] Naver error: $error\n$st');
+      debugPrint('[Login] Naver error(${error.runtimeType}): $error\n$st');
       if (context.mounted) _showError(context, '네이버 로그인에 실패했습니다.');
     }
   }
@@ -263,7 +357,7 @@ class _LoginPageState extends State<LoginPage> {
         if (context.mounted) _showError(context, '테스트 로그인에 실패했습니다.');
         return;
       }
-      UserSession.userId = uid;
+      UserSession.beginSession(uid);
 
       if (context.mounted) await _onLoginSuccess(context);
     } catch (error, st) {
@@ -366,8 +460,9 @@ class _LoginPageState extends State<LoginPage> {
   }
 
   void _showError(BuildContext context, String message) {
-    ScaffoldMessenger.of(context)
-        .showSnackBar(SnackBar(content: Text(message)));
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(SnackBar(content: Text(message)));
   }
 
   Future<void> _openLegalUrl(String path) async {
@@ -381,39 +476,36 @@ class _LoginPageState extends State<LoginPage> {
 
   // ── 소셜 로고 아이콘 ────────────────────────────────────────────────
   Widget _googleIcon() => const Text(
-        'G',
-        style: TextStyle(
-          fontSize: 19,
-          fontWeight: FontWeight.w900,
-          height: 1,
-          color: Color(0xFF4285F4),
-        ),
-      );
+    'G',
+    style: TextStyle(
+      fontSize: 19,
+      fontWeight: FontWeight.w900,
+      height: 1,
+      color: Color(0xFF4285F4),
+    ),
+  );
 
-  Widget _kakaoIcon() => const Icon(
-        Icons.chat_bubble_rounded,
-        size: 18,
-        color: Colors.black,
-      );
+  Widget _kakaoIcon() =>
+      const Icon(Icons.chat_bubble_rounded, size: 18, color: Colors.black);
 
   Widget _naverIcon() => Container(
-        width: 20,
-        height: 20,
-        alignment: Alignment.center,
-        decoration: BoxDecoration(
-          color: Colors.white,
-          borderRadius: BorderRadius.circular(5),
-        ),
-        child: const Text(
-          'N',
-          style: TextStyle(
-            fontSize: 13,
-            fontWeight: FontWeight.w900,
-            height: 1,
-            color: Color(0xFF03C75A),
-          ),
-        ),
-      );
+    width: 20,
+    height: 20,
+    alignment: Alignment.center,
+    decoration: BoxDecoration(
+      color: Colors.white,
+      borderRadius: BorderRadius.circular(5),
+    ),
+    child: const Text(
+      'N',
+      style: TextStyle(
+        fontSize: 13,
+        fontWeight: FontWeight.w900,
+        height: 1,
+        color: Color(0xFF03C75A),
+      ),
+    ),
+  );
 
   /// 소셜 로그인 버튼 하나 — 왼쪽에 서비스 로고, 가운데 라벨. [method]가 최근
   /// 사용한 로그인 방식이면 우측 상단에 "최근 사용" 배지를 얹는다.
@@ -438,7 +530,9 @@ class _LoginPageState extends State<LoginPage> {
             decoration: BoxDecoration(
               color: background,
               borderRadius: BorderRadius.circular(23),
-              border: borderColor != null ? Border.all(color: borderColor) : null,
+              border: borderColor != null
+                  ? Border.all(color: borderColor)
+                  : null,
               boxShadow: const [
                 BoxShadow(
                   color: Color(0x14000000),
@@ -502,7 +596,11 @@ class _LoginPageState extends State<LoginPage> {
       decoration: TextDecoration.underline,
       decorationColor: Color(0xFFD94F7A),
     );
-    const plainStyle = TextStyle(fontSize: 12, color: Colors.black38, height: 1.5);
+    const plainStyle = TextStyle(
+      fontSize: 12,
+      color: Colors.black38,
+      height: 1.5,
+    );
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 12),
       child: RichText(
@@ -511,9 +609,17 @@ class _LoginPageState extends State<LoginPage> {
           style: plainStyle,
           children: [
             const TextSpan(text: '로그인하면 '),
-            TextSpan(text: '이용약관', style: linkStyle, recognizer: _termsRecognizer),
+            TextSpan(
+              text: '이용약관',
+              style: linkStyle,
+              recognizer: _termsRecognizer,
+            ),
             const TextSpan(text: ' 및 '),
-            TextSpan(text: '개인정보처리방침', style: linkStyle, recognizer: _privacyRecognizer),
+            TextSpan(
+              text: '개인정보처리방침',
+              style: linkStyle,
+              recognizer: _privacyRecognizer,
+            ),
             const TextSpan(text: '에 동의하게 됩니다.'),
           ],
         ),
@@ -538,14 +644,15 @@ class _LoginPageState extends State<LoginPage> {
         body: Container(
           width: double.infinity,
           height: double.infinity,
-          decoration: const BoxDecoration(
-            color: _kBgColor,
-          ),
+          decoration: const BoxDecoration(color: _kBgColor),
           child: SafeArea(
             child: LayoutBuilder(
               builder: (context, constraints) {
                 return SingleChildScrollView(
-                  padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 16),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 24,
+                    vertical: 16,
+                  ),
                   child: ConstrainedBox(
                     constraints: BoxConstraints(
                       minHeight: constraints.maxHeight - 32,
@@ -594,12 +701,15 @@ class _LoginPageState extends State<LoginPage> {
                                 // 일러스트보다 한층 아담하고 동글동글하게
                                 // 보이도록 좌우를 넉넉히 들여쓴다.
                                 Padding(
-                                  padding: const EdgeInsets.symmetric(horizontal: 56),
+                                  padding: const EdgeInsets.symmetric(
+                                    horizontal: 56,
+                                  ),
                                   child: Column(
                                     children: [
                                       _providerButton(
                                         method: LastLoginMethod.google,
-                                        onPressed: () => signInWithGoogle(context),
+                                        onPressed: () =>
+                                            signInWithGoogle(context),
                                         label: 'Google로 계속하기',
                                         icon: _googleIcon(),
                                         background: Colors.white,
@@ -609,7 +719,8 @@ class _LoginPageState extends State<LoginPage> {
                                       const SizedBox(height: 11),
                                       _providerButton(
                                         method: LastLoginMethod.kakao,
-                                        onPressed: () => signInWithKakao(context),
+                                        onPressed: () =>
+                                            signInWithKakao(context),
                                         label: '카카오로 계속하기',
                                         icon: _kakaoIcon(),
                                         background: const Color(0xFFFEE500),
@@ -622,7 +733,8 @@ class _LoginPageState extends State<LoginPage> {
                                         const SizedBox(height: 11),
                                         _providerButton(
                                           method: LastLoginMethod.naver,
-                                          onPressed: () => signInWithNaver(context),
+                                          onPressed: () =>
+                                              signInWithNaver(context),
                                           label: '네이버로 계속하기',
                                           icon: _naverIcon(),
                                           background: const Color(0xFF03C75A),

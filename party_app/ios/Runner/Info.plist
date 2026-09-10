@@ -7,7 +7,7 @@
 		<key>NSLocationAlwaysUsageDescription</key>
 		<string>현재 위치를 지도에 표시하기 위해 위치 권한이 필요합니다.</string>
 		<key>NSCameraUsageDescription</key>
-		<string>프로필 사진을 촬영하기 위해 카메라 접근 권한이 필요합니다.</string>
+		<string>프로필 사진 촬영과 이용권 QR 스캔을 위해 카메라 접근 권한이 필요합니다.</string>
 		<key>NSPhotoLibraryUsageDescription</key>
 		<string>프로필 사진을 선택하기 위해 사진 보관함 접근 권한이 필요합니다.</string>
 		<key>NSPhotoLibraryAddUsageDescription</key>
@@ -19,7 +19,7 @@
 		<key>CFBundleDevelopmentRegion</key>
 		<string>$(DEVELOPMENT_LANGUAGE)</string>
 		<key>CFBundleDisplayName</key>
-		<string>Party App</string>
+		<string>파티츄</string>
 		<key>CFBundleExecutable</key>
 		<string>$(EXECUTABLE_NAME)</string>
 		<key>CFBundleIdentifier</key>
@@ -27,7 +27,7 @@
 		<key>CFBundleInfoDictionaryVersion</key>
 		<string>6.0</string>
 		<key>CFBundleName</key>
-		<string>party_app</string>
+		<string>파티츄</string>
 		<key>CFBundlePackageType</key>
 		<string>APPL</string>
 		<key>CFBundleShortVersionString</key>
@@ -42,8 +42,23 @@
 		<array>
 			<string>kakaokompassauth</string>
 			<string>kakaolink</string>
+			<!-- 네이버 로그인 — 네이버앱으로 넘겨 로그인할 수 있는지
+			     canOpenURL로 확인한다. 없으면 SDK가 네이버앱을 못 찾고
+			     항상 웹뷰로만 돈다(flutter_naver_login README). -->
+			<string>naversearchapp</string>
+			<string>naversearchthirdlogin</string>
 			<string>instagram</string>
 			<string>instagram-stories</string>
+			<!-- 길찾기(map_directions_service.dart) — 여기에 없는 스킴은
+			     canOpenURL이 항상 false라 앱이 설치돼 있어도 길찾기 앱
+			     선택 시트에서 사라진다. 지도 앱을 추가할 때 Android의
+			     AndroidManifest.xml <queries>에도 같이 넣어야 한다.
+			     애플지도는 https://maps.apple.com를 쓰므로 별도 선언이
+			     필요 없다. -->
+			<string>nmap</string>
+			<string>kakaomap</string>
+			<string>tmap</string>
+			<string>comgooglemaps</string>
 		</array>
 		<!-- 커스텀 스킴 폴백(partychu://party/{id}) — 공식 Universal Links가
 		     항상 우선이며, 이건 카카오톡 인앱 브라우저 등 일부 환경이 Universal
@@ -53,14 +68,78 @@
 		<key>CFBundleURLTypes</key>
 		<array>
 			<dict>
+				<!-- 이 URL 타입의 이름표일 뿐이다. iOS 공식 번들 ID에 맞춘다
+				     (안드로이드 패키지 kr.co.partychu.app과 헷갈리지 않게). -->
 				<key>CFBundleURLName</key>
-				<string>kr.co.partychu.app</string>
+				<string>com.partychu.app</string>
 				<key>CFBundleURLSchemes</key>
 				<array>
 					<string>partychu</string>
 				</array>
 			</dict>
+			<!-- 카카오 로그인 복귀 스킴. 반드시 `kakao` + 네이티브 앱키다
+			     (.env의 KAKAO_NATIVE_APP_KEY, AndroidManifest의
+			     AuthCodeCustomTabsActivity 스킴과 같은 값). 이게 없으면
+			     카카오 동의 화면까지는 뜨지만 앱으로 돌아오지 못해
+			     로그인이 끝나지 않는다. -->
+			<dict>
+				<key>CFBundleTypeRole</key>
+				<string>Editor</string>
+				<key>CFBundleURLName</key>
+				<string>kakao</string>
+				<key>CFBundleURLSchemes</key>
+				<array>
+					<string>kakao91dfa5c605e96ab544cfd919c2f439bb</string>
+				</array>
+			</dict>
+			<!-- 네이버 로그인 복귀 스킴.
+			     이 값은 **URL 스킴 문자열일 뿐 번들 ID가 아니다.** 다만
+			     네이버가 권하는 관례가 "앱 번들 ID와 같은 문자열을 쓰라"이고,
+			     그래야 다른 앱과 충돌하지 않는다. iOS 공식 번들 ID가
+			     com.partychu.app이므로 그 값을 쓴다(안드로이드 패키지
+			     kr.co.partychu.app과는 무관하다).
+			     아래 NidUrlScheme, 그리고 네이버 개발자센터의 iOS
+			     URL Scheme 등록값 — 세 곳이 모두 같아야 복귀된다. -->
+			<dict>
+				<key>CFBundleTypeRole</key>
+				<string>Editor</string>
+				<key>CFBundleURLName</key>
+				<string>naver</string>
+				<key>CFBundleURLSchemes</key>
+				<array>
+					<string>com.partychu.app</string>
+				</array>
+			</dict>
+			<!-- 구글 로그인 복귀 스킴 = GoogleService-Info.plist의
+			     REVERSED_CLIENT_ID 그대로다(CLIENT_ID를 뒤집은 값). 구글이
+			     인증을 마치고 이 스킴으로 앱을 다시 연다 — 없으면 동의 화면
+			     뒤에 앱으로 돌아오지 못한다. plist의 값을 바꾸면(=OAuth
+			     클라이언트를 새로 만들면) 여기도 같이 바꿔야 한다. -->
+			<dict>
+				<key>CFBundleTypeRole</key>
+				<string>Editor</string>
+				<key>CFBundleURLName</key>
+				<string>google</string>
+				<key>CFBundleURLSchemes</key>
+				<array>
+					<string>com.googleusercontent.apps.494588817221-dfm6v76vqdcn5duvkoath9k1kk9sa51q</string>
+				</array>
+			</dict>
 		</array>
+		<!-- ── 네이버 로그인 설정 ──────────────────────────────────────
+		     flutter_naver_login의 iOS 플러그인은 register(with:)에서 이 네
+		     키를 읽고, **하나라도 없으면 메서드 채널 등록 자체를 건너뛴다**
+		     (FlutterNaverLoginPlugin.swift:110-116). 그래서 키가 없으면
+		     로그인 실패가 아니라 호출이 아예 플러그인에 닿지 못한다.
+		     값은 android/app/src/main/res/values/strings.xml과 같은 것이다. -->
+		<key>NidClientID</key>
+		<string>tBOknHSARfVEHyCuRYT2</string>
+		<key>NidClientSecret</key>
+		<string>ddmdtebOFi</string>
+		<key>NidAppName</key>
+		<string>파티츄</string>
+		<key>NidUrlScheme</key>
+		<string>com.partychu.app</string>
 		<key>UIApplicationSceneManifest</key>
 		<dict>
 			<key>UIApplicationSupportsMultipleScenes</key>

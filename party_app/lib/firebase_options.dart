@@ -52,19 +52,24 @@ class DefaultFirebaseOptions {
 
   static const FirebaseOptions android = FirebaseOptions(
     apiKey: 'AIzaSyCOeBA3K6T_PQF56xirshTalwGpdsHxdpY',
-    appId: '1:494588817221:android:73fc9058876f2755df182c',
+    appId: '1:494588817221:android:4af49b9d5f39c069df182c',
     messagingSenderId: '494588817221',
     projectId: 'partychu-30c24',
     storageBucket: 'partychu-30c24.firebasestorage.app',
   );
 
+  // ios/Runner/GoogleService-Info.plist(BUNDLE_ID = com.partychu.app)와
+  // 값을 맞춘 것이다. plist를 다시 받으면 여기도 같이 맞춰야 한다 —
+  // appId(GOOGLE_APP_ID)와 iosClientId(CLIENT_ID)가 특히 앱마다 다르다.
   static const FirebaseOptions ios = FirebaseOptions(
     apiKey: 'AIzaSyBpyekuODrDStBm9MDmLx_19lZLFl6i4cI',
-    appId: '1:494588817221:ios:48883b3367b25ab3df182c',
+    appId: '1:494588817221:ios:d7f8bd9221b4a9e7df182c',
     messagingSenderId: '494588817221',
     projectId: 'partychu-30c24',
     storageBucket: 'partychu-30c24.firebasestorage.app',
-    iosBundleId: 'com.example.partyApp',
+    iosClientId:
+        '494588817221-dfm6v76vqdcn5duvkoath9k1kk9sa51q.apps.googleusercontent.com',
+    iosBundleId: 'com.partychu.app',
   );
 
   static const FirebaseOptions macos = FirebaseOptions(
@@ -73,7 +78,7 @@ class DefaultFirebaseOptions {
     messagingSenderId: '494588817221',
     projectId: 'partychu-30c24',
     storageBucket: 'partychu-30c24.firebasestorage.app',
-    iosBundleId: 'com.example.partyApp',
+    iosBundleId: 'com.partychu.app',
   );
 
   static const FirebaseOptions windows = FirebaseOptions(
