@@ -1,6 +1,8 @@
 import 'dart:async';
 import 'dart:io';
+
 import 'package:flutter/material.dart';
+import 'package:image_picker/image_picker.dart' show XFile;
 import 'package:video_trimmer/video_trimmer.dart';
 
 /// 30초를 넘는 동영상을 앱 안에서 바로 30초 이내로 잘라내는 편집 화면
@@ -10,8 +12,14 @@ import 'package:video_trimmer/video_trimmer.dart';
 /// 취소하면 null을 돌려준다 — 호출부(PartyMediaEditor)는 원본이 아니라 이
 /// 결과 파일만 이후 압축·업로드 파이프라인에 태운다. 즉 서버로 원본을 올린
 /// 뒤 자르는 방식이 아니라, 반드시 앱에서 먼저 잘라서 그 결과만 올린다.
+///
+/// **앱(Android/iOS) 전용 화면이다.** video_trimmer에는 웹 구현이 없어서
+/// 웹에서는 이 화면을 열지 않는다 — 호출부가 [LocalMedia.canTrimVideo]로
+/// 갈라, 웹에서는 30초를 넘는 영상을 자르는 대신 안내하고 받지 않는다.
+/// 그래서 여기서는 dart:io를 그대로 쓴다.
 class VideoTrimScreen extends StatefulWidget {
-  final File sourceFile;
+  /// 자를 원본. 앱 전용 화면이라 경로는 항상 실제 파일 경로다.
+  final XFile sourceFile;
 
   static const maxDuration = Duration(seconds: 30);
 
@@ -48,7 +56,9 @@ class _VideoTrimScreenState extends State<VideoTrimScreen> {
       // 계속 반복 재생되게 한다("선택한 구간만 반복 미리보기").
       _trimmer.videoPlayerController?.addListener(_onPlaybackPositionChanged);
     });
-    _trimmer.loadVideo(videoFile: widget.sourceFile).catchError((e) {
+    _trimmer.loadVideo(videoFile: File(widget.sourceFile.path)).catchError((
+      e,
+    ) {
       if (mounted) setState(() => _loadFailed = true);
     });
   }
@@ -72,8 +82,10 @@ class _VideoTrimScreenState extends State<VideoTrimScreen> {
   }
 
   double get _selectedSeconds {
-    final ms =
-        (_endValue - _startValue).clamp(0, VideoTrimScreen.maxDuration.inMilliseconds);
+    final ms = (_endValue - _startValue).clamp(
+      0,
+      VideoTrimScreen.maxDuration.inMilliseconds,
+    );
     return ms / 1000;
   }
 
@@ -97,16 +109,20 @@ class _VideoTrimScreenState extends State<VideoTrimScreen> {
     }
 
     setState(() => _isSaving = true);
-    debugPrint('[VideoTrim] 자르기 시작 — 원본: ${widget.sourceFile.path}, '
-        '구간: ${_startValue}ms ~ ${_endValue}ms');
+    debugPrint(
+      '[VideoTrim] 자르기 시작 — 원본: ${widget.sourceFile.path}, '
+      '구간: ${_startValue}ms ~ ${_endValue}ms',
+    );
     try {
       final outputPath = await _saveTrimmedVideo();
       if (!mounted) return;
       final file = outputPath != null ? File(outputPath) : null;
       final exists = file?.existsSync() ?? false;
       final size = exists ? file!.lengthSync() : -1;
-      debugPrint('[VideoTrim] 편집 완료 파일 경로: $outputPath '
-          '(exists=$exists, size=${size}bytes)');
+      debugPrint(
+        '[VideoTrim] 편집 완료 파일 경로: $outputPath '
+        '(exists=$exists, size=${size}bytes)',
+      );
       if (outputPath == null || outputPath.isEmpty || !exists || size <= 0) {
         debugPrint('[VideoTrim] 편집 결과 파일이 없거나 비어있어 실패 처리함');
         setState(() => _isSaving = false);
@@ -120,9 +136,9 @@ class _VideoTrimScreenState extends State<VideoTrimScreen> {
       debugPrint('[VideoTrim] 자르기 실패: $e');
       if (mounted) {
         setState(() => _isSaving = false);
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('영상을 자르는 데 실패했어요: $e')),
-        );
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('영상을 자르는 데 실패했어요: $e')));
       }
     }
   }
@@ -130,15 +146,17 @@ class _VideoTrimScreenState extends State<VideoTrimScreen> {
   // saveTrimmedVideo는 콜백(onSave) 기반 API라 Future로 감싸서 await 가능하게 한다.
   Future<String?> _saveTrimmedVideo() {
     final completer = Completer<String?>();
-    _trimmer.saveTrimmedVideo(
-      startValue: _startValue,
-      endValue: _endValue,
-      onSave: (outputPath) {
-        if (!completer.isCompleted) completer.complete(outputPath);
-      },
-    ).catchError((e) {
-      if (!completer.isCompleted) completer.completeError(e);
-    });
+    _trimmer
+        .saveTrimmedVideo(
+          startValue: _startValue,
+          endValue: _endValue,
+          onSave: (outputPath) {
+            if (!completer.isCompleted) completer.complete(outputPath);
+          },
+        )
+        .catchError((e) {
+          if (!completer.isCompleted) completer.completeError(e);
+        });
     return completer.future;
   }
 
@@ -152,7 +170,19 @@ class _VideoTrimScreenState extends State<VideoTrimScreen> {
           backgroundColor: Colors.black,
           foregroundColor: Colors.white,
           elevation: 0,
-          title: const Text('동영상 편집', style: TextStyle(fontFamily: 'SeoulHangang', fontWeight: FontWeight.w500, shadows: [Shadow(color: Colors.black87, offset: Offset(0.3, 0)), Shadow(color: Colors.black87, offset: Offset(-0.3, 0)), Shadow(color: Colors.black87, offset: Offset(0, 0.3)), Shadow(color: Colors.black87, offset: Offset(0, -0.3))])),
+          title: const Text(
+            '동영상 편집',
+            style: TextStyle(
+              fontFamily: 'SeoulHangang',
+              fontWeight: FontWeight.w500,
+              shadows: [
+                Shadow(color: Colors.black87, offset: Offset(0.3, 0)),
+                Shadow(color: Colors.black87, offset: Offset(-0.3, 0)),
+                Shadow(color: Colors.black87, offset: Offset(0, 0.3)),
+                Shadow(color: Colors.black87, offset: Offset(0, -0.3)),
+              ],
+            ),
+          ),
           actions: [
             TextButton(
               onPressed: (!_isReady || _isSaving) ? null : _save,
@@ -160,12 +190,17 @@ class _VideoTrimScreenState extends State<VideoTrimScreen> {
                   ? const SizedBox(
                       width: 18,
                       height: 18,
-                      child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                      child: CircularProgressIndicator(
+                        strokeWidth: 2,
+                        color: Colors.white,
+                      ),
                     )
                   : Text(
                       '완료',
                       style: TextStyle(
-                        color: _isReady ? const Color(0xFFFF6FA0) : Colors.white24,
+                        color: _isReady
+                            ? const Color(0xFFFF6FA0)
+                            : Colors.white24,
                         fontWeight: FontWeight.bold,
                         fontSize: 16,
                       ),
@@ -180,7 +215,11 @@ class _VideoTrimScreenState extends State<VideoTrimScreen> {
                   child: Column(
                     mainAxisSize: MainAxisSize.min,
                     children: [
-                      const Icon(Icons.error_outline, color: Colors.white54, size: 40),
+                      const Icon(
+                        Icons.error_outline,
+                        color: Colors.white54,
+                        size: 40,
+                      ),
                       const SizedBox(height: 12),
                       const Text(
                         '영상을 불러오지 못했어요.',
@@ -189,7 +228,10 @@ class _VideoTrimScreenState extends State<VideoTrimScreen> {
                       const SizedBox(height: 16),
                       TextButton(
                         onPressed: () => Navigator.pop(context),
-                        child: const Text('돌아가기', style: TextStyle(color: Color(0xFFFF6FA0))),
+                        child: const Text(
+                          '돌아가기',
+                          style: TextStyle(color: Color(0xFFFF6FA0)),
+                        ),
                       ),
                     ],
                   ),
@@ -201,7 +243,10 @@ class _VideoTrimScreenState extends State<VideoTrimScreen> {
                     const SizedBox(height: 8),
                     // 현재 선택 구간 실시간 표시 — 예) 12.4초 ~ 42.4초 / 선택 길이 30.0초
                     Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 16,
+                        vertical: 10,
+                      ),
                       decoration: BoxDecoration(
                         color: Colors.white.withValues(alpha: 0.12),
                         borderRadius: BorderRadius.circular(20),
@@ -221,7 +266,10 @@ class _VideoTrimScreenState extends State<VideoTrimScreen> {
                           Text(
                             '선택 길이 ${_selectedSeconds.toStringAsFixed(1)}초 / '
                             '최대 ${VideoTrimScreen.maxDuration.inSeconds}초',
-                            style: const TextStyle(color: Colors.white60, fontSize: 12),
+                            style: const TextStyle(
+                              color: Colors.white60,
+                              fontSize: 12,
+                            ),
                           ),
                         ],
                       ),
@@ -236,14 +284,18 @@ class _VideoTrimScreenState extends State<VideoTrimScreen> {
                         children: [
                           VideoViewer(trimmer: _trimmer),
                           if (!_isReady)
-                            const CircularProgressIndicator(color: Color(0xFFFF6FA0)),
+                            const CircularProgressIndicator(
+                              color: Color(0xFFFF6FA0),
+                            ),
                         ],
                       ),
                     ),
                     GestureDetector(
                       onTap: _isReady ? _togglePlayback : null,
                       child: Icon(
-                        _isPlaying ? Icons.pause_circle_filled : Icons.play_circle_fill,
+                        _isPlaying
+                            ? Icons.pause_circle_filled
+                            : Icons.play_circle_fill,
                         color: _isReady ? Colors.white : Colors.white24,
                         size: 56,
                       ),
@@ -269,7 +321,8 @@ class _VideoTrimScreenState extends State<VideoTrimScreen> {
                         ),
                         onChangeStart: (v) => setState(() => _startValue = v),
                         onChangeEnd: (v) => setState(() => _endValue = v),
-                        onChangePlaybackState: (v) => setState(() => _isPlaying = v),
+                        onChangePlaybackState: (v) =>
+                            setState(() => _isPlaying = v),
                       ),
                     ),
                     const SizedBox(height: 8),

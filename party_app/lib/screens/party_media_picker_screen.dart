@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
-import 'package:party_app/models/spotify_track.dart';
-import 'package:party_app/widgets/party_form/spotify_section.dart';
+import 'package:party_app/utils/local_media.dart';
 import 'package:party_app/widgets/party_media_editor.dart';
 import 'package:video_compress/video_compress.dart';
 
@@ -12,7 +11,6 @@ class PartyMediaSelection {
   final String? existingVideoThumbnailUrl;
   final List<XFile> newMedia;
   final PartyCoverPick? coverPick;
-  final SpotifyTrack? spotifyTrack;
   final double basicCardFocalX;
   final double basicCardFocalY;
   final double basicCardScale;
@@ -26,7 +24,6 @@ class PartyMediaSelection {
     required this.existingVideoThumbnailUrl,
     required this.newMedia,
     required this.coverPick,
-    required this.spotifyTrack,
     this.basicCardFocalX = 0.5,
     this.basicCardFocalY = 0.5,
     this.basicCardScale = 1.0,
@@ -35,8 +32,8 @@ class PartyMediaSelection {
   });
 }
 
-/// "미디어 등록" 행 — 기존 `PartyMediaEditor` + Spotify 배경음악 섹션을
-/// 감싼 화면. `PartyMediaEditor`는 AutomaticKeepAliveClientMixin으로 상시
+/// "사진 / 동영상 등록" 행 — `PartyMediaEditor`를 감싼 화면.
+/// `PartyMediaEditor`는 AutomaticKeepAliveClientMixin으로 상시
 /// 마운트를 전제하므로, 이 화면을 pop할 때 그 State가 사라지기 전에 반드시
 /// 여기서 스냅샷을 읽어 부모(등록 화면)에 돌려준다 — 부모는 다음에 이
 /// 화면을 다시 열 때 그 스냅샷을 initial* 파라미터로 그대로 되돌려준다.
@@ -47,16 +44,11 @@ class PartyMediaPickerScreen extends StatefulWidget {
   final String? existingVideoThumbnailUrl;
   final List<XFile> newMedia;
   final PartyCoverPick? coverPick;
-  final SpotifyTrack? spotifyTrack;
   final double basicCardFocalX;
   final double basicCardFocalY;
   final double basicCardScale;
   final Map<String, Map<String, double>> photoCrops;
   final bool videoCropConfirmed;
-
-  /// Spotify 배경음악 섹션은 파티 전용 기능이라, 파티가 아닌 다른 등록
-  /// 화면(예: 장소대여)에서 이 픽커를 재사용할 때는 false로 꺼서 숨긴다.
-  final bool showSpotifySection;
 
   /// true(기본값)면 동영상 타일에 "카드 노출 위치 조정" 버튼을 보여준다.
   /// 장소대여처럼 "기본 카드" 개념이 없는 화면은 false로 끈다.
@@ -73,13 +65,11 @@ class PartyMediaPickerScreen extends StatefulWidget {
     required this.existingVideoThumbnailUrl,
     required this.newMedia,
     required this.coverPick,
-    this.spotifyTrack,
     this.basicCardFocalX = 0.5,
     this.basicCardFocalY = 0.5,
     this.basicCardScale = 1.0,
     this.photoCrops = const {},
     this.videoCropConfirmed = false,
-    this.showSpotifySection = true,
     this.showVideoCropButton = true,
     this.maxImages = 5,
   });
@@ -90,7 +80,6 @@ class PartyMediaPickerScreen extends StatefulWidget {
 
 class _PartyMediaPickerScreenState extends State<PartyMediaPickerScreen> {
   final _mediaEditorKey = GlobalKey<PartyMediaEditorState>();
-  late SpotifyTrack? _spotifyTrack = widget.spotifyTrack;
   bool _isCompressing = false;
 
   @override
@@ -98,16 +87,90 @@ class _PartyMediaPickerScreenState extends State<PartyMediaPickerScreen> {
     // 압축이 진행 중인 채로 이 화면을 벗어나면(뒤로가기 등) 취소한다 —
     // 기존에는 등록 화면 dispose()에서 처리했지만, 압축은 이제 이 화면
     // 안에서만 일어나므로 취소 책임도 여기로 옮긴다.
-    VideoCompress.cancelCompression();
+    // 웹에는 플러그인이 없어 애초에 압축을 시작하지 않는다.
+    if (LocalMedia.canCompressVideo) VideoCompress.cancelCompression();
     super.dispose();
+  }
+
+  /// 이 화면에서 **고쳐진 것이 있는지** — 뒤로가기로 조용히 버려지면 안 되는
+  /// 상태가 남아 있는가.
+  ///
+  /// 들어올 때 받은 스냅샷과 지금 편집기 상태를 비교한다. "새로 고른 파일이
+  /// 있으면"만 보면 부족하다 — 기존 사진을 지우거나 대표를 바꾼 것도 사용자가
+  /// 한 작업이고, 뒤로가기 한 번에 되돌아가면 똑같이 당황스럽다.
+  bool get _hasUnsavedChanges {
+    final s = _mediaEditorKey.currentState;
+    if (s == null) return false;
+    if (s.newMediaFiles.length != widget.newMedia.length) return true;
+    for (var i = 0; i < s.newMediaFiles.length; i++) {
+      if (s.newMediaFiles[i].path != widget.newMedia[i].path) return true;
+    }
+    if (s.existingImageUrls.length != widget.existingImageUrls.length) {
+      return true;
+    }
+    for (var i = 0; i < s.existingImageUrls.length; i++) {
+      if (s.existingImageUrls[i] != widget.existingImageUrls[i]) return true;
+    }
+    if (s.existingVideoUrl != widget.existingVideoUrl) return true;
+    if (s.basicCardFocalX != widget.basicCardFocalX) return true;
+    if (s.basicCardFocalY != widget.basicCardFocalY) return true;
+    if (s.basicCardScale != widget.basicCardScale) return true;
+    if (s.photoCrops.length != widget.photoCrops.length) return true;
+    // 대표 미디어를 바꾼 것만으로도 돌려줄 값이 달라진다.
+    final before = widget.coverPick;
+    final now = s.coverPick;
+    if ((before == null) != (now == null)) return true;
+    if (before != null && now != null) {
+      if (before.existingImageUrl != now.existingImageUrl) return true;
+      if (before.isExistingVideo != now.isExistingVideo) return true;
+      if (before.newImageOrdinal != now.newImageOrdinal) return true;
+      if (before.isNewVideo != now.isNewVideo) return true;
+    }
+    return false;
+  }
+
+  /// 뒤로가기 — 고른 미디어가 **조용히 사라지지 않게** 한 번 묻는다.
+  ///
+  /// 이 화면은 '선택 완료'를 눌러 pop할 때만 부모에게 값을 돌려준다
+  /// (클래스 주석 참고). 그래서 뒤로가기는 곧 "고른 것 전부 버리기"인데,
+  /// 예전에는 아무 경고 없이 그대로 버렸다 — 사진을 고르고 뒤로 나온 사람은
+  /// "선택했는데 등록이 안 됐다"고 느낀다.
+  Future<bool> _confirmDiscard() async {
+    if (!_hasUnsavedChanges) return true;
+    final discard = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(16),
+        ),
+        title: const Text('고른 미디어를 버릴까요?'),
+        content: const Text(
+          '아직 "선택 완료"를 누르지 않아서, 지금 나가면 이 화면에서 고른 '
+          '사진·동영상이 등록 화면에 반영되지 않아요.',
+          style: TextStyle(height: 1.5),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('계속 편집'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            style: TextButton.styleFrom(foregroundColor: Colors.red),
+            child: const Text('버리고 나가기'),
+          ),
+        ],
+      ),
+    );
+    return discard == true;
   }
 
   void _confirm() {
     final s = _mediaEditorKey.currentState!;
     if (widget.showVideoCropButton && !s.isThumbnailCropConfirmed) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('썸네일 위치조정 필수')),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('썸네일 위치조정 필수')));
       return;
     }
     Navigator.pop(
@@ -119,7 +182,6 @@ class _PartyMediaPickerScreenState extends State<PartyMediaPickerScreen> {
         existingVideoThumbnailUrl: s.existingVideoThumbnailUrl,
         newMedia: s.newMediaFiles,
         coverPick: s.coverPick,
-        spotifyTrack: _spotifyTrack,
         basicCardFocalX: s.basicCardFocalX,
         basicCardFocalY: s.basicCardFocalY,
         basicCardScale: s.basicCardScale,
@@ -158,7 +220,7 @@ class _PartyMediaPickerScreenState extends State<PartyMediaPickerScreen> {
               SizedBox(width: 6),
               Expanded(
                 child: Text(
-                  '동영상을 대표 미디어로 설정해보세요!',
+                  '동영상을 대표로 설정해보세요!',
                   style: TextStyle(
                     fontSize: 12,
                     fontWeight: FontWeight.bold,
@@ -227,14 +289,45 @@ class _PartyMediaPickerScreenState extends State<PartyMediaPickerScreen> {
   bool get _hasVideo =>
       _mediaEditorKey.currentState?.hasVideo ??
       (widget.existingVideoUrl != null ||
-          widget.newMedia.any((f) => PartyMediaEditorState.isVideoPath(f.path)));
+          widget.newMedia.any(PartyMediaEditorState.isVideoFile));
 
   @override
   Widget build(BuildContext context) {
     final hasVideo = _hasVideo;
+    return PopScope(
+      // 고른 것이 없으면 예전 그대로 곧장 닫힌다 — 확인창은 실제로 버려질
+      // 작업이 있을 때만 뜬다.
+      canPop: false,
+      onPopInvokedWithResult: (didPop, _) async {
+        if (didPop) return;
+        if (await _confirmDiscard() && mounted) {
+          if (!context.mounted) return;
+          Navigator.pop(context);
+        }
+      },
+      child: _buildScaffold(context, hasVideo),
+    );
+  }
+
+  Widget _buildScaffold(BuildContext context, bool hasVideo) {
     return Scaffold(
       backgroundColor: Colors.white,
-      appBar: AppBar(title: const Text('미디어 등록', style: TextStyle(fontFamily: 'SeoulHangang', fontWeight: FontWeight.w500, shadows: [Shadow(color: Colors.black87, offset: Offset(0.3, 0)), Shadow(color: Colors.black87, offset: Offset(-0.3, 0)), Shadow(color: Colors.black87, offset: Offset(0, 0.3)), Shadow(color: Colors.black87, offset: Offset(0, -0.3))])), centerTitle: true),
+      appBar: AppBar(
+        title: const Text(
+          '사진 / 동영상 등록',
+          style: TextStyle(
+            fontFamily: 'SeoulHangang',
+            fontWeight: FontWeight.w500,
+            shadows: [
+              Shadow(color: Colors.black87, offset: Offset(0.3, 0)),
+              Shadow(color: Colors.black87, offset: Offset(-0.3, 0)),
+              Shadow(color: Colors.black87, offset: Offset(0, 0.3)),
+              Shadow(color: Colors.black87, offset: Offset(0, -0.3)),
+            ],
+          ),
+        ),
+        centerTitle: true,
+      ),
       body: Stack(
         children: [
           Padding(
@@ -304,13 +397,6 @@ class _PartyMediaPickerScreenState extends State<PartyMediaPickerScreen> {
                               setState(() => _isCompressing = v),
                           onMediaChanged: () => setState(() {}),
                         ),
-                        if (widget.showSpotifySection && !hasVideo) ...[
-                          const SizedBox(height: 12),
-                          SpotifySection(
-                            track: _spotifyTrack,
-                            onChanged: (t) => setState(() => _spotifyTrack = t),
-                          ),
-                        ],
                         const SizedBox(height: 16),
                         SizedBox(
                           width: double.infinity,

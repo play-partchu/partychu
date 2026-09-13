@@ -1,24 +1,24 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart' show SystemChrome, SystemUiMode;
-import 'package:party_app/models/party_filter.dart';
-import 'package:party_app/utils/feed_video_manager.dart';
 import 'package:party_app/utils/party_view_mode.dart';
-import 'package:party_app/widgets/detail_search_sheet.dart';
+import 'package:party_app/widgets/fullscreen_card_feed.dart';
+import 'package:party_app/widgets/main/search_entry_sheet.dart';
 import 'package:party_app/widgets/party_card_widget.dart';
 import 'package:party_app/widgets/party_view_mode_sheet.dart';
-import 'package:party_app/widgets/partychu_icon_button.dart';
 
 /// 전체화면 영상 피드를 벗어날 때 돌려주는 결과 — 보기 방식을 바꿨는지,
-/// 상세검색으로 필터를 바꿨는지 둘 중 하나(또는 둘 다 null)를 담는다.
-/// MainScreen은 [filter]가 있으면 그 필터로 목록을 다시 걸러 전체화면을
-/// 자동으로 다시 띄우고, [viewMode]가 있으면(그리고 video가 아니면) 목록의
-/// 보기 방식을 그 값으로 바꾼다.
+/// 검색(검색어/상세검색 조건)을 바꿨는지. 플레이스의 [PlaceFeedExitResult]와
+/// 같은 모양이다. MainScreen은 [searchChanged]면 새로 걸러진 목록으로
+/// 전체화면을 자동으로 다시 띄우고, [viewMode]가 있으면(그리고 video가
+/// 아니면) 목록의 보기 방식을 그 값으로 바꾼다.
 class VideoFeedExitResult {
   final PartyViewMode? viewMode;
-  final PartyFilter? filter;
 
-  const VideoFeedExitResult({this.viewMode, this.filter});
+  /// 검색어나 상세검색 조건이 바뀌었는지 — 실제 값은 목록 화면이 자기 상태에
+  /// 이미 반영해 두었으므로, 여기서는 "다시 띄워라"는 신호만 넘긴다.
+  final bool searchChanged;
+
+  const VideoFeedExitResult({this.viewMode, this.searchChanged = false});
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -48,17 +48,22 @@ class VideoFeedExitResult {
 class PartyVideoFeedScreen extends StatefulWidget {
   final List<QueryDocumentSnapshot> docs;
   final int initialIndex;
-  // 상세검색 버튼(메인 목록과 동일한 DetailSearchSheet)을 이 화면에서도 바로
-  // 열 수 있도록, 진입 시점의 필터/파티 날짜를 그대로 넘겨받는다.
-  final PartyFilter filter;
-  final Set<DateTime> partyDates;
+
+  /// 우상단 돋보기를 눌렀을 때 목록 화면이 파티 탭의 검색 시트(검색어 +
+  /// 상세검색)를 그대로 띄운다. 검색어나 조건이 바뀌었으면 true를 돌려주고,
+  /// 그러면 이 화면은 닫히면서 목록 화면이 새로 걸러진 목록으로 전체화면을
+  /// 다시 띄운다. 플레이스 전체화면([PlaceFeedScreen])과 완전히 같은 계약이다.
+  final Future<bool> Function()? onOpenSearch;
+
+  /// 지금 검색어나 조건이 걸려 있는지 — 돋보기 위 분홍 점 표시용.
+  final bool searchActive;
 
   const PartyVideoFeedScreen({
     super.key,
     required this.docs,
     required this.initialIndex,
-    required this.filter,
-    this.partyDates = const {},
+    this.onOpenSearch,
+    this.searchActive = false,
   });
 
   @override
@@ -66,26 +71,6 @@ class PartyVideoFeedScreen extends StatefulWidget {
 }
 
 class _PartyVideoFeedScreenState extends State<PartyVideoFeedScreen> {
-  late final PageController _pageController;
-
-  @override
-  void initState() {
-    super.initState();
-    _pageController = PageController(initialPage: widget.initialIndex);
-    // 상태바/내비게이션 바까지 숨겨 카드 한 장이 화면 전체를 쓰게 한다.
-    SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersiveSticky);
-    // 목록에 섞인 작은 미리보기와 달리 이 화면은 몰입해서 보는 전체화면
-    // 뷰라 소리를 켠 채로 시작한다(사용자가 다시 끄면 그 선택은 존중된다).
-    FeedVideoManager.instance.setMuted(false);
-  }
-
-  @override
-  void dispose() {
-    SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
-    _pageController.dispose();
-    super.dispose();
-  }
-
   Future<void> _showViewModeSheet() async {
     final selected = await showModalBottomSheet<PartyViewMode>(
       context: context,
@@ -105,124 +90,46 @@ class _PartyVideoFeedScreenState extends State<PartyVideoFeedScreen> {
     }
   }
 
-  // 메인 목록의 "상세검색"과 동일한 바텀시트 — 새 필터를 고르면 전체화면을
-  // 닫고 그 필터를 목록 화면에 전달한다. 목록 화면은 필터를 반영해 다시
-  // 걸러진 목록으로 전체화면을 즉시 다시 띄운다(_maybeAutoOpenVideoFeed 재사용).
-  Future<void> _openDetailSearch() async {
-    final result = await showModalBottomSheet<PartyFilter>(
-      context: context,
-      isScrollControlled: true,
-      backgroundColor: Colors.white,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
-      ),
-      builder: (_) => DetailSearchSheet(
-        initialFilter: widget.filter,
-        partyDates: widget.partyDates,
-      ),
-    );
-    if (result == null || !mounted) return;
-    Navigator.pop(context, VideoFeedExitResult(filter: result));
-  }
-
-  Widget _roundIconButton(
-    IconData icon,
-    VoidCallback onTap, {
-    Color iconColor = Colors.white,
-  }) {
-    return Material(
-      color: Colors.black.withValues(alpha: 0.4),
-      shape: const CircleBorder(),
-      child: InkWell(
-        customBorder: const CircleBorder(),
-        onTap: onTap,
-        child: Padding(
-          padding: const EdgeInsets.all(8),
-          child: Icon(icon, color: iconColor, size: 22),
-        ),
-      ),
-    );
+  // 메인 목록의 돋보기와 **완전히 같은 검색 시트** — 목록 화면이 열어주고
+  // (SearchEntrySheet: 검색어 입력 + 상세검색), 검색어나 조건이 바뀌면
+  // 전체화면을 닫는다. 목록 화면은 다시 걸러진 목록으로 전체화면을 즉시
+  // 다시 띄운다(_maybeAutoOpenVideoFeed 재사용).
+  Future<void> _openSearch() async {
+    final changed = await widget.onOpenSearch!();
+    if (!changed || !mounted) return;
+    Navigator.pop(context, const VideoFeedExitResult(searchChanged: true));
   }
 
   @override
   Widget build(BuildContext context) {
-    // immersiveSticky에서는 상태바가 숨겨져 topPadding이 0이 될 수 있으므로
-    // 최소 여백을 보장한다.
-    final topPad = MediaQuery.of(context).padding.top;
-    final topInset = (topPad > 0 ? topPad : 8.0) + 8;
-    return Scaffold(
-      backgroundColor: Colors.black,
-      body: Stack(
-        fit: StackFit.expand,
-        children: [
-          PageView.builder(
-            controller: _pageController,
-            scrollDirection: Axis.vertical,
-            itemCount: widget.docs.length,
-            itemBuilder: (context, index) {
-              final doc = widget.docs[index];
-              final data = doc.data() as Map<String, dynamic>;
-              return PartyVideoFeedCard(
-                key: ValueKey(doc.id),
-                party: data,
-                docId: doc.id,
-              );
-            },
+    // 몰입 모드·세로 PageView·뒤로가기·음소거 토글은 전부 공용 껍데기가
+    // 맡는다. 이 화면에 남는 건 우상단 액션(돋보기·보기방식)뿐이고, 그 둘 다
+    // 플레이스 전체화면([PlaceFeedScreen])과 같은 위젯·같은 순서다.
+    return FullscreenCardFeed(
+      itemCount: widget.docs.length,
+      initialIndex: widget.initialIndex,
+      itemBuilder: (context, index) {
+        final doc = widget.docs[index];
+        final data = doc.data() as Map<String, dynamic>;
+        return PartyVideoFeedCard(
+          key: ValueKey(doc.id),
+          party: data,
+          docId: doc.id,
+        );
+      },
+      actions: [
+        if (widget.onOpenSearch != null) ...[
+          feedSearchEntryButton(
+            onTap: _openSearch,
+            active: widget.searchActive,
           ),
-          Positioned(
-            top: topInset,
-            left: 12,
-            child: _roundIconButton(
-              Icons.arrow_back,
-              () => Navigator.pop(context),
-            ),
-          ),
-          // 스피커 on/off — 상세보기 버튼(좌측 하단)과 겹치지 않도록 우측
-          // 하단에 둔다. 전역 음소거 상태(FeedVideoManager)를 그대로 보고
-          // 누르면 이 화면뿐 아니라 다음에 재생되는 모든 카드에도 이어진다.
-          Positioned(
-            right: 12,
-            bottom:
-                (MediaQuery.of(context).padding.bottom > 0
-                    ? MediaQuery.of(context).padding.bottom
-                    : 8.0) +
-                8,
-            child: const MuteToggleIconButton(size: 25),
-          ),
-          Positioned(
-            top: topInset,
-            right: 12,
-            child: Row(
-              children: [
-                Stack(
-                  clipBehavior: Clip.none,
-                  children: [
-                    _roundIconButton(Icons.tune, _openDetailSearch),
-                    if (widget.filter.isActive)
-                      Positioned(
-                        top: 2,
-                        right: 2,
-                        child: Container(
-                          width: 9,
-                          height: 9,
-                          decoration: const BoxDecoration(
-                            color: Color(0xFFFF6FA0),
-                            shape: BoxShape.circle,
-                          ),
-                        ),
-                      ),
-                  ],
-                ),
-                const SizedBox(width: 8),
-                _roundIconButton(
-                  partyViewModeIcon(PartyViewMode.video),
-                  _showViewModeSheet,
-                ),
-              ],
-            ),
-          ),
+          const SizedBox(width: 8),
         ],
-      ),
+        feedRoundIconButton(
+          partyViewModeIcon(PartyViewMode.video),
+          _showViewModeSheet,
+        ),
+      ],
     );
   }
 }

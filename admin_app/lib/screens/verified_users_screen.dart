@@ -25,6 +25,14 @@ class VerifiedUsersScreen extends StatelessWidget {
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         const Text('본인확인 사용자 목록', style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
+        const SizedBox(height: 6),
+        // 이 목록은 identityVerified == true 하나만 본다 — 회원 관리와 달리
+        // 테스트 계정을 걸러내지 않아 두 화면의 사람 수가 다르게 보인다.
+        // 숨기는 대신 어느 줄이 테스트 계정인지 맨 오른쪽에 표시한다.
+        const Text(
+          '본인확인을 마친 계정 전체입니다 — 회원 관리와 달리 테스트 계정도 함께 나옵니다.',
+          style: TextStyle(fontSize: 12, color: AdminTheme.textSecondary),
+        ),
         const SizedBox(height: 16),
         Expanded(
           child: Container(
@@ -59,6 +67,7 @@ class VerifiedUsersScreen extends StatelessWidget {
                         DataColumn(label: Text('UID')),
                         DataColumn(label: Text('인증완료일')),
                         DataColumn(label: Text('인증상태')),
+                        DataColumn(label: Text('테스트')),
                       ],
                       rows: [
                         for (final doc in docs)
@@ -76,6 +85,9 @@ class VerifiedUsersScreen extends StatelessWidget {
                               DataCell(Text(doc.id)),
                               DataCell(Text(_fmtDate(doc.data()['identityVerifiedAt']))),
                               DataCell(_ProviderBadge(provider: doc.data()['verificationProvider'] as String?)),
+                              DataCell(Text(
+                                doc.data()['isTestAccount'] == true ? 'O' : '-',
+                              )),
                             ],
                           ),
                       ],

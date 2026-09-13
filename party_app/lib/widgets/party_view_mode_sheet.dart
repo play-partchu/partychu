@@ -5,10 +5,10 @@ import 'package:party_app/utils/party_view_mode.dart';
 /// 쓰도록 공용으로 둔다.
 /// ◫(작은 카드) / ▣(기본 카드) / ▮(큰 카드·영상)에 대응.
 IconData partyViewModeIcon(PartyViewMode mode) => switch (mode) {
-      PartyViewMode.compact => Icons.grid_view_rounded,
-      PartyViewMode.standard => Icons.crop_landscape_rounded,
-      PartyViewMode.video => Icons.stay_current_portrait_rounded,
-    };
+  PartyViewMode.compact => Icons.grid_view_rounded,
+  PartyViewMode.standard => Icons.crop_landscape_rounded,
+  PartyViewMode.video => Icons.stay_current_portrait_rounded,
+};
 
 /// "보기 방식" 선택 BottomSheet — 아이콘 중심, 설명은 짧은 불릿 2개만.
 class PartyViewModeSheet extends StatelessWidget {
@@ -96,7 +96,9 @@ class _OptionTile extends StatelessWidget {
         decoration: BoxDecoration(
           color: selected ? const Color(0xFFFFF0F5) : Colors.transparent,
           borderRadius: BorderRadius.circular(14),
-          border: Border.all(color: selected ? accent : const Color(0xFFEFEFF2)),
+          border: Border.all(
+            color: selected ? accent : const Color(0xFFEFEFF2),
+          ),
         ),
         child: Column(
           mainAxisSize: MainAxisSize.min,
@@ -129,16 +131,18 @@ class _OptionTile extends StatelessWidget {
               ),
             ),
             const SizedBox(height: 3),
-            ...bullets.map((b) => Padding(
-                  padding: const EdgeInsets.only(top: 1),
-                  child: Text(
-                    b,
-                    textAlign: TextAlign.center,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(fontSize: 10, color: Colors.black45),
-                  ),
-                )),
+            ...bullets.map(
+              (b) => Padding(
+                padding: const EdgeInsets.only(top: 1),
+                child: Text(
+                  b,
+                  textAlign: TextAlign.center,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(fontSize: 10, color: Colors.black45),
+                ),
+              ),
+            ),
           ],
         ),
       ),

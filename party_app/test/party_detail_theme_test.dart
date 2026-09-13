@@ -5,11 +5,26 @@ import 'package:party_app/widgets/party_detail_theme.dart';
 void main() {
   group('partyDetailThemeKeyFromString', () {
     test('유효한 값은 그대로 파싱된다', () {
-      expect(partyDetailThemeKeyFromString('partychu'), PartyDetailThemeKey.partychu);
-      expect(partyDetailThemeKeyFromString('lovely'), PartyDetailThemeKey.lovely);
-      expect(partyDetailThemeKeyFromString('premiumDark'), PartyDetailThemeKey.premiumDark);
-      expect(partyDetailThemeKeyFromString('clubNeon'), PartyDetailThemeKey.clubNeon);
-      expect(partyDetailThemeKeyFromString('minimal'), PartyDetailThemeKey.minimal);
+      expect(
+        partyDetailThemeKeyFromString('partychu'),
+        PartyDetailThemeKey.partychu,
+      );
+      expect(
+        partyDetailThemeKeyFromString('lovely'),
+        PartyDetailThemeKey.lovely,
+      );
+      expect(
+        partyDetailThemeKeyFromString('premiumDark'),
+        PartyDetailThemeKey.premiumDark,
+      );
+      expect(
+        partyDetailThemeKeyFromString('clubNeon'),
+        PartyDetailThemeKey.clubNeon,
+      );
+      expect(
+        partyDetailThemeKeyFromString('minimal'),
+        PartyDetailThemeKey.minimal,
+      );
     });
 
     test('null이면(기존 파티) partychu로 대체된다', () {
@@ -17,9 +32,15 @@ void main() {
     });
 
     test('알 수 없는 값이어도 크래시 없이 partychu로 대체된다', () {
-      expect(partyDetailThemeKeyFromString('galaxy'), PartyDetailThemeKey.partychu);
+      expect(
+        partyDetailThemeKeyFromString('galaxy'),
+        PartyDetailThemeKey.partychu,
+      );
       expect(partyDetailThemeKeyFromString(''), PartyDetailThemeKey.partychu);
-      expect(partyDetailThemeKeyFromString('PartyChu'), PartyDetailThemeKey.partychu); // 대소문자 불일치도 안전 처리
+      expect(
+        partyDetailThemeKeyFromString('PartyChu'),
+        PartyDetailThemeKey.partychu,
+      ); // 대소문자 불일치도 안전 처리
     });
   });
 

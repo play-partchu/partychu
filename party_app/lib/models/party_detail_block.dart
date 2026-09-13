@@ -76,7 +76,11 @@ class PartyDetailFaqItem {
     );
   }
 
-  Map<String, dynamic> toMap() => {'id': id, 'question': question, 'answer': answer};
+  Map<String, dynamic> toMap() => {
+    'id': id,
+    'question': question,
+    'answer': answer,
+  };
 
   bool get isEmpty => question.trim().isEmpty && answer.trim().isEmpty;
 }
@@ -191,7 +195,9 @@ class PartyDetailTimelinePayload {
       for (final e in rawItems) {
         if (e is! Map) continue;
         try {
-          final item = PartyDetailTimelineItem.fromMap(Map<String, dynamic>.from(e));
+          final item = PartyDetailTimelineItem.fromMap(
+            Map<String, dynamic>.from(e),
+          );
           if (!item.isEmpty) items.add(item);
         } catch (_) {}
       }
@@ -350,7 +356,9 @@ class PartyDetailImageGroupPayload {
       for (final e in rawItems) {
         if (e is! Map) continue;
         try {
-          final item = PartyDetailImageGroupItem.fromMap(Map<String, dynamic>.from(e));
+          final item = PartyDetailImageGroupItem.fromMap(
+            Map<String, dynamic>.from(e),
+          );
           if (!item.isEmpty) items.add(item);
         } catch (_) {
           // 항목 하나가 손상돼도 나머지 항목에는 영향을 주지 않는다.
@@ -436,7 +444,11 @@ class PartyDetailBlock {
         } catch (_) {
           raw = {'id': id, if (typeRaw != null) 'type': typeRaw};
         }
-        return PartyDetailBlock(id: id, type: PartyDetailBlockType.unknown, rawUnknown: raw);
+        return PartyDetailBlock(
+          id: id,
+          type: PartyDetailBlockType.unknown,
+          rawUnknown: raw,
+        );
       }
 
       switch (type) {
@@ -470,7 +482,11 @@ class PartyDetailBlock {
             checklist: PartyDetailChecklistPayload.fromMap(m),
           );
         case PartyDetailBlockType.faq:
-          return PartyDetailBlock(id: id, type: type, faq: PartyDetailFaqPayload.fromMap(m));
+          return PartyDetailBlock(
+            id: id,
+            type: type,
+            faq: PartyDetailFaqPayload.fromMap(m),
+          );
         case PartyDetailBlockType.timeline:
           return PartyDetailBlock(
             id: id,
@@ -496,7 +512,11 @@ class PartyDetailBlock {
             imageGroup: PartyDetailImageGroupPayload.fromMap(m),
           );
         case PartyDetailBlockType.unknown:
-          return PartyDetailBlock(id: id, type: PartyDetailBlockType.unknown, rawUnknown: {'id': id});
+          return PartyDetailBlock(
+            id: id,
+            type: PartyDetailBlockType.unknown,
+            rawUnknown: {'id': id},
+          );
       }
     } catch (_) {
       // 위 방어 로직에서 예상 못 한 예외가 나더라도 절대 밖으로 던지지 않는다.
@@ -507,7 +527,11 @@ class PartyDetailBlock {
       } catch (_) {
         raw = null;
       }
-      return PartyDetailBlock(id: id, type: PartyDetailBlockType.unknown, rawUnknown: raw);
+      return PartyDetailBlock(
+        id: id,
+        type: PartyDetailBlockType.unknown,
+        rawUnknown: raw,
+      );
     }
   }
 
@@ -559,7 +583,8 @@ class PartyDetailBlock {
         return {
           'id': id,
           'type': _kWireNames[type],
-          ...(infoCard ?? const PartyDetailInfoCardPayload(title: '', text: '')).toMap(),
+          ...(infoCard ?? const PartyDetailInfoCardPayload(title: '', text: ''))
+              .toMap(),
         };
       case PartyDetailBlockType.video:
         return {

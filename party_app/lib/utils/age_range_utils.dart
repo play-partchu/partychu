@@ -55,7 +55,8 @@ const Map<PartyAudienceType, PartyAgeRange> _kAudienceAgeRanges = {
 /// 혼합 유형을 실제로 열 때는 이 함수를 쓰기 전에 먼저 그 정책부터 정해야
 /// 한다.
 PartyAgeRange partyAgeRangeFor(PartyAudienceType audienceType) =>
-    _kAudienceAgeRanges[audienceType] ?? _kAudienceAgeRanges[PartyAudienceType.adult]!;
+    _kAudienceAgeRanges[audienceType] ??
+    _kAudienceAgeRanges[PartyAudienceType.adult]!;
 
 int ageFromBirthYear(int birthYear) => DateTime.now().year - birthYear;
 

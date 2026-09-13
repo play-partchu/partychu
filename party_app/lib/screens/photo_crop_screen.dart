@@ -1,6 +1,6 @@
-import 'dart:io';
-
 import 'package:flutter/material.dart';
+import 'package:image_picker/image_picker.dart' show XFile;
+import 'package:party_app/utils/local_media.dart';
 import 'package:party_app/utils/video_crop.dart';
 
 /// 사진이 기본 카드에 노출될 위치(초점)와 확대 배율을 고르는 편집 화면.
@@ -12,7 +12,10 @@ import 'package:party_app/utils/video_crop.dart';
 /// 완료 시 `{cropX, cropY, cropScale}`을 반환한다(취소 시 null).
 class PhotoCropScreen extends StatefulWidget {
   final String? imageUrl;
-  final File? imageFile;
+
+  /// 아직 업로드되지 않은, 방금 고른 사진. 앱은 파일 경로, 웹은 blob 오브젝트
+  /// URL을 들고 있으므로 [LocalMedia]를 통해서만 연다.
+  final XFile? imageFile;
   // 미리보기 프레임 크기(논리 픽셀) — 기본카드와 같은 비율로 화면에 크게
   // 보여주는 크기를 그대로 받는다([PartyMediaEditor._cardFrameSize] 참고).
   final double frameWidth;
@@ -48,7 +51,7 @@ class _PhotoCropScreenState extends State<PhotoCropScreen> {
   final TransformationController _transformCtrl = TransformationController();
 
   late final ImageProvider _provider = widget.imageFile != null
-      ? FileImage(widget.imageFile!) as ImageProvider
+      ? LocalMedia.imageProvider(widget.imageFile!)
       : NetworkImage(widget.imageUrl!);
   ImageStream? _stream;
   late final ImageStreamListener _listener = ImageStreamListener(
@@ -125,7 +128,16 @@ class _PhotoCropScreenState extends State<PhotoCropScreen> {
         elevation: 0,
         title: Text(
           widget.title,
-          style: const TextStyle(fontFamily: 'SeoulHangang', fontWeight: FontWeight.w500, shadows: [Shadow(color: Colors.black87, offset: Offset(0.3, 0)), Shadow(color: Colors.black87, offset: Offset(-0.3, 0)), Shadow(color: Colors.black87, offset: Offset(0, 0.3)), Shadow(color: Colors.black87, offset: Offset(0, -0.3))]),
+          style: const TextStyle(
+            fontFamily: 'SeoulHangang',
+            fontWeight: FontWeight.w500,
+            shadows: [
+              Shadow(color: Colors.black87, offset: Offset(0.3, 0)),
+              Shadow(color: Colors.black87, offset: Offset(-0.3, 0)),
+              Shadow(color: Colors.black87, offset: Offset(0, 0.3)),
+              Shadow(color: Colors.black87, offset: Offset(0, -0.3)),
+            ],
+          ),
         ),
         actions: [
           TextButton(
@@ -265,7 +277,11 @@ class _PhotoCropScreenState extends State<PhotoCropScreen> {
                     child: Row(
                       mainAxisAlignment: MainAxisAlignment.center,
                       children: const [
-                        Icon(Icons.pinch_outlined, color: Colors.white38, size: 18),
+                        Icon(
+                          Icons.pinch_outlined,
+                          color: Colors.white38,
+                          size: 18,
+                        ),
                         SizedBox(width: 6),
                         Text(
                           '핀치: 확대/축소',

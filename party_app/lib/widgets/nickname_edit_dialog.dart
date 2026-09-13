@@ -90,25 +90,29 @@ class _NicknameEditDialogState extends State<_NicknameEditDialog> {
   @override
   Widget build(BuildContext context) {
     return AlertDialog(
-      title: Text(widget.title,
-          style: const TextStyle(
-            fontFamily: 'SeoulHangang',
-            fontSize: 16,
-            fontWeight: FontWeight.w500,
-            shadows: [
-              Shadow(color: Colors.black87, offset: Offset(0.3, 0)),
-              Shadow(color: Colors.black87, offset: Offset(-0.3, 0)),
-              Shadow(color: Colors.black87, offset: Offset(0, 0.3)),
-              Shadow(color: Colors.black87, offset: Offset(0, -0.3)),
-            ],
-          )),
+      title: Text(
+        widget.title,
+        style: const TextStyle(
+          fontFamily: 'SeoulHangang',
+          fontSize: 16,
+          fontWeight: FontWeight.w500,
+          shadows: [
+            Shadow(color: Colors.black87, offset: Offset(0.3, 0)),
+            Shadow(color: Colors.black87, offset: Offset(-0.3, 0)),
+            Shadow(color: Colors.black87, offset: Offset(0, 0.3)),
+            Shadow(color: Colors.black87, offset: Offset(0, -0.3)),
+          ],
+        ),
+      ),
       content: Column(
         mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           if (widget.description != null) ...[
-            Text(widget.description!,
-                style: const TextStyle(fontSize: 13, color: Colors.black54)),
+            Text(
+              widget.description!,
+              style: const TextStyle(fontSize: 13, color: Colors.black54),
+            ),
             const SizedBox(height: 12),
           ],
           TextField(
@@ -150,7 +154,10 @@ class _NicknameEditDialogState extends State<_NicknameEditDialog> {
               ? const SizedBox(
                   width: 16,
                   height: 16,
-                  child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                  child: CircularProgressIndicator(
+                    strokeWidth: 2,
+                    color: Colors.white,
+                  ),
                 )
               : const Text('저장'),
         ),

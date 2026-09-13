@@ -106,26 +106,30 @@ class _CropEditorScreenState extends State<CropEditorScreen> {
 
   // ── 에디터 이미지 (transform 적용) ────────────────────────────────────
   Widget _cropImage(double w, double h) => ClipRect(
-        child: Transform.translate(
-          offset: _offset,
-          child: Transform.scale(
-            scale: _scale,
-            alignment: Alignment.center,
-            child: Image.file(
-              widget.imageFile,
-              fit: BoxFit.cover,
-              width: w,
-              height: h,
-            ),
-          ),
+    child: Transform.translate(
+      offset: _offset,
+      child: Transform.scale(
+        scale: _scale,
+        alignment: Alignment.center,
+        child: Image.file(
+          widget.imageFile,
+          fit: BoxFit.cover,
+          width: w,
+          height: h,
         ),
-      );
+      ),
+    ),
+  );
 
   // ── 미리보기 이미지 ───────────────────────────────────────────────────
   Widget _previewImage() {
     if (_editorW <= 0) {
-      return Image.file(widget.imageFile,
-          fit: BoxFit.cover, width: _previewW, height: _previewH);
+      return Image.file(
+        widget.imageFile,
+        fit: BoxFit.cover,
+        width: _previewW,
+        height: _previewH,
+      );
     }
     final ratio = _previewW / _editorW;
     return ClipRect(
@@ -155,30 +159,38 @@ class _CropEditorScreenState extends State<CropEditorScreen> {
         automaticallyImplyLeading: false,
         leading: TextButton(
           onPressed: () => Navigator.pop(context, null),
-          child: const Text('취소',
-              style: TextStyle(color: Colors.white60, fontSize: 14)),
+          child: const Text(
+            '취소',
+            style: TextStyle(color: Colors.white60, fontSize: 14),
+          ),
         ),
-        title: const Text('썸네일 조정',
-            style: TextStyle(
-                color: Colors.white,
-                fontFamily: 'SeoulHangang',
-                fontSize: 16,
-                fontWeight: FontWeight.w500,
-                shadows: [
-                  Shadow(color: Colors.white, offset: Offset(0.3, 0)),
-                  Shadow(color: Colors.white, offset: Offset(-0.3, 0)),
-                  Shadow(color: Colors.white, offset: Offset(0, 0.3)),
-                  Shadow(color: Colors.white, offset: Offset(0, -0.3)),
-                ])),
+        title: const Text(
+          '썸네일 조정',
+          style: TextStyle(
+            color: Colors.white,
+            fontFamily: 'SeoulHangang',
+            fontSize: 16,
+            fontWeight: FontWeight.w500,
+            shadows: [
+              Shadow(color: Colors.white, offset: Offset(0.3, 0)),
+              Shadow(color: Colors.white, offset: Offset(-0.3, 0)),
+              Shadow(color: Colors.white, offset: Offset(0, 0.3)),
+              Shadow(color: Colors.white, offset: Offset(0, -0.3)),
+            ],
+          ),
+        ),
         centerTitle: true,
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(context, _exportMatrix()),
-            child: const Text('완료',
-                style: TextStyle(
-                    color: Color(0xFFFF6FA0),
-                    fontWeight: FontWeight.bold,
-                    fontSize: 15)),
+            child: const Text(
+              '완료',
+              style: TextStyle(
+                color: Color(0xFFFF6FA0),
+                fontWeight: FontWeight.bold,
+                fontSize: 15,
+              ),
+            ),
           ),
         ],
       ),
@@ -188,39 +200,41 @@ class _CropEditorScreenState extends State<CropEditorScreen> {
             const Spacer(),
 
             // ── 크롭 에디터 영역 (4:3) ────────────────────────────
-            LayoutBuilder(builder: (ctx, constraints) {
-              final w = constraints.maxWidth;
-              _initEditorSize(w);
-              final h = w * 3 / 4;
-              return GestureDetector(
-                behavior: HitTestBehavior.opaque,
-                onScaleStart: _onScaleStart,
-                onScaleUpdate: _onScaleUpdate,
-                child: Container(
-                  width: w,
-                  height: h,
-                  color: Colors.black,
-                  child: Stack(
-                    children: [
-                      _cropImage(w, h),
-                      // 프레임 가이드 (이벤트 통과)
-                      Positioned.fill(
-                        child: IgnorePointer(
-                          child: DecoratedBox(
-                            decoration: BoxDecoration(
-                              border: Border.all(
-                                color: Colors.white.withValues(alpha: 0.4),
-                                width: 1.5,
+            LayoutBuilder(
+              builder: (ctx, constraints) {
+                final w = constraints.maxWidth;
+                _initEditorSize(w);
+                final h = w * 3 / 4;
+                return GestureDetector(
+                  behavior: HitTestBehavior.opaque,
+                  onScaleStart: _onScaleStart,
+                  onScaleUpdate: _onScaleUpdate,
+                  child: Container(
+                    width: w,
+                    height: h,
+                    color: Colors.black,
+                    child: Stack(
+                      children: [
+                        _cropImage(w, h),
+                        // 프레임 가이드 (이벤트 통과)
+                        Positioned.fill(
+                          child: IgnorePointer(
+                            child: DecoratedBox(
+                              decoration: BoxDecoration(
+                                border: Border.all(
+                                  color: Colors.white.withValues(alpha: 0.4),
+                                  width: 1.5,
+                                ),
                               ),
                             ),
                           ),
                         ),
-                      ),
-                    ],
+                      ],
+                    ),
                   ),
-                ),
-              );
-            }),
+                );
+              },
+            ),
 
             const Spacer(),
 
@@ -232,15 +246,17 @@ class _CropEditorScreenState extends State<CropEditorScreen> {
                 children: const [
                   Icon(Icons.pinch_outlined, color: Colors.white38, size: 18),
                   SizedBox(width: 6),
-                  Text('핀치: 확대/축소',
-                      style:
-                          TextStyle(color: Colors.white38, fontSize: 12)),
+                  Text(
+                    '핀치: 확대/축소',
+                    style: TextStyle(color: Colors.white38, fontSize: 12),
+                  ),
                   SizedBox(width: 24),
                   Icon(Icons.open_with, color: Colors.white38, size: 18),
                   SizedBox(width: 6),
-                  Text('드래그: 이동',
-                      style:
-                          TextStyle(color: Colors.white38, fontSize: 12)),
+                  Text(
+                    '드래그: 이동',
+                    style: TextStyle(color: Colors.white38, fontSize: 12),
+                  ),
                 ],
               ),
             ),
@@ -260,9 +276,10 @@ class _CropEditorScreenState extends State<CropEditorScreen> {
                     const Text(
                       '파티 목록에서 보이는 모습',
                       style: TextStyle(
-                          color: Colors.white54,
-                          fontSize: 11,
-                          fontWeight: FontWeight.w500),
+                        color: Colors.white54,
+                        fontSize: 11,
+                        fontWeight: FontWeight.w500,
+                      ),
                     ),
                     const SizedBox(height: 10),
                     Row(
@@ -311,21 +328,23 @@ class _CropEditorScreenState extends State<CropEditorScreen> {
   }
 
   Widget _skeleton(double w, double h) => Container(
-        width: w,
-        height: h,
-        decoration: BoxDecoration(
-          color: Colors.white12,
-          borderRadius: BorderRadius.circular(4),
-        ),
-      );
+    width: w,
+    height: h,
+    decoration: BoxDecoration(
+      color: Colors.white12,
+      borderRadius: BorderRadius.circular(4),
+    ),
+  );
 
   Widget _skeletonChip(String label) => Container(
-        padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
-        decoration: BoxDecoration(
-          color: Colors.white10,
-          borderRadius: BorderRadius.circular(20),
-        ),
-        child: Text(label,
-            style: const TextStyle(fontSize: 9, color: Colors.white30)),
-      );
+    padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
+    decoration: BoxDecoration(
+      color: Colors.white10,
+      borderRadius: BorderRadius.circular(20),
+    ),
+    child: Text(
+      label,
+      style: const TextStyle(fontSize: 9, color: Colors.white30),
+    ),
+  );
 }

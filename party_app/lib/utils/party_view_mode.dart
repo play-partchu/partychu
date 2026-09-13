@@ -15,10 +15,10 @@ enum PartyViewMode {
   static const _prefsKey = 'party_view_mode';
 
   String get label => switch (this) {
-        PartyViewMode.compact => '작은 카드',
-        PartyViewMode.standard => '기본 카드',
-        PartyViewMode.video => '영상 크게 보기',
-      };
+    PartyViewMode.compact => '작은 카드',
+    PartyViewMode.standard => '기본 카드',
+    PartyViewMode.video => '영상 크게 보기',
+  };
 
   static Future<PartyViewMode> load() async {
     final prefs = await SharedPreferences.getInstance();

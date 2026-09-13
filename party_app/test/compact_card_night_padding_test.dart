@@ -23,10 +23,7 @@ Future<EdgeInsets> _thumbPadding(WidgetTester tester) async {
         body: Center(
           child: SizedBox(
             width: 360,
-            child: PartyCompactCard(
-              party: party,
-              docId: 'test-doc',
-            ),
+            child: PartyCompactCard(party: party, docId: 'test-doc'),
           ),
         ),
       ),
@@ -36,18 +33,15 @@ Future<EdgeInsets> _thumbPadding(WidgetTester tester) async {
   // 썸네일(104×104 SizedBox)을 직접 감싼 padding Container를 찾는다:
   // Container(padding: fromLTRB(0, 0, 12, 0))가 카드의 상하 여백을 결정한다.
   final paddingWidget = tester.widgetList<Padding>(find.byType(Padding));
-  final match = paddingWidget.firstWhere(
-    (p) {
-      final e = p.padding.resolve(TextDirection.ltr);
-      return e.left == 0 && e.right == 12;
-    },
-  );
+  final match = paddingWidget.firstWhere((p) {
+    final e = p.padding.resolve(TextDirection.ltr);
+    return e.left == 0 && e.right == 12;
+  });
   return match.padding.resolve(TextDirection.ltr);
 }
 
 void main() {
-  testWidgets('작은 카드: 썸네일 상하 패딩이 0이라 사진 위아래 흰 여백이 없다',
-      (tester) async {
+  testWidgets('작은 카드: 썸네일 상하 패딩이 0이라 사진 위아래 흰 여백이 없다', (tester) async {
     final pad = await _thumbPadding(tester);
     expect(pad.top, 0, reason: '사진 위 흰 여백이 없어야 합니다.');
     expect(pad.bottom, 0, reason: '사진 아래 흰 여백이 없어야 합니다.');

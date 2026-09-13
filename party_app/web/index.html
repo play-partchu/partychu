@@ -29,8 +29,50 @@
   <link rel="icon" type="image/png" href="favicon.png">
 
   <title>파티츄 - PartyChu | 파티·공간대여·파티샵·파트너</title>
-  <link rel="canonical" href="https://partychu.co.kr/">
+  <!-- 이 빌드는 partychu.co.kr/app/ 아래에서만 서비스된다(랜딩·약관 등 정적
+       홈페이지는 website/가 그대로 담당). 표준 주소도 그 경로다. -->
+  <link rel="canonical" href="https://partychu.co.kr/app/">
   <link rel="manifest" href="manifest.json">
+
+  <!-- 프로필 사진 크롭(image_cropper)의 웹 구현이 요구하는 라이브러리.
+       앱에서는 네이티브 UCrop/TOCropViewController가 그 자리를 맡는다 —
+       웹에만 필요한 짝이라 여기서만 불러온다(패키지 README가 지정한 버전). -->
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/cropperjs/1.6.2/cropper.css">
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/cropperjs/1.6.2/cropper.min.js"></script>
+
+  <!-- 동영상 재생(Cloudflare Stream HLS)의 웹 구현이 요구하는 라이브러리.
+       앱에서는 ExoPlayer/AVPlayer가 .m3u8을 그대로 읽지만, 브라우저의
+       <video>는 Safari만 읽는다 — Chrome·Edge·Firefox는 이 스크립트가
+       있어야 재생된다. 붙이는 코드는 lib/utils/web_video_hls_web.dart
+       하나뿐이고, 이 스크립트를 못 받아오면 예전처럼 정지 썸네일로
+       되돌아갈 뿐 화면이 깨지지는 않는다. -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/hls.js/1.5.20/hls.min.js"></script>
+  <script>
+    // 방금 만들어진 <video> 하나를 기억해 두는 표식.
+    //
+    // video_player의 웹 구현은 재생기를 만들 때 <video>를 document.createElement로
+    // 만들고 id를 'videoElement-{playerId}'로 박은 뒤, **플랫폼 뷰 팩토리만
+    // 등록**한다. 엘리먼트가 문서에 실제로 꽂히는 건 한참 뒤(위젯이 그려질 때)라,
+    // Dart 쪽에서 getElementById로는 그때 잡을 수가 없다. 그래서 만들어지는
+    // 순간을 여기서 붙잡아 두고, Dart는 곧바로 이 값을 읽어 hls.js를 붙인다
+    // (lib/utils/web_video_hls_web.dart — 읽은 뒤 id로 맞는지 확인한다).
+    //
+    // Dart에서 document.createElement를 감싸 보려 했지만, 그 안에서 원래 함수를
+    // 되부르는 interop(callAsFunction)이 dart2js 릴리스 빌드에서
+    // "NoSuchMethodError: method not found: 'call'"로 죽었다. 이 세 줄이 같은 일을
+    // 하면서 훨씬 확실하다.
+    (function () {
+      var create = Document.prototype.createElement;
+      Document.prototype.createElement = function (tag) {
+        var el = create.apply(this, arguments);
+        if (typeof tag === 'string' && tag.length === 5 &&
+            tag.toLowerCase() === 'video') {
+          window.__pcLastVideo = el;
+        }
+        return el;
+      };
+    })();
+  </script>
 
   <!-- Open Graph / 카카오톡·페이스북 등 링크 미리보기 -->
   <meta property="og:type" content="website">

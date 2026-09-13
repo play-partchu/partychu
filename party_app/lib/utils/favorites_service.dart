@@ -23,7 +23,8 @@ class FavoritesService {
       '${UserSession.userId}_${type}_$itemId';
 
   static Future<bool> isFavorited(String type, String itemId) async {
-    if (UserSession.userId.isEmpty || type.isEmpty || itemId.isEmpty) return false;
+    if (UserSession.userId.isEmpty || type.isEmpty || itemId.isEmpty)
+      return false;
     try {
       final snap = await _col.doc(_docId(type, itemId)).get();
       return snap.exists;
@@ -38,9 +39,17 @@ class FavoritesService {
     if (UserSession.userId.isEmpty || type.isEmpty || itemId.isEmpty) {
       return Stream.value(false);
     }
-    return _col.doc(_docId(type, itemId)).snapshots().map((s) => s.exists).handleError(
-      (e, st) => logFirestoreStreamError('FavoritesService.watchFavorited($type)', e, st),
-    );
+    return _col
+        .doc(_docId(type, itemId))
+        .snapshots()
+        .map((s) => s.exists)
+        .handleError(
+          (e, st) => logFirestoreStreamError(
+            'FavoritesService.watchFavorited($type)',
+            e,
+            st,
+          ),
+        );
   }
 
   /// 찜 추가/해제 토글. 반환값은 토글 후 상태(true=찜됨).
@@ -84,7 +93,8 @@ class FavoritesService {
 
   /// 마이페이지 "관심 목록" 화면에서 타입별 탭이 구독할 스트림.
   static Stream<QuerySnapshot<Map<String, dynamic>>> watchFavoritesByType(
-      String type) {
+    String type,
+  ) {
     if (UserSession.userId.isEmpty) return const Stream.empty();
     return _col
         .where('userId', isEqualTo: UserSession.userId)

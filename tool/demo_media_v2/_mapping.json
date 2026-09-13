@@ -1,0 +1,378 @@
+{
+  "generatedAt": "2026-09-08T09:28:03.196Z",
+  "src": "C:/partychu/partymap/tool/demo_media/partychu_demo_media/demo_media",
+  "map": [
+    {
+      "dst": "place-01-cover.jpg",
+      "src": "place-01-cover.jpg",
+      "content": "파티츄 홍대 혼술바",
+      "why": "PARTYCHU 간판 외관"
+    },
+    {
+      "dst": "place-01-gallery-1.jpg",
+      "src": "room-01-1.jpg",
+      "content": "파티츄 홍대 혼술바",
+      "why": "바 카운터·술병 선반·스툴"
+    },
+    {
+      "dst": "place-01-gallery-2.jpg",
+      "src": "party-07-cover.jpg",
+      "content": "파티츄 홍대 혼술바",
+      "why": "백바 앞 칵테일이 늘어선 카운터"
+    },
+    {
+      "dst": "event-01-cover.jpg",
+      "src": "event-01-cover.jpg",
+      "content": "파티츄 홍대 웰컴 드링크",
+      "why": "WELCOME DRINK 배너"
+    },
+    {
+      "dst": "event-01-gallery-1.jpg",
+      "src": "event-01-gallery-1.jpg",
+      "content": "파티츄 홍대 웰컴 드링크",
+      "why": "샴페인 잔과 캔들"
+    },
+    {
+      "dst": "event-01-gallery-2.jpg",
+      "src": "event-01-gallery-2.jpg",
+      "content": "파티츄 홍대 웰컴 드링크",
+      "why": "아이스버킷 샴페인"
+    },
+    {
+      "dst": "event-03-cover.jpg",
+      "src": "event-03-gallery-1.jpg",
+      "content": "파티츄 홍대 단체 이용 혜택",
+      "why": "GROUP BENEFITS 배너 + 단체 건배"
+    },
+    {
+      "dst": "event-03-gallery-1.jpg",
+      "src": "event-03-gallery-2.jpg",
+      "content": "파티츄 홍대 단체 이용 혜택",
+      "why": "긴 테이블 음식 세팅"
+    },
+    {
+      "dst": "event-03-gallery-2.jpg",
+      "src": "party-07-gallery-2.jpg",
+      "content": "파티츄 홍대 단체 이용 혜택",
+      "why": "샴페인 건배 클로즈업(장소 비특정)"
+    },
+    {
+      "dst": "event-05-cover.jpg",
+      "src": "event-05-gallery-1.jpg",
+      "content": "파티츄 홍대 평일 타임 혜택",
+      "why": "WEEKDAY SPECIAL 배너 + 안주"
+    },
+    {
+      "dst": "event-05-gallery-1.jpg",
+      "src": "event-02-gallery-1.jpg",
+      "content": "파티츄 홍대 평일 타임 혜택",
+      "why": "어두운 바 카운터의 칵테일 2잔"
+    },
+    {
+      "dst": "event-05-gallery-2.jpg",
+      "src": "party-05-gallery-2.jpg",
+      "content": "파티츄 홍대 평일 타임 혜택",
+      "why": "네온 GOOD DRINKS BETTER PEOPLE"
+    },
+    {
+      "dst": "rental-04-cover.jpg",
+      "src": "rental-04-cover.jpg",
+      "content": "파티츄 이태원 하우스",
+      "why": "붉은 조명 거실 소파"
+    },
+    {
+      "dst": "rental-04-gallery-1.jpg",
+      "src": "rental-04-gallery-2.jpg",
+      "content": "파티츄 이태원 하우스",
+      "why": "다크 라운지 소파(게임 스크린 대체)"
+    },
+    {
+      "dst": "rental-04-gallery-2.jpg",
+      "src": "room-04-2.jpg",
+      "content": "파티츄 이태원 하우스",
+      "why": "우드 프라이빗 다이닝"
+    },
+    {
+      "dst": "room-04-1.jpg",
+      "src": "event-04-cover.jpg",
+      "content": "라운지 룸",
+      "why": "통창 라운지 소파, 소규모"
+    },
+    {
+      "dst": "room-04-2.jpg",
+      "src": "party-03-gallery-1.jpg",
+      "content": "라운지 룸",
+      "why": "와인과 음식이 놓인 어두운 테이블"
+    },
+    {
+      "dst": "event-02-cover.jpg",
+      "src": "event-02-cover.jpg",
+      "content": "파티츄 이태원 해피아워",
+      "why": "HAPPY HOUR 배너"
+    },
+    {
+      "dst": "event-02-gallery-1.jpg",
+      "src": "party-02-cover.jpg",
+      "content": "파티츄 이태원 해피아워",
+      "why": "칵테일 한 잔 정물"
+    },
+    {
+      "dst": "event-04-cover.jpg",
+      "src": "event-04-gallery-1.jpg",
+      "content": "파티츄 이태원 시그니처 코스",
+      "why": "SIGNATURE COURSE 배너 + 요리"
+    },
+    {
+      "dst": "event-04-gallery-1.jpg",
+      "src": "event-04-gallery-2.jpg",
+      "content": "파티츄 이태원 시그니처 코스",
+      "why": "와인잔과 캔들 다이닝"
+    },
+    {
+      "dst": "event-04-gallery-2.jpg",
+      "src": "party-03-gallery-2.jpg",
+      "content": "파티츄 이태원 시그니처 코스",
+      "why": "전구 테라스(주택 마당)"
+    },
+    {
+      "dst": "rental-02-cover.jpg",
+      "src": "rental-02-cover.jpg",
+      "content": "파티츄 강남 루프탑",
+      "why": "루프탑 소파 + 도시 야경"
+    },
+    {
+      "dst": "rental-02-gallery-1.jpg",
+      "src": "rental-02-gallery-2.jpg",
+      "content": "파티츄 강남 루프탑",
+      "why": "루프탑 소파와 식물"
+    },
+    {
+      "dst": "rental-02-gallery-2.jpg",
+      "src": "party-08-gallery-1.jpg",
+      "content": "파티츄 강남 루프탑",
+      "why": "루프탑 라운지 소파"
+    },
+    {
+      "dst": "room-01-1.jpg",
+      "src": "room-01-2.jpg",
+      "content": "메인 홀 (실내)",
+      "why": "통창 야경 + 스크린·TV — 시설과 일치"
+    },
+    {
+      "dst": "room-01-2.jpg",
+      "src": "room-02-2.jpg",
+      "content": "메인 홀 (실내)",
+      "why": "긴 테이블 좌석 세팅 + 야경 통창"
+    },
+    {
+      "dst": "room-02-1.jpg",
+      "src": "event-05-gallery-2.jpg",
+      "content": "루프탑 룸 (야외)",
+      "why": "스트링라이트 야외 테이블 다수"
+    },
+    {
+      "dst": "room-02-2.jpg",
+      "src": "event-05-cover.jpg",
+      "content": "루프탑 룸 (야외)",
+      "why": "루프탑 야경 긴 테이블"
+    },
+    {
+      "dst": "rental-03-cover.jpg",
+      "src": "rental-03-cover.jpg",
+      "content": "파티츄 성수 스튜디오",
+      "why": "PARTYCHU STUDIO 사인"
+    },
+    {
+      "dst": "rental-03-gallery-1.jpg",
+      "src": "rental-03-gallery-1.jpg",
+      "content": "파티츄 성수 스튜디오",
+      "why": "화이트 스튜디오 공간"
+    },
+    {
+      "dst": "rental-03-gallery-2.jpg",
+      "src": "rental-03-gallery-2.jpg",
+      "content": "파티츄 성수 스튜디오",
+      "why": "화이트 호리존"
+    },
+    {
+      "dst": "room-03-1.jpg",
+      "src": "place-01-gallery-1.jpg",
+      "content": "프라이빗 룸",
+      "why": "밝은 원목·식물·큰 창"
+    },
+    {
+      "dst": "room-03-2.jpg",
+      "src": "party-03-cover.jpg",
+      "content": "프라이빗 룸",
+      "why": "밝은 카페바 카운터와 식물"
+    },
+    {
+      "dst": "rental-01-cover.jpg",
+      "src": "rental-01-cover.jpg",
+      "content": "파티츄 홍대 파티룸",
+      "why": "네온 Good Times Here + 소파"
+    },
+    {
+      "dst": "rental-01-gallery-1.jpg",
+      "src": "rental-01-gallery-1.jpg",
+      "content": "파티츄 홍대 파티룸",
+      "why": "게임패드 네온 파티룸"
+    },
+    {
+      "dst": "rental-01-gallery-2.jpg",
+      "src": "rental-01-gallery-2.jpg",
+      "content": "파티츄 홍대 파티룸",
+      "why": "빔 스크린 + 소파"
+    },
+    {
+      "dst": "party-01-cover.jpg",
+      "src": "party-01-cover.jpg",
+      "content": "파티츄 홍대 소셜 나이트",
+      "why": "네온 GOOD PEOPLE + 건배"
+    },
+    {
+      "dst": "party-01-gallery-1.jpg",
+      "src": "party-01-gallery-1.jpg",
+      "content": "파티츄 홍대 소셜 나이트",
+      "why": "사람들 건배, 라운지바"
+    },
+    {
+      "dst": "party-01-gallery-2.jpg",
+      "src": "party-02-gallery-2.jpg",
+      "content": "파티츄 홍대 소셜 나이트",
+      "why": "스파클러 축하 — 사람 중심"
+    },
+    {
+      "dst": "party-01-block-1.png",
+      "src": "party-01-block-1.png",
+      "content": "파티츄 홍대 소셜 나이트",
+      "why": "상세 세로 포스터 — 기존 유지"
+    },
+    {
+      "dst": "party-02-cover.jpg",
+      "src": "party-01-gallery-2.jpg",
+      "content": "파티츄 강남 라이브",
+      "why": "대형 무대 공연과 관객"
+    },
+    {
+      "dst": "party-02-gallery-1.jpg",
+      "src": "party-02-gallery-1.jpg",
+      "content": "파티츄 강남 라이브",
+      "why": "미러볼 클럽 인파"
+    },
+    {
+      "dst": "party-02-gallery-2.jpg",
+      "src": "party-08-gallery-2.jpg",
+      "content": "파티츄 강남 라이브",
+      "why": "네온 PARTY TOGETHER + 미러볼"
+    },
+    {
+      "dst": "party-03-cover.jpg",
+      "src": "party-05-gallery-1.jpg",
+      "content": "파티츄 성수 미트업",
+      "why": "비스트로 인테리어와 펜던트 좌석"
+    },
+    {
+      "dst": "party-03-gallery-1.jpg",
+      "src": "place-01-gallery-2.jpg",
+      "content": "파티츄 성수 미트업",
+      "why": "전구 조명 야외 정원 다이닝"
+    },
+    {
+      "dst": "party-03-gallery-2.jpg",
+      "src": "party-06-gallery-1.jpg",
+      "content": "파티츄 성수 미트업",
+      "why": "야외 정원 테이블"
+    },
+    {
+      "dst": "party-04-cover.jpg",
+      "src": "party-04-cover.jpg",
+      "content": "파티츄 이태원 루프탑 파티",
+      "why": "루프탑 캔들 테이블"
+    },
+    {
+      "dst": "party-04-gallery-1.jpg",
+      "src": "party-04-gallery-1.jpg",
+      "content": "파티츄 이태원 루프탑 파티",
+      "why": "루프탑 파이어핏과 사람들"
+    },
+    {
+      "dst": "party-04-gallery-2.jpg",
+      "src": "party-04-gallery-2.jpg",
+      "content": "파티츄 이태원 루프탑 파티",
+      "why": "루프탑 다이닝 야경"
+    },
+    {
+      "dst": "party-05-cover.jpg",
+      "src": "party-05-cover.jpg",
+      "content": "파티츄 을지로 와인 나이트",
+      "why": "와인잔과 안주 플레이트"
+    },
+    {
+      "dst": "party-05-gallery-1.jpg",
+      "src": "room-03-1.jpg",
+      "content": "파티츄 을지로 와인 나이트",
+      "why": "야경 앞 여러 테이블 — 와인바 홀"
+    },
+    {
+      "dst": "party-05-gallery-2.jpg",
+      "src": "event-03-cover.jpg",
+      "content": "파티츄 을지로 와인 나이트",
+      "why": "스트링라이트 긴 테이블의 사람들"
+    },
+    {
+      "dst": "party-06-cover.jpg",
+      "src": "party-06-cover.jpg",
+      "content": "파티츄 연남 보드게임 나이트",
+      "why": "보드게임판과 맥주잔"
+    },
+    {
+      "dst": "party-06-gallery-1.jpg",
+      "src": "party-06-gallery-2.jpg",
+      "content": "파티츄 연남 보드게임 나이트",
+      "why": "보드게임 플레이 중"
+    },
+    {
+      "dst": "party-06-gallery-2.jpg",
+      "src": "room-03-2.jpg",
+      "content": "파티츄 연남 보드게임 나이트",
+      "why": "네온 Play Gather Repeat"
+    },
+    {
+      "dst": "party-07-cover.jpg",
+      "src": "rental-02-gallery-1.jpg",
+      "content": "파티츄 신논현 살롱 파티",
+      "why": "통창 실내 라운지 야경 — 프리미엄"
+    },
+    {
+      "dst": "party-07-gallery-1.jpg",
+      "src": "party-08-cover.jpg",
+      "content": "파티츄 신논현 살롱 파티",
+      "why": "루프탑 소파와 캔들"
+    },
+    {
+      "dst": "party-07-gallery-2.jpg",
+      "src": "party-07-gallery-2.jpg",
+      "content": "파티츄 신논현 살롱 파티",
+      "why": "샴페인 건배 — 살롱의 사람 컷 (event-03과 공유)"
+    },
+    {
+      "dst": "party-08-cover.jpg",
+      "src": "party-07-gallery-1.jpg",
+      "content": "파티츄 잠실 네트워킹 나이트",
+      "why": "야경 앞에서 대화하는 사람들"
+    },
+    {
+      "dst": "party-08-gallery-1.jpg",
+      "src": "party-01-gallery-1.jpg",
+      "content": "파티츄 잠실 네트워킹 나이트",
+      "why": "잔 들고 대화·건배하는 실내 (party-01과 공유)"
+    },
+    {
+      "dst": "party-08-gallery-2.jpg",
+      "src": "rental-02-gallery-1.jpg",
+      "content": "파티츄 잠실 네트워킹 나이트",
+      "why": "고층 통창 실내 라운지 (party-07과 공유)"
+    }
+  ]
+}

@@ -1,10 +1,14 @@
-import 'dart:io';
+import 'package:party_app/models/payment_policy.dart';
+import 'package:party_app/widgets/payment_policy_section.dart';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:image_picker/image_picker.dart';
+import 'package:party_app/models/place_rental_reservation.dart';
+import 'package:party_app/models/reservation_modes.dart';
 import 'package:party_app/services/cloudflare_service.dart';
+import 'package:party_app/utils/local_media.dart';
 import 'package:party_app/utils/refund_policy.dart';
 import 'package:party_app/widgets/place_form/package_list_editor.dart';
 import 'package:party_app/widgets/refund_policy_editor.dart';
@@ -71,17 +75,41 @@ class RoomCardState extends State<RoomCard> {
   int? _maxBookingMinutes;
   bool _isActive = true;
 
-  // ── 예약 방식 ──────────────────────────────────────────────────────────
-  // 'hourly' | 'package' | 'both'. 기존 룸(필드 자체가 없음)은 이미
-  // 시간제 필드만 쓰고 있었으므로 'hourly'가 자연스러운 기본값이다.
-  String _reservationMode = 'hourly';
+  // ── 예약 방식 (복수 선택) ────────────────────────────────────────────────
+  // 숙박 / 시간제 / 패키지를 동시에 켤 수 있고, 켠 방식의 입력 섹션만 펼쳐
+  // 진다. 기존 룸(필드 자체가 없음)은 이미 시간제 필드만 쓰고 있었으므로
+  // parseReservationModes가 시간제로 해석한다.
+  Set<ReservationMode> _modes = {ReservationMode.hourly};
   final List<PlacePackageDraft> _packages = [];
   bool _showPackageError = false;
   bool _showPackageIncompleteError = false;
 
+  bool get _hasStay => _modes.contains(ReservationMode.stay);
+  bool get _hasHourly => _modes.contains(ReservationMode.hourly);
+  bool get _hasPackage => _modes.contains(ReservationMode.package);
+
+  // ── 승인 방식 ────────────────────────────────────────────────────────────
+  // 설정한 적 없는 기존 룸은 자동승인이다 — 지금까지 장소대여에는 승인 단계가
+  // 아예 없었으므로 그 동작을 그대로 지킨다.
+  RoomApprovalMode _approvalMode = RoomApprovalMode.auto;
+
+  /// 결제 방식 — null이면 필드를 남기지 않아 기존 룸과 똑같이 동작한다
+  /// (예약자가 무통장입금·현장결제를 자유롭게 선택, 금액은 전액).
+  PaymentPolicy? _paymentPolicy;
+
+  // ── 숙박(1박) ────────────────────────────────────────────────────────────
+  final _stayPriceCtrl = TextEditingController();
+  TimeOfDay _checkInTime = const TimeOfDay(hour: 16, minute: 0);
+  TimeOfDay _checkOutTime = const TimeOfDay(hour: 11, minute: 0);
+  int _minNights = 1;
+  int? _maxNights;
+  bool _showStayPriceError = false;
+
   // 룸 편의시설 직접 입력
   final Set<String> _customFacilities = {};
   final _customFacilityCtrl = TextEditingController();
+  // build마다 새로 만들면 포커스가 끊기므로 State가 하나만 들고 있는다.
+  final _customFacilityFocus = FocusNode(debugLabel: 'room-facility-input');
   bool _showCustomFacilityInput = false;
 
   // 추가 옵션 (옵션명 + 추가 금액)
@@ -89,6 +117,9 @@ class RoomCardState extends State<RoomCard> {
   final List<TextEditingController> _optionPriceCtrls = [];
 
   bool _showNameError = false;
+  // 환불 규정 최소 1개 — 파티와 **같은 규칙**([RefundPolicyRule])을 쓴다.
+  // 옛 룸(구간 없이 저장된 문서)도 화면 진입은 그대로 되고 저장에서만 막힌다.
+  bool _showRefundError = false;
   bool _showCapacityError = false;
   bool _showPriceError = false;
 
@@ -172,12 +203,18 @@ class RoomCardState extends State<RoomCard> {
         (p) => PlacePackageDraft.fromMap(Map<String, dynamic>.from(p as Map)),
       ),
     );
-    // 저장된 값이 없는 기존 룸은 이미 시간제 필드만 쓰고 있었으므로
-    // 'hourly'로, 패키지가 있는데 모드 값이 없는(과거 데이터) 경우엔
-    // 'package'로 추론한다 — 사용자가 요청한 하위호환 규칙.
-    _reservationMode =
-        d['reservationMode'] as String? ??
-        (_packages.isNotEmpty ? 'package' : 'hourly');
+    _modes = parseReservationModes(d);
+    _approvalMode = RoomApprovalMode.of(d);
+    _paymentPolicy = PaymentPolicy.fromMap(d);
+
+    final stay = StayConfig.fromMap(d);
+    _stayPriceCtrl.text = stay.pricePerNight == 0
+        ? ''
+        : stay.pricePerNight.toString();
+    _checkInTime = _timeOfDay(stay.checkInMinutes);
+    _checkOutTime = _timeOfDay(stay.checkOutMinutes);
+    _minNights = stay.minNights;
+    _maxNights = stay.maxNights;
 
     _isOpen24Hours = d['isOpen24Hours'] as bool? ?? false;
     if (!_isOpen24Hours) {
@@ -198,6 +235,9 @@ class RoomCardState extends State<RoomCard> {
     }
   }
 
+  static TimeOfDay _timeOfDay(int minutes) =>
+      TimeOfDay(hour: (minutes ~/ 60) % 24, minute: minutes % 60);
+
   TimeOfDay? _parseTimeString(String? hhmm) {
     if (hhmm == null || !hhmm.contains(':')) return null;
     final parts = hhmm.split(':');
@@ -214,7 +254,9 @@ class RoomCardState extends State<RoomCard> {
     _capacityMinCtrl.dispose();
     _capacityMaxCtrl.dispose();
     _priceCtrl.dispose();
+    _stayPriceCtrl.dispose();
     _customFacilityCtrl.dispose();
+    _customFacilityFocus.dispose();
     for (final c in _optionNameCtrls) {
       c.dispose();
     }
@@ -251,15 +293,23 @@ class RoomCardState extends State<RoomCard> {
       setState(() => _showCapacityError = true);
       ok = false;
     }
-    if (_reservationMode != 'package' && _priceCtrl.text.trim().isEmpty) {
+    if (_hasStay && _stayPriceCtrl.text.trim().isEmpty) {
+      setState(() => _showStayPriceError = true);
+      ok = false;
+    }
+    if (_hasHourly && _priceCtrl.text.trim().isEmpty) {
       setState(() => _showPriceError = true);
       ok = false;
     }
-    if (_reservationMode != 'hourly' && _packages.isEmpty) {
+    if (_hasPackage && _packages.isEmpty) {
       setState(() => _showPackageError = true);
       ok = false;
     }
-    if (_reservationMode != 'hourly' &&
+    if (RefundPolicyRule.isMissing(_refundTiers)) {
+      setState(() => _showRefundError = true);
+      ok = false;
+    }
+    if (_hasPackage &&
         _packages.isNotEmpty &&
         _packages.any(
           (p) =>
@@ -274,6 +324,36 @@ class RoomCardState extends State<RoomCard> {
     return ok;
   }
 
+  /// 결제 방식 계산 예시에 쓸 기준 금액 — 숙박을 받으면 1박 요금, 아니면
+  /// 시간당 요금을 쓴다. 실제 예약금은 예약 당시 최종 이용요금(숙박일수·
+  /// 옵션 포함)으로 서버가 다시 계산하므로 여기 값은 어디까지나 예시다.
+  int? _sampleTotalForPreview() {
+    final stay = int.tryParse(_stayPriceCtrl.text.trim()) ?? 0;
+    if (_hasStay && stay > 0) return stay;
+    final hourly = int.tryParse(_priceCtrl.text.trim()) ?? 0;
+    return hourly > 0 ? hourly : null;
+  }
+
+  /// 예약 방식 + 숙박 설정 필드 — 저장/임시저장/룸 복사가 모두 같은 형태를
+  /// 쓰도록 한곳에서 만든다. `reservationMode`(단수)는 아직 업데이트되지 않은
+  /// 앱을 위한 하위호환 미러다.
+  Map<String, dynamic> _reservationFields() => {
+    'reservationModes': reservationModeKeys(_modes),
+    'reservationMode': legacyReservationMode(_modes),
+    // 승인 방식 — 서버(placeReservationFlow.js)가 같은 키를 읽어 "승인 전에는
+    // 입금을 요구하지 않는다"를 판단한다.
+    'reservationApprovalMode': _approvalMode.key,
+    // 결제 방식 — 설정했을 때만 남긴다. 없으면 서버가 기존 동작을 태운다.
+    if (_paymentPolicy != null) ..._paymentPolicy!.toMap(),
+    ...StayConfig(
+      pricePerNight: int.tryParse(_stayPriceCtrl.text.trim()) ?? 0,
+      checkInTime: _fmtTime(_checkInTime),
+      checkOutTime: _fmtTime(_checkOutTime),
+      minNights: _minNights,
+      maxNights: _maxNights,
+    ).toMap(),
+  };
+
   // 부모가 저장 시 호출: 이미지 업로드 후 룸 데이터 맵 반환
   Future<Map<String, dynamic>> uploadAndGetData(
     String uid,
@@ -281,7 +361,7 @@ class RoomCardState extends State<RoomCard> {
   ) async {
     final newRoomImageUrls = <String>[];
     for (final img in _images) {
-      newRoomImageUrls.add(await CloudflareService.uploadImage(File(img.path)));
+      newRoomImageUrls.add(await CloudflareService.uploadImage(img));
     }
     final roomImageUrls = [..._existingImages, ...newRoomImageUrls];
     return {
@@ -293,7 +373,7 @@ class RoomCardState extends State<RoomCard> {
       'capacityMin': int.tryParse(_capacityMinCtrl.text.trim()) ?? 1,
       'capacityMax': int.tryParse(_capacityMaxCtrl.text.trim()) ?? 0,
       'pricePerHour': int.tryParse(_priceCtrl.text.trim()) ?? 0,
-      'reservationMode': _reservationMode,
+      ..._reservationFields(),
       'bookingUnitMinutes': _bookingUnitMinutes,
       'minBookingMinutes': _minBookingMinutes,
       'maxBookingMinutes': _maxBookingMinutes,
@@ -334,40 +414,40 @@ class RoomCardState extends State<RoomCard> {
   /// 사진이 있었으면 `_hasUnsavedImages: true`로 알려 호출측이 "다시 선택"
   /// 안내를 띄우게 한다(이 키는 initialData 복원 시 무시된다).
   Map<String, dynamic> getDraftData() => {
-        'roomName': _nameCtrl.text,
-        'roomDescription': _descCtrl.text,
-        'roomImages': [..._existingImages],
-        '_hasUnsavedImages': _images.isNotEmpty,
-        'capacityMin': int.tryParse(_capacityMinCtrl.text.trim()) ?? 1,
-        'capacityMax': int.tryParse(_capacityMaxCtrl.text.trim()) ?? 0,
-        'pricePerHour': int.tryParse(_priceCtrl.text.trim()) ?? 0,
-        'reservationMode': _reservationMode,
-        'bookingUnitMinutes': _bookingUnitMinutes,
-        'minBookingMinutes': _minBookingMinutes,
-        'maxBookingMinutes': _maxBookingMinutes,
-        'packages': [
-          for (int i = 0; i < _packages.length; i++) _packages[i].toMap(i),
-        ],
-        'availableDays': _availableDays.toList(),
-        'isOpen24Hours': _isOpen24Hours,
-        if (!_isOpen24Hours) ...{
-          if (_openTime != null) 'openTime': _fmtTime(_openTime!),
-          if (_closeTime != null) 'closeTime': _fmtTime(_closeTime!),
-        } else ...{
-          'openTime': '00:00',
-          'closeTime': '24:00',
+    'roomName': _nameCtrl.text,
+    'roomDescription': _descCtrl.text,
+    'roomImages': [..._existingImages],
+    '_hasUnsavedImages': _images.isNotEmpty,
+    'capacityMin': int.tryParse(_capacityMinCtrl.text.trim()) ?? 1,
+    'capacityMax': int.tryParse(_capacityMaxCtrl.text.trim()) ?? 0,
+    'pricePerHour': int.tryParse(_priceCtrl.text.trim()) ?? 0,
+    ..._reservationFields(),
+    'bookingUnitMinutes': _bookingUnitMinutes,
+    'minBookingMinutes': _minBookingMinutes,
+    'maxBookingMinutes': _maxBookingMinutes,
+    'packages': [
+      for (int i = 0; i < _packages.length; i++) _packages[i].toMap(i),
+    ],
+    'availableDays': _availableDays.toList(),
+    'isOpen24Hours': _isOpen24Hours,
+    if (!_isOpen24Hours) ...{
+      if (_openTime != null) 'openTime': _fmtTime(_openTime!),
+      if (_closeTime != null) 'closeTime': _fmtTime(_closeTime!),
+    } else ...{
+      'openTime': '00:00',
+      'closeTime': '24:00',
+    },
+    'facilities': {..._facilities, ..._customFacilities}.toList(),
+    'options': [
+      for (int i = 0; i < _optionNameCtrls.length; i++)
+        {
+          'name': _optionNameCtrls[i].text,
+          'price': int.tryParse(_optionPriceCtrls[i].text.trim()) ?? 0,
         },
-        'facilities': {..._facilities, ..._customFacilities}.toList(),
-        'options': [
-          for (int i = 0; i < _optionNameCtrls.length; i++)
-            {
-              'name': _optionNameCtrls[i].text,
-              'price': int.tryParse(_optionPriceCtrls[i].text.trim()) ?? 0,
-            },
-        ],
-        'refundPolicy': RefundTier.listToMaps(_refundTiers),
-        'isActive': _isActive,
-      };
+    ],
+    'refundPolicy': RefundTier.listToMaps(_refundTiers),
+    'isActive': _isActive,
+  };
 
   // ── 헬퍼 ─────────────────────────────────────────────────────────────────
 
@@ -389,7 +469,8 @@ class RoomCardState extends State<RoomCard> {
     'capacityMin': _capacityMinCtrl.text,
     'capacityMax': _capacityMaxCtrl.text,
     'price': _priceCtrl.text,
-    'reservationMode': _reservationMode,
+    'stayPrice': _stayPriceCtrl.text,
+    ..._reservationFields(),
     'bookingUnitMinutes': _bookingUnitMinutes,
     'minBookingMinutes': _minBookingMinutes,
     'maxBookingMinutes': _maxBookingMinutes,
@@ -419,7 +500,15 @@ class RoomCardState extends State<RoomCard> {
       _capacityMinCtrl.text = data['capacityMin'] as String? ?? '1';
       _capacityMaxCtrl.text = data['capacityMax'] as String? ?? '';
       _priceCtrl.text = data['price'] as String? ?? '';
-      _reservationMode = data['reservationMode'] as String? ?? 'hourly';
+      _stayPriceCtrl.text = data['stayPrice'] as String? ?? '';
+      _modes = parseReservationModes(data);
+      _approvalMode = RoomApprovalMode.of(data);
+      _paymentPolicy = PaymentPolicy.fromMap(data);
+      final stay = StayConfig.fromMap(data);
+      _checkInTime = _timeOfDay(stay.checkInMinutes);
+      _checkOutTime = _timeOfDay(stay.checkOutMinutes);
+      _minNights = stay.minNights;
+      _maxNights = stay.maxNights;
       _bookingUnitMinutes = data['bookingUnitMinutes'] as int? ?? 60;
       _minBookingMinutes = data['minBookingMinutes'] as int? ?? 60;
       _maxBookingMinutes = data['maxBookingMinutes'] as int?;
@@ -467,6 +556,8 @@ class RoomCardState extends State<RoomCard> {
         );
       }
       _showNameError = _showCapacityError = _showPriceError = false;
+      _showStayPriceError = false;
+      _showRefundError = false;
     });
   }
 
@@ -484,31 +575,41 @@ class RoomCardState extends State<RoomCard> {
     });
   }
 
+  void _openRoomCustomFacility() {
+    setState(() => _showCustomFacilityInput = true);
+    // autofocus 대신 한 번만 요청한다 — autofocus는 rebuild마다 다시 걸려
+    // 포커스/키보드가 깜빡이는 원인이 된다.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted && _showCustomFacilityInput) {
+        _customFacilityFocus.requestFocus();
+      }
+    });
+  }
+
+  /// 입력칸을 닫는다. 순서가 중요하다 — **먼저 포커스를 놓고** 트리에서
+  /// 없앤다. 포커스를 가진 채로 사라지면 Flutter가 스코프의 직전 포커스
+  /// 대상(보통 화면 위쪽 입력칸)으로 포커스를 되돌리고, 그 입력칸이
+  /// showOnScreen()을 부르면서 등록 화면이 위로 튀어 오른다.
+  void _closeRoomCustomFacility() {
+    _customFacilityFocus.unfocus(); // 기본 scope 처분 — 포커스 이력까지 비운다
+    _customFacilityCtrl.clear();
+    setState(() => _showCustomFacilityInput = false);
+  }
+
   void _addRoomCustomFacility() {
     final text = _customFacilityCtrl.text.trim();
-    if (text.isEmpty) return;
-    // 프리셋에 있는 이름이면 프리셋 선택으로 처리
+    if (text.isEmpty) {
+      _closeRoomCustomFacility();
+      return;
+    }
+    // 프리셋에 있는 이름이면 프리셋 선택으로 처리하고, 이미 추가된 항목이면
+    // 중복 추가하지 않는다.
     if (_facilityOptions.contains(text)) {
-      setState(() {
-        _facilities.add(text);
-        _customFacilityCtrl.clear();
-        _showCustomFacilityInput = false;
-      });
-      return;
-    }
-    // 이미 추가된 항목이면 중복 추가 안 함
-    if (_customFacilities.contains(text) || _facilities.contains(text)) {
-      setState(() {
-        _customFacilityCtrl.clear();
-        _showCustomFacilityInput = false;
-      });
-      return;
-    }
-    setState(() {
+      _facilities.add(text);
+    } else if (!_customFacilities.contains(text)) {
       _customFacilities.add(text);
-      _customFacilityCtrl.clear();
-      _showCustomFacilityInput = false;
-    });
+    }
+    _closeRoomCustomFacility();
   }
 
   Widget _roomCustomChip(String label, {required VoidCallback onDelete}) =>
@@ -542,6 +643,91 @@ class RoomCardState extends State<RoomCard> {
           ],
         ),
       );
+
+  // ── 예약 방식 토글 ────────────────────────────────────────────────────────
+
+  static const List<int> _nightOptions = [1, 2, 3, 5, 7, 14, 30];
+
+  /// 예약 방식 칩 토글. 마지막 하나는 끌 수 없다 — 예약 방식이 하나도 없는
+  /// 룸은 아무도 예약할 수 없어서 저장할 이유가 없기 때문.
+  void _toggleMode(ReservationMode mode) {
+    if (_modes.contains(mode)) {
+      if (_modes.length == 1) return;
+      setState(() => _modes = {..._modes}..remove(mode));
+    } else {
+      setState(() => _modes = {..._modes, mode});
+    }
+  }
+
+  Future<void> _pickStayTime(bool isCheckIn) async {
+    final picked = await showTimePicker(
+      context: context,
+      initialTime: isCheckIn ? _checkInTime : _checkOutTime,
+      builder: (ctx, child) => MediaQuery(
+        data: MediaQuery.of(ctx).copyWith(alwaysUse24HourFormat: false),
+        child: Theme(
+          data: Theme.of(ctx).copyWith(
+            colorScheme: const ColorScheme.light(primary: Color(0xFF7C5CBF)),
+          ),
+          child: child!,
+        ),
+      ),
+    );
+    if (picked == null || !mounted) return;
+    setState(() {
+      if (isCheckIn) {
+        _checkInTime = picked;
+      } else {
+        _checkOutTime = picked;
+      }
+    });
+  }
+
+  Widget _stayTimePicker({required bool isCheckIn}) {
+    final time = isCheckIn ? _checkInTime : _checkOutTime;
+    return GestureDetector(
+      onTap: () => _pickStayTime(isCheckIn),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+        decoration: BoxDecoration(
+          color: const Color(0xFFF3EFFA),
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(
+            color: const Color(0xFF7C5CBF).withValues(alpha: 0.4),
+          ),
+        ),
+        child: Row(
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          children: [
+            Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(
+                  isCheckIn ? '체크인' : '체크아웃',
+                  style: const TextStyle(fontSize: 11, color: Colors.black38),
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  _fmtTimeDisplay(time),
+                  style: const TextStyle(
+                    fontSize: 14,
+                    fontWeight: FontWeight.w600,
+                    color: Color(0xFF7C5CBF),
+                  ),
+                ),
+              ],
+            ),
+            const Icon(
+              Icons.keyboard_arrow_down,
+              size: 20,
+              color: Color(0xFF7C5CBF),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
 
   bool _isMinValid(int m) {
     if (_bookingUnitMinutes == 1440) return m == 1440;
@@ -791,35 +977,151 @@ class RoomCardState extends State<RoomCard> {
               style: const TextStyle(color: Colors.redAccent, fontSize: 12),
             ),
           ),
-        _label('예약 방식 *'),
+        _label('예약 방식 * (복수 선택 가능)'),
+        const Padding(
+          padding: EdgeInsets.only(bottom: 8),
+          child: Text(
+            '이 룸이 받을 예약 방식을 모두 골라주세요. 선택한 방식의 요금 입력만 아래에 나타납니다.',
+            style: TextStyle(fontSize: 12, color: Colors.black38, height: 1.4),
+          ),
+        ),
         Wrap(
           spacing: 8,
           runSpacing: 8,
           children: [
-            _chip(
-              label: '시간제',
-              selected: _reservationMode == 'hourly',
-              enabled: true,
-              onTap: () => setState(() => _reservationMode = 'hourly'),
-              selectedColor: const Color(0xFF7C5CBF),
-            ),
-            _chip(
-              label: '패키지',
-              selected: _reservationMode == 'package',
-              enabled: true,
-              onTap: () => setState(() => _reservationMode = 'package'),
-              selectedColor: const Color(0xFF7C5CBF),
-            ),
-            _chip(
-              label: '시간제 + 패키지 둘 다',
-              selected: _reservationMode == 'both',
-              enabled: true,
-              onTap: () => setState(() => _reservationMode = 'both'),
-              selectedColor: const Color(0xFF7C5CBF),
-            ),
+            for (final mode in ReservationMode.values)
+              _chip(
+                label: mode.chipLabel,
+                selected: _modes.contains(mode),
+                enabled: true,
+                onTap: () => _toggleMode(mode),
+                selectedColor: const Color(0xFF7C5CBF),
+              ),
           ],
         ),
-        if (_reservationMode != 'package') ...[
+        _label('예약 승인 방식 *'),
+        Padding(
+          padding: const EdgeInsets.only(bottom: 8),
+          child: Text(
+            '${_approvalMode.description}. 어느 쪽이든 승인 전에는 입금을 요구하지 않고, '
+            '입금기한이 지나면 예약이 자동 취소되면서 그 시간이 다시 열려요.',
+            style: const TextStyle(
+              fontSize: 12,
+              color: Colors.black38,
+              height: 1.4,
+            ),
+          ),
+        ),
+        Wrap(
+          spacing: 8,
+          runSpacing: 8,
+          children: [
+            for (final mode in RoomApprovalMode.values)
+              _chip(
+                label: mode.label,
+                selected: _approvalMode == mode,
+                enabled: true,
+                onTap: () => setState(() => _approvalMode = mode),
+                selectedColor: const Color(0xFF7C5CBF),
+              ),
+          ],
+        ),
+        // ── 결제 방식 ────────────────────────────────────────────────
+        // 숙박·시간제 모두 예약 시점에 최종 이용요금이 확정되므로 비율
+        // 예약금까지 전부 쓸 수 있다(totalKnown: true).
+        Padding(
+          padding: const EdgeInsets.only(top: 16),
+          child: PaymentPolicySection.modes(
+            policy: _paymentPolicy ?? PaymentPolicy.initial,
+            sampleTotal: _sampleTotalForPreview(),
+            totalKnown: true,
+            modes: const [
+              PaymentMode.prepaid,
+              PaymentMode.partial,
+              PaymentMode.onsite,
+            ],
+            accent: const Color(0xFF7C5CBF),
+            description:
+                '이용요금을 언제 받을지 정해요. 비율 예약금은 숙박일수·옵션이 모두 반영된 '
+                '최종 이용요금을 기준으로 계산돼요.',
+            onChanged: (v) => setState(() => _paymentPolicy = v),
+          ),
+        ),
+        if (_hasStay) ...[
+          _label('1박 요금 (원) *'),
+          TextField(
+            controller: _stayPriceCtrl,
+            keyboardType: TextInputType.number,
+            inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+            onChanged: (_) => setState(() => _showStayPriceError = false),
+            decoration: _inputDeco('예: 120000').copyWith(
+              errorText: _showStayPriceError ? '1박 요금을 입력해주세요' : null,
+              errorBorder: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(12),
+                borderSide: const BorderSide(color: Colors.redAccent),
+              ),
+            ),
+          ),
+          _label('체크인 / 체크아웃'),
+          Row(
+            children: [
+              Expanded(child: _stayTimePicker(isCheckIn: true)),
+              const Padding(
+                padding: EdgeInsets.symmetric(horizontal: 8),
+                child: Text('~', style: TextStyle(fontSize: 16)),
+              ),
+              Expanded(child: _stayTimePicker(isCheckIn: false)),
+            ],
+          ),
+          _label('최소 숙박일'),
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children: List.generate(
+              _nightOptions.length,
+              (i) => _chip(
+                label: '${_nightOptions[i]}박 이상',
+                selected: _minNights == _nightOptions[i],
+                enabled: true,
+                onTap: () => setState(() {
+                  _minNights = _nightOptions[i];
+                  // 최대가 최소보다 작아지면 함께 끌어올린다.
+                  if (_maxNights != null && _maxNights! < _minNights) {
+                    _maxNights = _minNights;
+                  }
+                }),
+                selectedColor: const Color(0xFFFF6FA0),
+              ),
+            ),
+          ),
+          _label('최대 숙박일'),
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children: [
+              _chip(
+                label: '제한 없음',
+                selected: _maxNights == null,
+                enabled: true,
+                onTap: () => setState(() => _maxNights = null),
+                selectedColor: const Color(0xFFFF6FA0),
+              ),
+              ...List.generate(_nightOptions.length, (i) {
+                final n = _nightOptions[i];
+                return _chip(
+                  label: '$n박',
+                  selected: _maxNights == n,
+                  enabled: n >= _minNights,
+                  onTap: n >= _minNights
+                      ? () => setState(() => _maxNights = n)
+                      : null,
+                  selectedColor: const Color(0xFFFF6FA0),
+                );
+              }),
+            ],
+          ),
+        ],
+        if (_hasHourly) ...[
           _label('시간당 가격 (원) *'),
           TextField(
             controller: _priceCtrl,
@@ -893,7 +1195,7 @@ class RoomCardState extends State<RoomCard> {
             ],
           ),
         ],
-        if (_reservationMode != 'hourly') ...[
+        if (_hasPackage) ...[
           _label('패키지 관리 *'),
           if (_showPackageError)
             const Padding(
@@ -1021,7 +1323,7 @@ class RoomCardState extends State<RoomCard> {
             );
           },
         ),
-        if (_reservationMode != 'package') ...[
+        if (_hasHourly) ...[
           _label('룸별 운영 시간 (선택)'),
           const Padding(
             padding: EdgeInsets.only(bottom: 8),
@@ -1059,10 +1361,7 @@ class RoomCardState extends State<RoomCard> {
             )
           else
             Container(
-              padding: const EdgeInsets.symmetric(
-                horizontal: 14,
-                vertical: 12,
-              ),
+              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
               decoration: BoxDecoration(
                 color: const Color(0xFFF3EFFA),
                 borderRadius: BorderRadius.circular(12),
@@ -1139,7 +1438,7 @@ class RoomCardState extends State<RoomCard> {
             ),
             // + 직접 입력 버튼
             GestureDetector(
-              onTap: () => setState(() => _showCustomFacilityInput = true),
+              onTap: _openRoomCustomFacility,
               child: Container(
                 padding: const EdgeInsets.symmetric(
                   horizontal: 12,
@@ -1173,7 +1472,7 @@ class RoomCardState extends State<RoomCard> {
               Expanded(
                 child: TextField(
                   controller: _customFacilityCtrl,
-                  autofocus: true,
+                  focusNode: _customFacilityFocus,
                   textInputAction: TextInputAction.done,
                   decoration: InputDecoration(
                     hintText: '편의시설 이름 입력 (예: 노래방 기계, 보드게임)',
@@ -1216,10 +1515,7 @@ class RoomCardState extends State<RoomCard> {
               const SizedBox(width: 4),
               IconButton(
                 icon: const Icon(Icons.close, size: 18, color: Colors.black38),
-                onPressed: () => setState(() {
-                  _showCustomFacilityInput = false;
-                  _customFacilityCtrl.clear();
-                }),
+                onPressed: _closeRoomCustomFacility,
                 tooltip: '취소',
                 padding: EdgeInsets.zero,
                 constraints: const BoxConstraints(minWidth: 32, minHeight: 32),
@@ -1301,13 +1597,24 @@ class RoomCardState extends State<RoomCard> {
             ),
           ),
         ),
-        _label('환불 규정'),
+        _label('환불 규정 *'),
         _buildRefundPolicyRow(),
+        if (_showRefundError) ...[
+          const SizedBox(height: 6),
+          const Text(
+            RefundPolicyRule.requiredMessage,
+            style: TextStyle(fontSize: 12, color: Color(0xFFE53935)),
+          ),
+        ],
         if (_legacyCancelPolicy != null && _refundTiers.isEmpty) ...[
           const SizedBox(height: 6),
           Text(
             '이전 안내: $_legacyCancelPolicy\n(구간을 추가하면 위 안내는 대체됩니다)',
-            style: const TextStyle(fontSize: 11, color: Colors.black38, height: 1.4),
+            style: const TextStyle(
+              fontSize: 11,
+              color: Colors.black38,
+              height: 1.4,
+            ),
           ),
         ],
         _label('예약 가능 여부'),
@@ -1349,7 +1656,9 @@ class RoomCardState extends State<RoomCard> {
                 final isExisting = i < _existingImages.length;
                 final ImageProvider image = isExisting
                     ? NetworkImage(_existingImages[i])
-                    : FileImage(File(_images[i - _existingImages.length].path));
+                    : LocalMedia.imageProvider(
+                        _images[i - _existingImages.length],
+                      );
                 return Stack(
                   clipBehavior: Clip.none,
                   children: [
@@ -1554,18 +1863,22 @@ class RoomCardState extends State<RoomCard> {
         decoration: BoxDecoration(
           color: Colors.white,
           borderRadius: BorderRadius.circular(12),
-          border: Border.all(color: const Color(0xFFE0E0E0)),
+          border: Border.all(
+            color: _showRefundError
+                ? const Color(0xFFE53935)
+                : const Color(0xFFE0E0E0),
+          ),
         ),
         child: Row(
           children: [
             Expanded(
               child: Text(
-                _refundTiers.isEmpty
-                    ? '환불 규정 설정 (선택)'
-                    : '${_refundTiers.length}단계 환불 규정 설정됨',
+                RefundPolicyRule.summaryLabel(_refundTiers) ?? '환불 규정 설정 (필수)',
                 style: TextStyle(
                   fontSize: 14,
-                  color: _refundTiers.isEmpty ? Colors.black38 : Colors.black87,
+                  color: RefundPolicyRule.isMissing(_refundTiers)
+                      ? Colors.black38
+                      : Colors.black87,
                 ),
               ),
             ),
@@ -1584,44 +1897,78 @@ class RoomCardState extends State<RoomCard> {
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
       ),
-      builder: (sheetCtx) => Padding(
-        padding: EdgeInsets.fromLTRB(
-          16,
-          20,
-          16,
-          MediaQuery.of(sheetCtx).viewInsets.bottom + 20,
-        ),
-        child: SingleChildScrollView(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              const Text('환불 규정',
-                  style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
-              const SizedBox(height: 12),
-              RefundPolicyEditor(
-                initialTiers: _refundTiers,
-                introText: 'PartyChu는 환불률을 정하거나 권장하지 않습니다. 이용(체크인) 기준 '
-                    '며칠 전부터 몇 %를 환불할지 직접 구간을 등록해주세요. 예약자는 예약 전 '
-                    '이 규정을 확인할 수 있어요.',
-                onChanged: (tiers) => setState(() => _refundTiers = tiers),
-              ),
-              const SizedBox(height: 12),
-              SizedBox(
-                width: double.infinity,
-                child: ElevatedButton(
-                  onPressed: () => Navigator.pop(sheetCtx),
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: const Color(0xFF7C5CBF),
-                    foregroundColor: Colors.white,
+      builder: (sheetCtx) {
+        final media = MediaQuery.of(sheetCtx);
+        final keyboard = media.viewInsets.bottom;
+        // 키보드가 가린 높이를 뺀 "실제로 보이는 영역" 안에서만 시트를 그린다.
+        // 시트에 높이를 고정해줘야 안쪽 목록이 스크롤 가능한 뷰포트를 갖고,
+        // 구간을 아무리 추가해도 시트가 화면 밖으로 밀려나지 않는다.
+        final available = media.size.height - media.padding.top - keyboard;
+        return Padding(
+          // 키보드 위로 시트 전체를 밀어 올린다.
+          padding: EdgeInsets.only(bottom: keyboard),
+          child: SafeArea(
+            top: false,
+            child: SizedBox(
+              height: available * 0.9,
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Padding(
+                    padding: EdgeInsets.fromLTRB(16, 20, 16, 12),
+                    child: Text(
+                      '환불 규정',
+                      style: TextStyle(
+                        fontSize: 16,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
                   ),
-                  child: const Text('완료'),
-                ),
+                  Expanded(
+                    // 위에서 이미 키보드 높이만큼 올렸으므로, 에디터가 아래
+                    // 여백을 한 번 더 넣지 않도록 인셋을 지워서 넘긴다.
+                    child: MediaQuery.removeViewInsets(
+                      context: sheetCtx,
+                      removeBottom: true,
+                      child: RefundPolicyEditor(
+                        initialTiers: _refundTiers,
+                        introText:
+                            'PartyChu는 환불률을 정하거나 권장하지 않습니다. 이용(체크인) 기준 '
+                            '며칠 전부터 몇 %를 환불할지 직접 구간을 등록해주세요. 예약자는 예약 전 '
+                            '이 규정을 확인할 수 있어요.',
+                        onChanged: (tiers) => setState(() {
+                          _refundTiers = tiers;
+                          // 채우자마자 오류 표시를 거둔다 — 저장을 다시 눌러야
+                          // 풀리면 고쳤는데도 잘못된 것처럼 보인다.
+                          if (RefundPolicyRule.isSatisfied(tiers)) {
+                            _showRefundError = false;
+                          }
+                        }),
+                        scrollable: true,
+                        padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
+                      ),
+                    ),
+                  ),
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(16, 4, 16, 16),
+                    child: SizedBox(
+                      width: double.infinity,
+                      child: ElevatedButton(
+                        onPressed: () => Navigator.pop(sheetCtx),
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: const Color(0xFF7C5CBF),
+                          foregroundColor: Colors.white,
+                        ),
+                        child: const Text('완료'),
+                      ),
+                    ),
+                  ),
+                ],
               ),
-            ],
+            ),
           ),
-        ),
-      ),
+        );
+      },
     );
     if (mounted) setState(() {}); // 요약 문구 갱신
   }

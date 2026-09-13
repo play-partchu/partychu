@@ -63,7 +63,11 @@ _DecorationPreset _presetFor(PartyDetailThemeKey key) {
         backgroundGradient: const [Color(0xFFFFFFFF), Color(0xFFFFF3F7)],
         glowColors: [palette.primary, palette.secondary],
         ornamentColor: palette.primary,
-        ornamentIcons: const [Icons.auto_awesome, Icons.favorite, Icons.star_rounded],
+        ornamentIcons: const [
+          Icons.auto_awesome,
+          Icons.favorite,
+          Icons.star_rounded,
+        ],
         separatorColor: palette.primary,
         photoCardBackground: Colors.white,
         photoCardBorder: palette.primary.withValues(alpha: 0.25),
@@ -72,10 +76,18 @@ _DecorationPreset _presetFor(PartyDetailThemeKey key) {
       );
     case PartyDetailThemeKey.lovely:
       return _DecorationPreset(
-        backgroundGradient: const [Color(0xFFFFFBF7), Color(0xFFFFF0F5), Color(0xFFF5F0FF)],
+        backgroundGradient: const [
+          Color(0xFFFFFBF7),
+          Color(0xFFFFF0F5),
+          Color(0xFFF5F0FF),
+        ],
         glowColors: [palette.primary, palette.secondary],
         ornamentColor: palette.primary,
-        ornamentIcons: const [Icons.favorite, Icons.auto_awesome, Icons.favorite_border],
+        ornamentIcons: const [
+          Icons.favorite,
+          Icons.auto_awesome,
+          Icons.favorite_border,
+        ],
         separatorColor: palette.secondary,
         photoCardBackground: Colors.white,
         photoCardBorder: palette.secondary.withValues(alpha: 0.3),
@@ -84,7 +96,11 @@ _DecorationPreset _presetFor(PartyDetailThemeKey key) {
       );
     case PartyDetailThemeKey.premiumDark:
       return _DecorationPreset(
-        backgroundGradient: const [Color(0xFF0F0F10), Color(0xFF17171A), Color(0xFF1A1620)],
+        backgroundGradient: const [
+          Color(0xFF0F0F10),
+          Color(0xFF17171A),
+          Color(0xFF1A1620),
+        ],
         glowColors: [palette.primary],
         ornamentColor: palette.primary,
         ornamentIcons: const [Icons.auto_awesome],
@@ -96,7 +112,11 @@ _DecorationPreset _presetFor(PartyDetailThemeKey key) {
       );
     case PartyDetailThemeKey.clubNeon:
       return _DecorationPreset(
-        backgroundGradient: const [Color(0xFF0A0A12), Color(0xFF15111F), Color(0xFF12121C)],
+        backgroundGradient: const [
+          Color(0xFF0A0A12),
+          Color(0xFF15111F),
+          Color(0xFF12121C),
+        ],
         glowColors: [palette.primary, palette.secondary],
         ornamentColor: palette.iconColor,
         ornamentIcons: const [Icons.auto_awesome, Icons.star_rounded],
@@ -175,7 +195,8 @@ class PartyDetailSectionBackground extends StatelessWidget {
         child: Stack(
           fit: StackFit.expand,
           children: [
-            for (var i = 0; i < blobCount; i++) _glowBlob(rng, preset.glowColors[i % preset.glowColors.length]),
+            for (var i = 0; i < blobCount; i++)
+              _glowBlob(rng, preset.glowColors[i % preset.glowColors.length]),
             for (var i = 0; i < ornamentCount; i++) _ornament(rng, preset),
           ],
         ),
@@ -210,7 +231,11 @@ class PartyDetailSectionBackground extends StatelessWidget {
     final alpha = 0.12 + rng.nextDouble() * 0.14;
     return Align(
       alignment: Alignment(dx, dy),
-      child: Icon(icon, size: size, color: preset.ornamentColor.withValues(alpha: alpha)),
+      child: Icon(
+        icon,
+        size: size,
+        color: preset.ornamentColor.withValues(alpha: alpha),
+      ),
     );
   }
 }
@@ -240,15 +265,23 @@ class PartyDetailPhotoFrame extends StatelessWidget {
   Widget build(BuildContext context) {
     final preset = _presetFor(theme);
     final radius = isHero ? 20.0 : 14.0;
-    final showShadow = intensity != PartyDetailDecorationIntensity.simple && !preset.noShadow;
-    final showBottomScrim = isHero && intensity != PartyDetailDecorationIntensity.simple;
-    final showSparkle = isHero && intensity == PartyDetailDecorationIntensity.rich && !preset.restrained;
+    final showShadow =
+        intensity != PartyDetailDecorationIntensity.simple && !preset.noShadow;
+    final showBottomScrim =
+        isHero && intensity != PartyDetailDecorationIntensity.simple;
+    final showSparkle =
+        isHero &&
+        intensity == PartyDetailDecorationIntensity.rich &&
+        !preset.restrained;
 
     final card = Container(
       decoration: BoxDecoration(
         color: preset.photoCardBackground,
         borderRadius: BorderRadius.circular(radius),
-        border: Border.all(color: preset.photoCardBorder, width: isHero ? 1.5 : 1),
+        border: Border.all(
+          color: preset.photoCardBorder,
+          width: isHero ? 1.5 : 1,
+        ),
         boxShadow: showShadow
             ? [
                 BoxShadow(
@@ -264,7 +297,9 @@ class PartyDetailPhotoFrame extends StatelessWidget {
         mainAxisSize: MainAxisSize.min,
         children: [
           ClipRRect(
-            borderRadius: BorderRadius.vertical(top: Radius.circular(radius - 3)),
+            borderRadius: BorderRadius.vertical(
+              top: Radius.circular(radius - 3),
+            ),
             child: Stack(
               children: [
                 child,
@@ -280,7 +315,10 @@ class PartyDetailPhotoFrame extends StatelessWidget {
                           gradient: LinearGradient(
                             begin: Alignment.bottomCenter,
                             end: Alignment.topCenter,
-                            colors: [Colors.black.withValues(alpha: 0.32), Colors.transparent],
+                            colors: [
+                              Colors.black.withValues(alpha: 0.32),
+                              Colors.transparent,
+                            ],
                           ),
                         ),
                       ),
@@ -291,7 +329,11 @@ class PartyDetailPhotoFrame extends StatelessWidget {
                     right: 14,
                     top: 14,
                     child: IgnorePointer(
-                      child: Icon(Icons.auto_awesome, size: 20, color: Colors.white.withValues(alpha: 0.85)),
+                      child: Icon(
+                        Icons.auto_awesome,
+                        size: 20,
+                        color: Colors.white.withValues(alpha: 0.85),
+                      ),
                     ),
                   ),
               ],
@@ -301,7 +343,9 @@ class PartyDetailPhotoFrame extends StatelessWidget {
             height: isHero ? 5 : 3,
             decoration: BoxDecoration(
               color: preset.photoAccent,
-              borderRadius: BorderRadius.vertical(bottom: Radius.circular(radius - 3)),
+              borderRadius: BorderRadius.vertical(
+                bottom: Radius.circular(radius - 3),
+              ),
             ),
           ),
         ],
@@ -380,7 +424,9 @@ class PartyDetailBlockSeparator extends StatelessWidget {
               gradient: LinearGradient(
                 colors: [
                   Colors.transparent,
-                  preset.separatorColor.withValues(alpha: preset.restrained ? 0.6 : 0.45),
+                  preset.separatorColor.withValues(
+                    alpha: preset.restrained ? 0.6 : 0.45,
+                  ),
                   Colors.transparent,
                 ],
               ),

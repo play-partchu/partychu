@@ -292,6 +292,10 @@ exports.flushChatAutoMessages = onCall(
         tx.update(roomRef, {
           lastMessage: d.message,
           lastMessageAt: admin.firestore.FieldValue.serverTimestamp(),
+          // 안내를 보낸 사람은 호스트다. 이 값이 없으면 호스트의 채팅 탭에
+          // **자기 이름으로 나간 안내가 안 읽은 대화로** 잡힌다
+          // (ChatService.isRoomUnread는 lastSenderId를 먼저 본다).
+          lastSenderId: d.hostId,
         });
         tx.update(doc.ref, {
           sent: true,

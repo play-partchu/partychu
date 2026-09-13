@@ -1,7 +1,10 @@
 import 'package:flutter/material.dart';
 
 import 'package:party_app/screens/chat_room_screen.dart';
+import 'package:party_app/screens/host_inbox_screen.dart';
+import 'package:party_app/screens/my_visit_reservations_screen.dart';
 import 'package:party_app/screens/party_detail_screen.dart';
+import 'package:party_app/services/host_inbox_service.dart';
 
 /// 알림 하나가 가리키는 화면을 고르는 **단 하나의 규칙**.
 ///
@@ -34,15 +37,34 @@ Widget? notificationTarget(Map<String, dynamic> data) {
     );
   }
 
-  // ── 플레이스 방문 예약 ──────────────────────────────────────────────
-  // 갈 화면(내 방문 예약 · 예약 승인)이 아직 이 트리에 없다. 여기서 그 화면을
-  // 이름으로 부르는 순간 빌드가 깨진다 — 지연 import도 컴파일 시점에 파일이
-  // 있어야 하므로 우회할 방법이 없다. 그래서 지금은 갈 곳 없음으로 두고 부르는
-  // 쪽의 기본 처리에 맡긴다(푸시는 알림함을 열고, 알림함은 탭을 막는다).
+  // ── 호스트가 처리해야 하는 신청·예약 알림 ───────────────────────────
   //
-  // 화면이 들어오면 여기를 role로 가르는 분기로 되살린다 — 업주에게 간
-  // 알림('host')은 승인 화면으로, 이용자 알림은 내 방문 예약으로.
-  if (type.startsWith('visit_reservation')) return null;
+  // 종류를 가리지 않고 **통합 신청자·예약자 관리**로 보낸다. 이 알림들은 예외
+  // 없이 "누가 신청/예약했으니 처리해달라"는 말이고, 그 일을 하는 곳이 이제
+  // 한 화면이기 때문이다. '처리 필요'로 열어 알림이 말한 그 건을 먼저 보여준다.
+  //
+  // 예전에는 방문예약만 업주 화면으로 갔고, 장소대여·숙박+파티 콤보 알림은
+  // partyId가 없어 **아무 데도 가지 못했다**(아래 파티 분기로 떨어져 null).
+  // 파티 신청 알림을 파티 상세로 보내는 것도 틀리다 — 호스트가 가야 할 곳은
+  // 파티 소개가 아니라 신청자 목록이다.
+  //
+  // role만으로 판정하지 않는 이유: 호스트에게 가는 알림 중에도 처리할 일이
+  // 아닌 것이 있다(최소 인원 미달 자동 취소 — 그건 파티 상세로 가야 한다).
+  const hostInboxTypes = [
+    'party_application_',
+    'party_deposit_',
+    'visit_reservation',
+    'place_reservation',
+    'package_booking',
+  ];
+  if (read('role') == 'host' && hostInboxTypes.any(type.startsWith)) {
+    return const HostInboxScreen(initialFilter: HostInboxFilter.needsAction);
+  }
+
+  // ── 플레이스 방문 예약(이용자) ──────────────────────────────────────
+  if (type.startsWith('visit_reservation')) {
+    return const MyVisitReservationsScreen();
+  }
 
   // ── 그 밖의 파티 알림 ───────────────────────────────────────────────
   final partyId = read('partyId');

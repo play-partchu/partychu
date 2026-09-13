@@ -1,0 +1,45 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>파티 등록 | 파티츄(PartyChu)</title>
+  <meta name="description" content="파티츄 파티 등록은 이제 파티츄 웹앱(/app/)에서 진행합니다.">
+  <!-- 등록 화면은 검색에 노출될 이유가 없다(로그인·본인확인이 전제다). -->
+  <meta name="robots" content="noindex">
+
+  <!--
+    ── 이 페이지는 이제 "옮겨졌다"는 표지판이다 ──────────────────────────
+
+    예전에는 여기 별도의 JS 파티 등록 폼이 있었다. 앱과 홈페이지가 서로 다른
+    등록 코드를 들고 있으면 필드·검증·본인확인·등록 제한이 한쪽만 바뀌어
+    조용히 갈라진다 — 실제로 그 위험 때문에 등록 정본을 하나로 모으기로 했다.
+    지금은 앱과 **완전히 같은** 화면(Flutter Web)이 /app/ 에서 돈다.
+
+    파일을 지우지 않고 남겨둔 이유는 **기존 링크를 살려두기 위해서다.**
+    외부에 공유된 /party/register 주소가 404가 되면 안 된다.
+  -->
+  <link rel="canonical" href="https://partychu.co.kr/app/">
+  <meta http-equiv="refresh" content="0; url=/app/?register=1">
+  <link rel="stylesheet" href="../css/style.css">
+  <script>
+    // meta refresh보다 빠르고, 뒤로가기로 이 표지판에 되돌아오지 않게 한다.
+    location.replace('/app/?register=1');
+  </script>
+</head>
+<body>
+  <header class="site-header">
+    <div class="container header-inner">
+      <a href="../" class="logo">Party<span>Chu</span></a>
+    </div>
+  </header>
+
+  <main class="container" style="padding:64px 0;text-align:center">
+    <h1 style="font-size:22px;margin-bottom:12px">등록 화면이 옮겨졌어요</h1>
+    <p style="margin-bottom:24px;color:#6b7280">
+      파티·플레이스·장소대여·파티샵·파티크루 등록은 이제 파티츄 웹앱에서 진행합니다.
+    </p>
+    <a href="/app/?register=1" class="btn btn-primary">등록하러 가기</a>
+  </main>
+</body>
+</html>

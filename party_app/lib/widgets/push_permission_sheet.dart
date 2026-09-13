@@ -120,7 +120,10 @@ class PushBlockedSheet extends StatelessWidget {
   final String message;
 
   /// 사용자가 '설정에서 알림 켜기'를 눌렀으면 true.
-  static Future<bool> show(BuildContext context, {required String message}) async {
+  static Future<bool> show(
+    BuildContext context, {
+    required String message,
+  }) async {
     final result = await showModalBottomSheet<bool>(
       context: context,
       backgroundColor: Colors.white,

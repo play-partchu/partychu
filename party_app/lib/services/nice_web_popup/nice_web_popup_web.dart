@@ -42,7 +42,11 @@ Future<String?> openNicePopupAndWaitForCallback(String authUrl) async {
     } catch (_) {
       /* no-op */
     }
-    finish(webTransactionId != null && webTransactionId.isNotEmpty ? webTransactionId : null);
+    finish(
+      webTransactionId != null && webTransactionId.isNotEmpty
+          ? webTransactionId
+          : null,
+    );
   });
 
   // 사용자가 표준창(팝업)을 직접 닫아버린 경우(취소) — 무한 대기하지 않도록

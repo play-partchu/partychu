@@ -44,18 +44,22 @@ class _RefundResubmitPanelState extends State<RefundResubmitPanel> {
   bool _sending = false;
 
   Future<void> _resubmit(String requestId) async {
-    final account = await showRefundAccountSheet(
+    // 인증된 환불계좌를 마스킹해 보여주고 확인만 받는다. 계좌를 바꿔야 하면
+    // 시트의 '환불계좌 변경'이 계좌 관리 화면으로 보내 **다시 인증**하게 한다
+    // — 반려 사유가 계좌 문제였을 때 밟는 길이 이것이다.
+    final ready = await confirmRefundAccount(
       context,
       refundAmount: 0, // 금액은 서버가 앞 요청에서 그대로 가져온다.
       formatAmount: (_) => '환불금',
     );
-    if (account == null || !mounted) return;
+    if (!ready || !mounted) return;
 
     setState(() => _sending = true);
     try {
+      // 계좌는 보내지 않는다 — 서버가 인증된 계좌에서 스냅샷을 직접 뜬다.
       await FirebaseFunctions.instanceFor(region: 'asia-northeast3')
           .httpsCallable('resubmitRefundRequest')
-          .call({'requestId': requestId, 'refundAccount': account.toMap()});
+          .call({'requestId': requestId});
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('환불 정보를 다시 제출했어요. 확인 후 처리해드릴게요.')),

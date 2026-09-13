@@ -61,12 +61,8 @@ const _kShortLineMaxLength = 18;
 final _kDateTimePattern = RegExp(
   r'\d{1,2}\s*[./]\s*\d{1,2}|\d{1,2}\s*시|오전|오후|요일|매주|평일|주말',
 );
-final _kLocationPattern = RegExp(
-  r'장소|위치|주소|오시는\s*길|찾아오시는|[가-힣]+(동|로|길)\s*\d',
-);
-final _kPricePattern = RegExp(
-  r'\d[,\d]*\s*원|₩|%|할인|무료|참가비|입장료|가격',
-);
+final _kLocationPattern = RegExp(r'장소|위치|주소|오시는\s*길|찾아오시는|[가-힣]+(동|로|길)\s*\d');
+final _kPricePattern = RegExp(r'\d[,\d]*\s*원|₩|%|할인|무료|참가비|입장료|가격');
 final _kCautionPattern = RegExp(r'주의|필독|안내사항|참고사항|유의');
 final _kDeadlinePattern = RegExp(r'마감|선착순|매진|마지막');
 
@@ -114,16 +110,37 @@ const _kVibeKeywords = [
 ];
 
 const _kDayTimeKeywords = [
-  '월요일', '화요일', '수요일', '목요일', '금요일', '토요일', '일요일',
-  '평일', '주말', '오늘', '내일',
+  '월요일',
+  '화요일',
+  '수요일',
+  '목요일',
+  '금요일',
+  '토요일',
+  '일요일',
+  '평일',
+  '주말',
+  '오늘',
+  '내일',
 ];
 
 /// 공식 구/시/군 목록(`RegionData`)에는 없는, 파티 소개글에 훨씬 자주
 /// 쓰이는 번화가 콜로키얼 명칭 — 키워드 배지의 "장소" 매칭에서 공식
 /// 행정구역보다 먼저 확인한다.
 const _kColloquialNeighborhoods = [
-  '홍대', '이태원', '강남', '건대', '신촌', '성수', '압구정', '가로수길',
-  '한남동', '여의도', '잠실', '신사', '청담', '명동',
+  '홍대',
+  '이태원',
+  '강남',
+  '건대',
+  '신촌',
+  '성수',
+  '압구정',
+  '가로수길',
+  '한남동',
+  '여의도',
+  '잠실',
+  '신사',
+  '청담',
+  '명동',
 ];
 
 /// [text] 안에서 매칭되는 어휘 그룹을 우선순위(리스트 순서) 그대로 찾아
@@ -144,8 +161,7 @@ List<(String, String)> _findVibeMatches(String text) {
   }
   return [
     for (final m in raw)
-      if (!raw.any((other) => other.$1 != m.$1 && other.$1.contains(m.$1)))
-        m,
+      if (!raw.any((other) => other.$1 != m.$1 && other.$1.contains(m.$1))) m,
   ];
 }
 
@@ -168,7 +184,8 @@ List<String> _poolFor(AutoDescriptionCategory category, bool rich) {
 
 String _pick(List<String> pool, int seed) => pool[seed.abs() % pool.length];
 
-String _wrap(String text, String? emoji) => emoji == null ? text : '$emoji $text $emoji';
+String _wrap(String text, String? emoji) =>
+    emoji == null ? text : '$emoji $text $emoji';
 
 /// 본문(bodyCard) 문단에 어휘 이모지를 최대 2개까지 단어 바로 뒤에
 /// 삽입한다(원문 삭제/치환 없이 순수 삽입만) — "화려하게"일 때만, 그 외에는
@@ -203,7 +220,9 @@ String _decorateInline(String text, {required bool rich, required int seed}) {
 /// 배지로 보여주기 위한 용도. "화려하게" 강도에서만 호출부에서 사용한다.
 /// variantSeed를 받지 않는다 — "다시 꾸미기"로 재계산되지 않는, 원문
 /// 내용의 결정적 반영이기 때문이다(장식 선택이 아님).
-List<({String emoji, String label})> extractAutoDescriptionKeywords(String description) {
+List<({String emoji, String label})> extractAutoDescriptionKeywords(
+  String description,
+) {
   final badges = <({String emoji, String label})>[];
   final seenLabels = <String>{};
 
@@ -292,7 +311,14 @@ List<PartyDetailBlock> classifyDescriptionToBlocks(
     if (buffer.isEmpty) return;
     final group = List<String>.of(buffer);
     buffer.clear();
-    blocks.add(_buildGenericBlock(group, overrides, seed: variantSeed + blocks.length, rich: rich));
+    blocks.add(
+      _buildGenericBlock(
+        group,
+        overrides,
+        seed: variantSeed + blocks.length,
+        rich: rich,
+      ),
+    );
   }
 
   for (final line in lines) {
@@ -303,13 +329,15 @@ List<PartyDetailBlock> classifyDescriptionToBlocks(
     // 연속 구간끼리 묶이게 한다.
     if (resolved != null && resolved != AutoDescriptionCategory.iconList) {
       flushBuffer();
-      blocks.add(_buildSingleLineBlock(
-        resolved,
-        line,
-        override: override,
-        seed: variantSeed + blocks.length,
-        rich: rich,
-      ));
+      blocks.add(
+        _buildSingleLineBlock(
+          resolved,
+          line,
+          override: override,
+          seed: variantSeed + blocks.length,
+          rich: rich,
+        ),
+      );
     } else {
       buffer.add(line);
     }
@@ -321,7 +349,10 @@ List<PartyDetailBlock> classifyDescriptionToBlocks(
 
 /// 이 줄이 강제(오버라이드) 또는 자동 판정으로 "특정 카테고리 단독 블록"이
 /// 되어야 하는지 판단. null이면 버퍼(연속 구간 묶기)로 보낸다.
-AutoDescriptionCategory? _resolveLineCategory(String line, Map<String, dynamic>? override) {
+AutoDescriptionCategory? _resolveLineCategory(
+  String line,
+  Map<String, dynamic>? override,
+) {
   if (override != null) {
     final forced = _categoryFromWire(override['category'] as String?);
     if (forced != null) return forced; // iconList로 강제되면 버퍼 처리(호출부에서 분기)
@@ -392,7 +423,11 @@ PartyDetailBlock _buildSingleLineBlock(
       );
     case AutoDescriptionCategory.caution:
     case AutoDescriptionCategory.deadline:
-      return PartyDetailBlock(id: id, type: PartyDetailBlockType.notice, text: _wrap(line, emoji));
+      return PartyDetailBlock(
+        id: id,
+        type: PartyDetailBlockType.notice,
+        text: _wrap(line, emoji),
+      );
     case AutoDescriptionCategory.banner:
       return PartyDetailBlock(
         id: id,
@@ -400,7 +435,11 @@ PartyDetailBlock _buildSingleLineBlock(
         text: _wrap(line, emoji),
       );
     case AutoDescriptionCategory.bodyCard:
-      return PartyDetailBlock(id: id, type: PartyDetailBlockType.paragraph, text: line);
+      return PartyDetailBlock(
+        id: id,
+        type: PartyDetailBlockType.paragraph,
+        text: line,
+      );
     case AutoDescriptionCategory.iconList:
       // 단독 줄이 iconList로 강제되는 경우는 없다(호출부에서 버퍼로 보냄) —
       // 안전망으로 배너와 동일하게 처리.
@@ -418,7 +457,9 @@ PartyDetailBlock _buildSingleLineBlock(
 /// notice는 caution/deadline 둘 다 이 타입으로 렌더링되어 사후에 구분할 수
 /// 없으므로 caution으로 근사한다 — 사용자가 시트에서 언제든 다시 고를 수
 /// 있어 실제 동작에는 영향이 없다.
-AutoDescriptionCategory autoDescriptionCategoryForBlock(PartyDetailBlock block) {
+AutoDescriptionCategory autoDescriptionCategoryForBlock(
+  PartyDetailBlock block,
+) {
   switch (block.type) {
     case PartyDetailBlockType.infoCard:
       switch (block.infoCard?.icon) {
@@ -492,5 +533,9 @@ PartyDetailBlock _buildGenericBlock(
   // rich일 때만 어휘 매칭 단어 뒤에 최소한으로(최대 2개) 삽입한다. 원문
   // 줄바꿈은 항상 그대로 보존한다.
   final text = _decorateInline(lines.join('\n'), rich: rich, seed: seed);
-  return PartyDetailBlock(id: groupId, type: PartyDetailBlockType.paragraph, text: text);
+  return PartyDetailBlock(
+    id: groupId,
+    type: PartyDetailBlockType.paragraph,
+    text: text,
+  );
 }

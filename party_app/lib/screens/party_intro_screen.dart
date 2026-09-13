@@ -24,7 +24,10 @@ final _kAutoThemes = [
 
 /// 미리보기 화면이 pop으로 돌려주는 값 — "다시 꾸미기"로 바뀐 변형 시드와,
 /// 문단별 탭 편집으로 저장된 스타일/이모지 오버라이드 목록을 함께 담는다.
-typedef PartyIntroPreviewResult = (int variantSeed, List<Map<String, dynamic>> paragraphStyles);
+typedef PartyIntroPreviewResult = (
+  int variantSeed,
+  List<Map<String, dynamic>> paragraphStyles,
+);
 
 class PartyIntroSelection {
   final String intro;
@@ -76,13 +79,17 @@ class PartyIntroScreen extends StatefulWidget {
 }
 
 class _PartyIntroScreenState extends State<PartyIntroScreen> {
-  late final _introController = TextEditingController(text: widget.initialIntro);
+  late final _introController = TextEditingController(
+    text: widget.initialIntro,
+  );
   late final _tagController = TextEditingController();
   late final List<String> _tags = [...widget.initialTags];
   late PartyDetailThemeKey _theme = widget.initialTheme;
   late PartyDetailDecorationIntensity _intensity = widget.initialIntensity;
   late int _variantSeed = widget.initialVariantSeed;
-  late List<Map<String, dynamic>> _paragraphStyles = [...widget.initialParagraphStyles];
+  late List<Map<String, dynamic>> _paragraphStyles = [
+    ...widget.initialParagraphStyles,
+  ];
 
   @override
   void dispose() {
@@ -115,7 +122,8 @@ class _PartyIntroScreenState extends State<PartyIntroScreen> {
     }
     final result = await Navigator.push<PartyIntroPreviewResult>(
       context,
-      webFramedRoute((_) => _AutoDescriptionPreviewScreen(
+      webFramedRoute(
+        (_) => _AutoDescriptionPreviewScreen(
           intro: intro,
           theme: _theme,
           intensity: _intensity,
@@ -132,18 +140,23 @@ class _PartyIntroScreenState extends State<PartyIntroScreen> {
   }
 
   InputDecoration _inputDecoration(String hint) => InputDecoration(
-        hintText: hint,
-        filled: true,
-        fillColor: const Color(0xFFF7F7FA),
-        contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
-        border: OutlineInputBorder(
-            borderRadius: BorderRadius.circular(12), borderSide: BorderSide.none),
-      );
+    hintText: hint,
+    filled: true,
+    fillColor: const Color(0xFFF7F7FA),
+    contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
+    border: OutlineInputBorder(
+      borderRadius: BorderRadius.circular(12),
+      borderSide: BorderSide.none,
+    ),
+  );
 
   Widget _label(String text) => Padding(
-        padding: const EdgeInsets.only(bottom: 8),
-        child: Text(text, style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w600)),
-      );
+    padding: const EdgeInsets.only(bottom: 8),
+    child: Text(
+      text,
+      style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w600),
+    ),
+  );
 
   void _confirm() {
     Navigator.pop(
@@ -163,7 +176,22 @@ class _PartyIntroScreenState extends State<PartyIntroScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: Colors.white,
-      appBar: AppBar(title: const Text('간편 자동 꾸미기', style: TextStyle(fontFamily: 'SeoulHangang', fontWeight: FontWeight.w500, shadows: [Shadow(color: Colors.black87, offset: Offset(0.3, 0)), Shadow(color: Colors.black87, offset: Offset(-0.3, 0)), Shadow(color: Colors.black87, offset: Offset(0, 0.3)), Shadow(color: Colors.black87, offset: Offset(0, -0.3))])), centerTitle: true),
+      appBar: AppBar(
+        title: const Text(
+          '간편 자동 꾸미기',
+          style: TextStyle(
+            fontFamily: 'SeoulHangang',
+            fontWeight: FontWeight.w500,
+            shadows: [
+              Shadow(color: Colors.black87, offset: Offset(0.3, 0)),
+              Shadow(color: Colors.black87, offset: Offset(-0.3, 0)),
+              Shadow(color: Colors.black87, offset: Offset(0, 0.3)),
+              Shadow(color: Colors.black87, offset: Offset(0, -0.3)),
+            ],
+          ),
+        ),
+        centerTitle: true,
+      ),
       body: Padding(
         padding: const EdgeInsets.all(16),
         child: Column(
@@ -201,32 +229,45 @@ class _PartyIntroScreenState extends State<PartyIntroScreen> {
                       foregroundColor: _kAccent,
                       side: const BorderSide(color: _kAccent),
                       padding: const EdgeInsets.symmetric(vertical: 12),
-                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(12),
+                      ),
                     ),
                   ),
                   const SizedBox(height: 22),
-                  _label('파티 태그 (${_tags.length}/${PartyConstants.maxTags}개 · 자유 입력)'),
-                  Row(children: [
-                    Expanded(
-                      child: TextField(
-                        controller: _tagController,
-                        decoration: _inputDecoration('예: 외국인, 20대, 바다 (# 없이 입력)'),
-                        textInputAction: TextInputAction.done,
-                        onSubmitted: (_) => _addTag(),
+                  _label(
+                    '파티 태그 (${_tags.length}/${PartyConstants.maxTags}개 · 자유 입력)',
+                  ),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: TextField(
+                          controller: _tagController,
+                          decoration: _inputDecoration(
+                            '예: 외국인, 20대, 바다 (# 없이 입력)',
+                          ),
+                          textInputAction: TextInputAction.done,
+                          onSubmitted: (_) => _addTag(),
+                        ),
                       ),
-                    ),
-                    const SizedBox(width: 8),
-                    ElevatedButton(onPressed: _addTag, child: const Text('추가')),
-                  ]),
+                      const SizedBox(width: 8),
+                      ElevatedButton(
+                        onPressed: _addTag,
+                        child: const Text('추가'),
+                      ),
+                    ],
+                  ),
                   const SizedBox(height: 12),
                   Wrap(
                     spacing: 8,
                     runSpacing: 8,
                     children: _tags
-                        .map((tag) => Chip(
-                              label: Text('#$tag'),
-                              onDeleted: () => setState(() => _tags.remove(tag)),
-                            ))
+                        .map(
+                          (tag) => Chip(
+                            label: Text('#$tag'),
+                            onDeleted: () => setState(() => _tags.remove(tag)),
+                          ),
+                        )
                         .toList(),
                   ),
                 ],
@@ -241,10 +282,14 @@ class _PartyIntroScreenState extends State<PartyIntroScreen> {
                 style: ElevatedButton.styleFrom(
                   backgroundColor: _kAccent,
                   foregroundColor: Colors.white,
-                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(14),
+                  ),
                 ),
-                child: const Text('선택 완료',
-                    style: TextStyle(fontSize: 15, fontWeight: FontWeight.bold)),
+                child: const Text(
+                  '선택 완료',
+                  style: TextStyle(fontSize: 15, fontWeight: FontWeight.bold),
+                ),
               ),
             ),
           ],
@@ -291,7 +336,9 @@ class _AutoDescriptionPreviewScreen extends StatefulWidget {
 class _AutoDescriptionPreviewScreenState
     extends State<_AutoDescriptionPreviewScreen> {
   late int _variantSeed = widget.initialVariantSeed;
-  late List<Map<String, dynamic>> _paragraphStyles = [...widget.initialParagraphStyles];
+  late List<Map<String, dynamic>> _paragraphStyles = [
+    ...widget.initialParagraphStyles,
+  ];
 
   void _regenerate() => setState(() => _variantSeed++);
 
@@ -318,7 +365,9 @@ class _AutoDescriptionPreviewScreenState
     );
     if (result == null || !mounted) return;
     setState(() {
-      _paragraphStyles = _paragraphStyles.where((o) => o['key'] != block.id).toList();
+      _paragraphStyles = _paragraphStyles
+          .where((o) => o['key'] != block.id)
+          .toList();
       if (result['reset'] != true) {
         _paragraphStyles.add({
           'key': block.id,
@@ -351,7 +400,19 @@ class _AutoDescriptionPreviewScreenState
       child: Scaffold(
         backgroundColor: palette.pageBackground,
         appBar: AppBar(
-          title: const Text('미리보기', style: TextStyle(fontFamily: 'SeoulHangang', fontWeight: FontWeight.w500, shadows: [Shadow(color: Colors.black87, offset: Offset(0.3, 0)), Shadow(color: Colors.black87, offset: Offset(-0.3, 0)), Shadow(color: Colors.black87, offset: Offset(0, 0.3)), Shadow(color: Colors.black87, offset: Offset(0, -0.3))])),
+          title: const Text(
+            '미리보기',
+            style: TextStyle(
+              fontFamily: 'SeoulHangang',
+              fontWeight: FontWeight.w500,
+              shadows: [
+                Shadow(color: Colors.black87, offset: Offset(0.3, 0)),
+                Shadow(color: Colors.black87, offset: Offset(-0.3, 0)),
+                Shadow(color: Colors.black87, offset: Offset(0, 0.3)),
+                Shadow(color: Colors.black87, offset: Offset(0, -0.3)),
+              ],
+            ),
+          ),
           centerTitle: true,
           actions: [
             TextButton.icon(
@@ -367,7 +428,10 @@ class _AutoDescriptionPreviewScreenState
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Container(
-                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 12,
+                  vertical: 10,
+                ),
                 margin: const EdgeInsets.only(bottom: 12),
                 decoration: BoxDecoration(
                   color: _kAccent.withValues(alpha: 0.08),
@@ -375,7 +439,11 @@ class _AutoDescriptionPreviewScreenState
                 ),
                 child: const Text(
                   '문단을 탭하면 스타일과 이모지를 직접 바꿀 수 있어요',
-                  style: TextStyle(fontSize: 12.5, color: _kAccent, fontWeight: FontWeight.w600),
+                  style: TextStyle(
+                    fontSize: 12.5,
+                    color: _kAccent,
+                    fontWeight: FontWeight.w600,
+                  ),
                 ),
               ),
               if (keywords.isNotEmpty) ...[

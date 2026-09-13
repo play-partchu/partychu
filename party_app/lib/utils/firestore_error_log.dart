@@ -9,7 +9,9 @@ import 'package:flutter/foundation.dart';
 /// 원인은 완전히 다르므로, 매번 이 코드/메시지를 직접 봐야 구분할 수 있다.
 void logFirestoreStreamError(String tag, Object? error, StackTrace? stack) {
   final code = error is FirebaseException ? error.code : 'unknown';
-  final message = error is FirebaseException ? error.message : error?.toString();
+  final message = error is FirebaseException
+      ? error.message
+      : error?.toString();
   debugPrint(
     '[$tag]\n'
     'code: $code\n'

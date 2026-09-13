@@ -22,7 +22,7 @@ if (hasReleaseKeystore) {
 }
 
 android {
-    namespace = "com.example.party_app"
+    namespace = "kr.co.partychu.app"
     compileSdk = flutter.compileSdkVersion
     ndkVersion = flutter.ndkVersion
 
@@ -41,8 +41,7 @@ android {
     }
 
     defaultConfig {
-        // TODO: Specify your own unique Application ID (https://developer.android.com/studio/build/application-id.html).
-        applicationId = "com.example.party_app"
+        applicationId = "kr.co.partychu.app"
         // You can update the following values to match your application needs.
         // For more information, see: https://flutter.dev/to/review-gradle-config.
         minSdk = flutter.minSdkVersion

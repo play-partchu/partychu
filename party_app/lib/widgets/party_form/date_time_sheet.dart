@@ -1,5 +1,5 @@
 import 'package:flutter/material.dart';
-import 'package:party_app/widgets/party_form/custom_time_picker_sheet.dart';
+import 'package:party_app/widgets/party_form/wheel_time_picker_sheet.dart';
 
 /// 날짜/시간 선택 바텀시트가 다루는 값. [deadlineHasOwnDate]가 false(등록/수정)면
 /// 모집마감은 파티 날짜를 그대로 공유하고 시간만 따로 고른다(등록 화면 기존
@@ -96,7 +96,8 @@ class _DateTimeSheetBodyState extends State<_DateTimeSheetBody> {
   Future<void> _pickPartyDate() async {
     final now = DateTime.now();
     final today = DateTime(now.year, now.month, now.day);
-    final initial = (_draft.partyDate != null && !_draft.partyDate!.isBefore(today))
+    final initial =
+        (_draft.partyDate != null && !_draft.partyDate!.isBefore(today))
         ? _draft.partyDate!
         : today;
     final picked = await showDatePicker(
@@ -105,25 +106,28 @@ class _DateTimeSheetBodyState extends State<_DateTimeSheetBody> {
       firstDate: today,
       lastDate: DateTime(now.year + 3),
     );
-    if (picked != null) setState(() => _draft = _draft.copyWith(partyDate: picked));
+    if (picked != null)
+      setState(() => _draft = _draft.copyWith(partyDate: picked));
   }
 
   Future<void> _pickStartTime() async {
-    final picked = await showCustomTimePicker(
+    final picked = await showWheelTimePicker(
       context,
       initial: _draft.startTime ?? const TimeOfDay(hour: 20, minute: 0),
       title: '시작 시간',
     );
-    if (picked != null) setState(() => _draft = _draft.copyWith(startTime: picked));
+    if (picked != null)
+      setState(() => _draft = _draft.copyWith(startTime: picked));
   }
 
   Future<void> _pickEndTime() async {
-    final picked = await showCustomTimePicker(
+    final picked = await showWheelTimePicker(
       context,
       initial: _draft.endTime ?? const TimeOfDay(hour: 23, minute: 0),
       title: '종료 시간',
     );
-    if (picked != null) setState(() => _draft = _draft.copyWith(endTime: picked));
+    if (picked != null)
+      setState(() => _draft = _draft.copyWith(endTime: picked));
   }
 
   Future<void> _pickRecruitDeadlineDate() async {
@@ -143,9 +147,10 @@ class _DateTimeSheetBodyState extends State<_DateTimeSheetBody> {
   }
 
   Future<void> _pickRecruitDeadlineTime() async {
-    final picked = await showCustomTimePicker(
+    final picked = await showWheelTimePicker(
       context,
-      initial: _draft.recruitDeadlineTime ?? const TimeOfDay(hour: 18, minute: 0),
+      initial:
+          _draft.recruitDeadlineTime ?? const TimeOfDay(hour: 18, minute: 0),
       title: '모집 마감 시간',
     );
     if (picked != null) {
@@ -163,11 +168,15 @@ class _DateTimeSheetBodyState extends State<_DateTimeSheetBody> {
   }
 
   Widget _label(String text) => Padding(
-        padding: const EdgeInsets.only(bottom: 8),
-        child: Text(text, style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w600)),
-      );
+    padding: const EdgeInsets.only(bottom: 8),
+    child: Text(
+      text,
+      style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w600),
+    ),
+  );
 
-  Widget _box(String text, VoidCallback onTap, {bool hasValue = false}) => InkWell(
+  Widget _box(String text, VoidCallback onTap, {bool hasValue = false}) =>
+      InkWell(
         onTap: onTap,
         child: Container(
           width: double.infinity,
@@ -186,7 +195,8 @@ class _DateTimeSheetBodyState extends State<_DateTimeSheetBody> {
   @override
   Widget build(BuildContext context) {
     final hasDeadline = widget.deadlineHasOwnDate
-        ? (_draft.recruitDeadlineDate != null || _draft.recruitDeadlineTime != null)
+        ? (_draft.recruitDeadlineDate != null ||
+              _draft.recruitDeadlineTime != null)
         : _draft.recruitDeadlineTime != null;
 
     return SafeArea(
@@ -207,25 +217,37 @@ class _DateTimeSheetBodyState extends State<_DateTimeSheetBody> {
                   width: 40,
                   height: 4,
                   decoration: BoxDecoration(
-                      color: Colors.grey.shade300,
-                      borderRadius: BorderRadius.circular(4)),
+                    color: Colors.grey.shade300,
+                    borderRadius: BorderRadius.circular(4),
+                  ),
                 ),
               ),
               const SizedBox(height: 16),
-              const Text('날짜 및 시간 선택',
-                  style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+              const Text(
+                '날짜 및 시간 선택',
+                style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+              ),
               const SizedBox(height: 18),
               _label('파티 날짜'),
-              _box(formatPartyDate(_draft.partyDate), _pickPartyDate,
-                  hasValue: _draft.partyDate != null),
+              _box(
+                formatPartyDate(_draft.partyDate),
+                _pickPartyDate,
+                hasValue: _draft.partyDate != null,
+              ),
               const SizedBox(height: 16),
               _label('시작 시간'),
-              _box(formatPartyTime(_draft.startTime), _pickStartTime,
-                  hasValue: _draft.startTime != null),
+              _box(
+                formatPartyTime(_draft.startTime),
+                _pickStartTime,
+                hasValue: _draft.startTime != null,
+              ),
               const SizedBox(height: 16),
               _label('종료 시간'),
-              _box(formatPartyTime(_draft.endTime), _pickEndTime,
-                  hasValue: _draft.endTime != null),
+              _box(
+                formatPartyTime(_draft.endTime),
+                _pickEndTime,
+                hasValue: _draft.endTime != null,
+              ),
               const SizedBox(height: 16),
               Row(
                 children: [
@@ -282,10 +304,13 @@ class _DateTimeSheetBodyState extends State<_DateTimeSheetBody> {
                     backgroundColor: const Color(0xFFFF6FA0),
                     foregroundColor: Colors.white,
                     shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(14)),
+                      borderRadius: BorderRadius.circular(14),
+                    ),
                   ),
-                  child: const Text('선택 완료',
-                      style: TextStyle(fontSize: 15, fontWeight: FontWeight.bold)),
+                  child: const Text(
+                    '선택 완료',
+                    style: TextStyle(fontSize: 15, fontWeight: FontWeight.bold),
+                  ),
                 ),
               ),
             ],

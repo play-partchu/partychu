@@ -60,7 +60,10 @@ class _VideoSeekBarState extends State<VideoSeekBar> {
         final duration = value.duration;
         final position = value.position;
         final liveFraction = duration.inMilliseconds > 0
-            ? (position.inMilliseconds / duration.inMilliseconds).clamp(0.0, 1.0)
+            ? (position.inMilliseconds / duration.inMilliseconds).clamp(
+                0.0,
+                1.0,
+              )
             : 0.0;
         final fraction = _dragFraction ?? liveFraction;
 

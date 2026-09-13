@@ -63,8 +63,37 @@ void main() {
           frameWidth: 174,
           frameHeight: 130,
         );
-        expect(result.cropX, closeTo(cropX, 0.001));
-        expect(result.cropY, closeTo(cropY, 0.001));
+
+        // ⚠️ **여유(slack)가 없는 축은 값이 왕복하지 않는다 — 그게 맞다.**
+        //
+        // 이 케이스의 원본(1080×1920)은 174×130 프레임에 cover로 맞추면 가로가
+        // 정확히 174가 되어 좌우로 움직일 자리가 0이다. 그러면 cropX가
+        // 0.0이든 0.5든 1.0이든 **화면에 그려지는 그림은 완전히 같다** —
+        // 매트릭스가 동일해서 되돌릴 근거 자체가 없다. cropFromMatrix는 그런
+        // 축을 표준값 0.5로 확정한다(denom이 0에 가까울 때의 분기). 값이
+        // 흔들리는 것보다 한 값으로 모이는 편이, 저장된 크롭을 다시 열었을 때
+        // 예측 가능하다.
+        //
+        // 그래서 여기서는 "여유가 있는 축만 정확히 왕복한다"를 본다. 렌더링
+        // 결과가 실제로 같은지는 아래 동등성 그룹이 따로 확인한다.
+        const frameW = 174.0, frameH = 130.0;
+        final hasSlackX = (frameW - cropScale * cover.width).abs() >= 0.01;
+        final hasSlackY = (frameH - cropScale * cover.height).abs() >= 0.01;
+
+        expect(
+          result.cropX,
+          hasSlackX ? closeTo(cropX, 0.001) : closeTo(0.5, 0.001),
+          reason: hasSlackX
+              ? '좌우로 움직일 자리가 있는데 값이 왕복하지 않는다'
+              : '좌우 여유가 없는 축은 표준값 0.5로 모여야 한다',
+        );
+        expect(
+          result.cropY,
+          hasSlackY ? closeTo(cropY, 0.001) : closeTo(0.5, 0.001),
+          reason: hasSlackY
+              ? '위아래로 움직일 자리가 있는데 값이 왕복하지 않는다'
+              : '위아래 여유가 없는 축은 표준값 0.5로 모여야 한다',
+        );
         expect(result.cropScale, closeTo(cropScale, 0.001));
       });
     }
@@ -158,34 +187,31 @@ void main() {
 
     for (final s in scenarios) {
       final (naturalW, naturalH, frameW, frameH, cropX, cropY, cropScale) = s;
-      test(
-        'natural=${naturalW}x$naturalH frame=${frameW}x$frameH '
-        'crop=($cropX,$cropY,$cropScale)',
-        () {
-          final card = cardRenderedRect(
-            naturalW: naturalW,
-            naturalH: naturalH,
-            frameW: frameW,
-            frameH: frameH,
-            cropX: cropX,
-            cropY: cropY,
-            cropScale: cropScale,
-          );
-          final editor = editorRenderedRect(
-            naturalW: naturalW,
-            naturalH: naturalH,
-            frameW: frameW,
-            frameH: frameH,
-            cropX: cropX,
-            cropY: cropY,
-            cropScale: cropScale,
-          );
-          expect(editor.topLeftX, closeTo(card.topLeftX, 0.01));
-          expect(editor.topLeftY, closeTo(card.topLeftY, 0.01));
-          expect(editor.width, closeTo(card.width, 0.01));
-          expect(editor.height, closeTo(card.height, 0.01));
-        },
-      );
+      test('natural=${naturalW}x$naturalH frame=${frameW}x$frameH '
+          'crop=($cropX,$cropY,$cropScale)', () {
+        final card = cardRenderedRect(
+          naturalW: naturalW,
+          naturalH: naturalH,
+          frameW: frameW,
+          frameH: frameH,
+          cropX: cropX,
+          cropY: cropY,
+          cropScale: cropScale,
+        );
+        final editor = editorRenderedRect(
+          naturalW: naturalW,
+          naturalH: naturalH,
+          frameW: frameW,
+          frameH: frameH,
+          cropX: cropX,
+          cropY: cropY,
+          cropScale: cropScale,
+        );
+        expect(editor.topLeftX, closeTo(card.topLeftX, 0.01));
+        expect(editor.topLeftY, closeTo(card.topLeftY, 0.01));
+        expect(editor.width, closeTo(card.width, 0.01));
+        expect(editor.height, closeTo(card.height, 0.01));
+      });
     }
   });
 

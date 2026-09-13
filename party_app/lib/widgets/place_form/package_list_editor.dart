@@ -31,12 +31,8 @@ class PlacePackageDraft {
        nameCtrl = TextEditingController(text: name),
        priceCtrl = TextEditingController(text: price?.toString() ?? ''),
        descCtrl = TextEditingController(text: description),
-       minPeopleCtrl = TextEditingController(
-         text: minPeople?.toString() ?? '',
-       ),
-       maxPeopleCtrl = TextEditingController(
-         text: maxPeople?.toString() ?? '',
-       ),
+       minPeopleCtrl = TextEditingController(text: minPeople?.toString() ?? ''),
+       maxPeopleCtrl = TextEditingController(text: maxPeople?.toString() ?? ''),
        days = days ?? {};
 
   static TimeOfDay? _parseTime(String? s) {
@@ -293,22 +289,14 @@ class PackageListEditorState extends State<PackageListEditor> {
           Row(
             children: [
               Expanded(
-                child: _timeButton(
-                  '시작',
-                  p.startTime,
-                  () => _pickTime(p, true),
-                ),
+                child: _timeButton('시작', p.startTime, () => _pickTime(p, true)),
               ),
               const Padding(
                 padding: EdgeInsets.symmetric(horizontal: 8),
                 child: Text('~'),
               ),
               Expanded(
-                child: _timeButton(
-                  '종료',
-                  p.endTime,
-                  () => _pickTime(p, false),
-                ),
+                child: _timeButton('종료', p.endTime, () => _pickTime(p, false)),
               ),
             ],
           ),
@@ -462,9 +450,7 @@ class PackageListEditorState extends State<PackageListEditor> {
                 p.isActive ? '사용 중' : '사용 안 함',
                 style: TextStyle(
                   fontSize: 12,
-                  color: p.isActive
-                      ? const Color(0xFFFF6FA0)
-                      : Colors.black45,
+                  color: p.isActive ? const Color(0xFFFF6FA0) : Colors.black45,
                   fontWeight: FontWeight.w600,
                 ),
               ),
@@ -484,7 +470,9 @@ class PackageListEditorState extends State<PackageListEditor> {
           color: t != null ? const Color(0xFFF3EFFA) : const Color(0xFFF7F7FA),
           borderRadius: BorderRadius.circular(10),
           border: t != null
-              ? Border.all(color: const Color(0xFF7C5CBF).withValues(alpha: 0.4))
+              ? Border.all(
+                  color: const Color(0xFF7C5CBF).withValues(alpha: 0.4),
+                )
               : null,
         ),
         child: Column(

@@ -1,0 +1,25 @@
+{
+  "_comment": [
+    "임시 릴리스 전용 설정 — 매장 이벤트 신청 rules만 운영에 올리기 위한 것.",
+    "",
+    "왜 필요한가: 작업 중인 firestore.rules에는 이번 출시 범위가 아닌 미배포",
+    "규칙 작업이 여럿 섞여 있다. 그 파일을 그대로 배포하면 그것들이 함께 나간다.",
+    "",
+    "firestore.release.rules는 '운영에 지금 올라가 있는 규칙 원문'을 그대로",
+    "가져와(2026-08-24 배포본, ruleset df7c1b3b-2274-4d14-8380-1cf400fd5e51)",
+    "placeEventApplications 블록 하나만 더한 파일이다. 운영본 대비 삭제된 줄이",
+    "0줄이라는 것을 확인했다.",
+    "",
+    "⚠️ 운영 규칙은 마지막 커밋보다 앞서 있다 — nicknames·partyOpenAlerts 블록이",
+    "운영에는 있고 커밋에는 없다. 그래서 기준선을 git이 아니라 운영본으로 잡았다.",
+    "",
+    "indexes·functions·hosting 키를 일부러 넣지 않았다. 이 설정으로는 규칙 말고",
+    "아무것도 배포할 수 없다.",
+    "",
+    "배포가 끝나면 이 파일과 firestore.release.rules는 지워도 된다(커밋 대상 아님).",
+    "그 다음 작업 firestore.rules를 정리할 때는 운영본을 다시 받아 기준으로 삼을 것."
+  ],
+  "firestore": {
+    "rules": "firestore.release.rules"
+  }
+}

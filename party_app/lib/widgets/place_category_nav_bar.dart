@@ -134,7 +134,10 @@ class PlaceCategoryNavBar extends StatelessWidget {
   /// 겹치는 양을 미리 더한 값(totalBoxWidth)을 라벨 길이 비례로 나눈 뒤 그
   /// 만큼씩 왼쪽으로 당겨 배치한다. 그러면 마지막 세그먼트의 오른쪽 끝이
   /// 정확히 부모 폭에 떨어져, 항목 개수가 다른 두 줄의 좌우 끝이 일치한다.
-  Widget _buildRow(List<PlaceCategoryNavItem> rowItems, {required bool isFirstRow}) {
+  Widget _buildRow(
+    List<PlaceCategoryNavItem> rowItems, {
+    required bool isFirstRow,
+  }) {
     return LayoutBuilder(
       builder: (context, constraints) {
         final n = rowItems.length;
@@ -214,14 +217,19 @@ class PlaceCategoryNavBar extends StatelessWidget {
     required bool slantRight,
   }) {
     final scaler = MediaQuery.textScalerOf(context);
-    var w = _labelPadding * 2 +
-        (slantLeft ? _skew : 0) +
-        (slantRight ? _skew : 0);
+    var w =
+        _labelPadding * 2 + (slantLeft ? _skew : 0) + (slantRight ? _skew : 0);
     if (item.emoji != null) {
-      w += _measureText(item.emoji!, _PlaceCategorySegment.emojiStyle, scaler) + 5;
+      w +=
+          _measureText(item.emoji!, _PlaceCategorySegment.emojiStyle, scaler) +
+          5;
     }
     // 선택 시 글자가 굵어져도 배분이 흔들리지 않도록 항상 굵은 쪽으로 잰다.
-    w += _measureText(item.label, _PlaceCategorySegment.selectedLabelStyle, scaler);
+    w += _measureText(
+      item.label,
+      _PlaceCategorySegment.selectedLabelStyle,
+      scaler,
+    );
     return w;
   }
 
@@ -308,25 +316,25 @@ class _PlaceCategorySegment extends StatelessWidget {
         boxShadow: !selected
             ? const []
             : night
-                ? [
-                    BoxShadow(
-                      color: _kNeonPink.withValues(alpha: 0.55),
-                      blurRadius: 16,
-                      spreadRadius: 0.5,
-                    ),
-                    BoxShadow(
-                      color: _kNeonPurple.withValues(alpha: 0.35),
-                      blurRadius: 24,
-                      spreadRadius: 1,
-                    ),
-                  ]
-                : [
-                    BoxShadow(
-                      color: _kGlassPinkFrom.withValues(alpha: 0.28),
-                      blurRadius: 18,
-                      offset: const Offset(0, 4),
-                    ),
-                  ],
+            ? [
+                BoxShadow(
+                  color: _kNeonPink.withValues(alpha: 0.55),
+                  blurRadius: 16,
+                  spreadRadius: 0.5,
+                ),
+                BoxShadow(
+                  color: _kNeonPurple.withValues(alpha: 0.35),
+                  blurRadius: 24,
+                  spreadRadius: 1,
+                ),
+              ]
+            : [
+                BoxShadow(
+                  color: _kGlassPinkFrom.withValues(alpha: 0.28),
+                  blurRadius: 18,
+                  offset: const Offset(0, 4),
+                ),
+              ],
       ),
       child: ClipPath(
         clipper: _ParallelogramClipper(
@@ -353,19 +361,19 @@ class _PlaceCategorySegment extends StatelessWidget {
               // 낮은 화이트 글래스(반투명이라 뒤 배경이 살짝 비친다).
               gradient: night
                   ? (selected
-                      ? const LinearGradient(
-                          colors: [_kNeonPink, _kNeonPurple],
-                        )
-                      : const LinearGradient(
-                          colors: [Color(0xFF262A3D), Color(0xFF161724)],
-                        ))
+                        ? const LinearGradient(
+                            colors: [_kNeonPink, _kNeonPurple],
+                          )
+                        : const LinearGradient(
+                            colors: [Color(0xFF262A3D), Color(0xFF161724)],
+                          ))
                   : (selected
-                      ? const LinearGradient(
-                          colors: [_kGlassPinkFrom, _kGlassPinkTo],
-                        )
-                      : const LinearGradient(
-                          colors: [_kGlassFillFrom, _kGlassFillTo],
-                        )),
+                        ? const LinearGradient(
+                            colors: [_kGlassPinkFrom, _kGlassPinkTo],
+                          )
+                        : const LinearGradient(
+                            colors: [_kGlassFillFrom, _kGlassFillTo],
+                          )),
               // 클리핑 후에는 사각형의 위/아래 변만 사선 모서리를 따라
               // 그대로 보이고, 좌/우 변은 대각선에 가려 거의 보이지
               // 않는다(테두리는 직선 4변에만 그려지고 대각선 자체에는
@@ -402,12 +410,14 @@ class _PlaceCategorySegment extends StatelessWidget {
                       maxLines: 1,
                       softWrap: false,
                       style: selectedLabelStyle.copyWith(
-                        fontWeight: selected ? FontWeight.w800 : FontWeight.w600,
+                        fontWeight: selected
+                            ? FontWeight.w800
+                            : FontWeight.w600,
                         color: selected
                             ? Colors.white
                             : (night
-                                ? Colors.white.withValues(alpha: 0.75)
-                                : _kGlassLabel),
+                                  ? Colors.white.withValues(alpha: 0.75)
+                                  : _kGlassLabel),
                       ),
                     ),
                   ),

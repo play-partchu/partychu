@@ -105,10 +105,27 @@ class NotificationService {
         .map((s) => s.docs.length);
   }
 
+  /// 알림 한 건을 읽음으로.
+  ///
+  /// 부르는 곳은 셋이고 전부 **사용자가 실제로 그 소식을 연 순간**이다:
+  /// 알림함에서 카드를 눌렀을 때, 그 카드의 CTA를 눌렀을 때, 푸시를 눌러
+  /// 들어왔을 때(push_notification_service). 화면을 열었다는 이유만으로는
+  /// 부르지 않는다 — 그러면 안 읽은 알림이라는 상태 자체가 사용자 눈에
+  /// 보이지 않게 된다.
+  ///
+  /// Firestore가 쓰기를 로컬에 먼저 반영하므로, 목록을 보고 있는 스트림은
+  /// 서버 응답을 기다리지 않고 그 자리에서 '읽음'으로 다시 그려진다. 쓰기가
+  /// 끝내 실패하면 되돌려지므로 화면도 저절로 '안 읽음'으로 돌아온다.
+  ///
+  /// 규칙은 본인 문서의 `read` 필드 하나만 바꾸도록 열려 있다(firestore.rules).
   static Future<void> markRead(String id) =>
       _db.collection('notifications').doc(id).update({'read': true});
 
-  /// 목록을 열었을 때 한 번에 읽음 처리한다.
+  /// 안 읽은 알림을 한 번에 읽음으로 — 알림함 앱바의 '모두 읽음'이 부른다.
+  ///
+  /// ⚠️ 화면 진입(initState)에서 부르지 않는다. 예전에는 그렇게 했는데, 목록이
+  /// 그려지기도 전에 전부 읽음이 되어 강조·읽음 표시·종 배지가 모두 뜻을
+  /// 잃었다. 지금은 사용자가 이 버튼을 눌렀을 때만 실행된다.
   static Future<void> markAllRead(String uid) async {
     if (uid.isEmpty) return;
     final snap = await _db

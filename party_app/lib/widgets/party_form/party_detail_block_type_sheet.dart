@@ -108,7 +108,8 @@ Future<PartyDetailBlockType?> showPartyDetailBlockTypeSheet(
     shape: const RoundedRectangleBorder(
       borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
     ),
-    builder: (_) => _BlockTypeSheetBody(videoBlockLimitReached: videoBlockLimitReached),
+    builder: (_) =>
+        _BlockTypeSheetBody(videoBlockLimitReached: videoBlockLimitReached),
   );
 }
 
@@ -150,7 +151,10 @@ class _BlockTypeSheetBody extends StatelessWidget {
               Flexible(
                 child: SingleChildScrollView(
                   child: Column(
-                    children: [for (final option in _kOptions) _optionTile(context, option)],
+                    children: [
+                      for (final option in _kOptions)
+                        _optionTile(context, option),
+                    ],
                   ),
                 ),
               ),
@@ -162,7 +166,8 @@ class _BlockTypeSheetBody extends StatelessWidget {
   }
 
   Widget _optionTile(BuildContext context, _BlockTypeOption option) {
-    final disabled = videoBlockLimitReached && option.type == PartyDetailBlockType.video;
+    final disabled =
+        videoBlockLimitReached && option.type == PartyDetailBlockType.video;
     return ListTile(
       contentPadding: EdgeInsets.zero,
       enabled: !disabled,
@@ -173,7 +178,11 @@ class _BlockTypeSheetBody extends StatelessWidget {
           color: disabled ? const Color(0xFFF5F5F5) : const Color(0xFFFFF3F7),
           borderRadius: BorderRadius.circular(10),
         ),
-        child: Icon(option.icon, color: disabled ? Colors.black26 : _kAccent, size: 20),
+        child: Icon(
+          option.icon,
+          color: disabled ? Colors.black26 : _kAccent,
+          size: 20,
+        ),
       ),
       title: Text(
         option.title,

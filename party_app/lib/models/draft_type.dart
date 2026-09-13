@@ -12,10 +12,16 @@ enum DraftType {
   event('event', '플레이스'),
   // 파티샵 "샵 자체" 등록 — 위 [shop]('파티샵 상품')은 이미 만들어진 샵에
   // 상품을 추가하는 화면이라 서로 다른 폼이다.
-  market('market', '파티샵'),
-  // 콤보 등록 두 종류 — 각각 폼이 완전히 달라 별도 유형으로 나눈다.
-  stayPartyCombo('stay_party_combo', '숙박+파티'),
-  placePartyCombo('place_party_combo', '플레이스+파티');
+  market('market', '파티샵');
+
+  // ⚠️ 콤보 등록 두 종류(`stay_party_combo` / `place_party_combo`)는 뺐다 —
+  // 플레이스와 파티를 한 폼에서 함께 만드는 등록 방식 자체가 없어졌다
+  // (플레이스를 먼저 올리고 [PlaceFollowupEntry]가 파티·이벤트로 이어준다).
+  //
+  // **두 key를 다시 쓰지 않는다.** 예전에 저장된 `drafts/{uid}__stay_party_combo`
+  // 문서가 아직 남아 있고, 같은 key를 다른 폼에 붙이면 엉뚱한 payload를
+  // 복원하게 된다. 남은 문서는 [fromKey]가 null을 돌려주어 목록에서 조용히
+  // 빠진다(DraftService.watchAllDrafts) — 지우지도 않고, 열리지도 않는다.
 
   const DraftType(this.key, this.label);
 
@@ -28,9 +34,9 @@ enum DraftType {
   /// 마이페이지 목록에서 유형 그룹을 묶을 때 쓰는 상위 구분(파티크루 구인/구직을
   /// 하나의 "파티크루" 그룹으로 합친다).
   String get groupLabel => switch (this) {
-        DraftType.crewRecruit || DraftType.crewSeek => '파티크루',
-        _ => label,
-      };
+    DraftType.crewRecruit || DraftType.crewSeek => '파티크루',
+    _ => label,
+  };
 
   static DraftType? fromKey(String? key) {
     for (final t in DraftType.values) {

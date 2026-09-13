@@ -53,8 +53,11 @@ class DashboardScreen extends StatelessWidget {
         ),
         StatCard(
           label: '실제 참여 수',
-          future: AdminFirestoreService.applicationsByStatus('attended'),
-          caption: '집계 시작 이후 누적',
+          // 호스트가 QR로 체크인한 건 — 신청 상태가 아니라 checkedInAt 기준이다.
+          future: AdminFirestoreService.applicationsByStatus(
+            AdminFirestoreService.checkedInStatus,
+          ),
+          caption: 'QR 체크인 누적',
         ),
         StatCard(
           label: '취소 수',

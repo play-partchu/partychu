@@ -1,7 +1,13 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:cloud_functions/cloud_functions.dart';
 import 'package:flutter/material.dart';
-import 'package:party_app/screens/portone_checkout_screen.dart';
+import 'package:party_app/models/party_pricing.dart';
+import 'package:party_app/models/party_schedule.dart';
+import 'package:party_app/models/payment_order_summary.dart';
+import 'package:party_app/models/payment_status.dart';
+import 'package:party_app/models/place_rental_reservation.dart';
+import 'package:party_app/models/reservation_modes.dart';
+import 'package:party_app/screens/payment_method_screen.dart';
 import 'package:party_app/utils/early_bird.dart';
 import 'package:party_app/utils/format_utils.dart';
 import 'package:party_app/utils/user_session.dart';
@@ -11,9 +17,14 @@ import 'package:party_app/widgets/web_frame.dart';
 
 /// 숙박+파티 패키지 예약 — `places.packageBookingEnabled == true`인 콤보에서만
 /// 진입하는 통합 예약/결제 화면. 방(또는 패키지) + 인원 + 예약자 정보를
-/// 입력받아 createPendingPackageBooking → (결제 필요 시 PortOne 체크아웃) →
-/// verifyAndConfirmPackageBooking 순서로 방 예약과 파티 참가 신청을 하나의
-/// 결제로 함께 확정한다.
+/// 입력받아 createPendingPackageBooking 한 번으로 방 시간과 파티 정원을 함께
+/// 잡는다.
+///
+/// 결제는 장소대여·방문예약·파티 신청과 **같은 화면·같은 규칙**을 쓴다
+/// ([PaymentMethodScreen] → 무통장입금/현장결제). PG 계약 전이라 카드·간편결제·
+/// 실시간계좌이체·가상계좌는 그 화면에서 '준비중'으로만 보이고 고를 수 없다.
+/// 방 시간과 파티 자리는 서버 트랜잭션 하나에서 함께 잡히고 함께 풀린다
+/// (packageBookings.js의 applyBundleRelease 참고).
 ///
 /// 콤보 v1은 파티 날짜 = 숙박 날짜로 고정돼 있으므로(party_place_combo_
 /// register_screen.dart 참고) 이 화면에는 날짜 선택 UI가 없다 — 서버
@@ -42,10 +53,12 @@ class _PackageBookingScreenState extends State<PackageBookingScreen> {
   List<Map<String, dynamic>> _rooms = [];
   Map<String, dynamic>? _selectedRoom;
 
-  String _bookingType = 'hourly'; // 'hourly' | 'package'
+  /// 사용자가 고른 예약 방식 — 룸이 한 가지만 받으면 그 방식으로 고정된다.
+  ReservationMode _bookingMode = ReservationMode.hourly;
   Map<String, dynamic>? _selectedPackage;
   int? _startMinutes;
   int? _durationMinutes;
+  int _nights = 1;
   int _peopleCount = 1;
 
   final _nameCtrl = TextEditingController();
@@ -76,10 +89,14 @@ class _PackageBookingScreenState extends State<PackageBookingScreen> {
 
   Future<void> _load() async {
     try {
-      final placeSnap =
-          await FirebaseFirestore.instance.collection('places').doc(widget.placeId).get();
-      final partySnap =
-          await FirebaseFirestore.instance.collection('parties').doc(widget.partyId).get();
+      final placeSnap = await FirebaseFirestore.instance
+          .collection('places')
+          .doc(widget.placeId)
+          .get();
+      final partySnap = await FirebaseFirestore.instance
+          .collection('parties')
+          .doc(widget.partyId)
+          .get();
       if (!placeSnap.exists || !partySnap.exists) {
         if (!mounted) return;
         setState(() {
@@ -97,13 +114,29 @@ class _PackageBookingScreenState extends State<PackageBookingScreen> {
           .where((r) => r['isActive'] != false)
           .toList();
 
+      final partyData = partySnap.data() ?? const <String, dynamic>{};
+      // 콤보는 "파티 날짜 = 숙박 날짜"라, 어느 회차에 가느냐가 곧 어느 날
+      // 묵느냐다. 정기 파티는 회차가 여럿이므로 결제 전에 고르게 한다.
+      // 회차 하나당 날짜 하나이므로 **숙박 날짜와 연결될 수 없는 회차는
+      // 애초에 목록에 없다**(PartySchedule.selectableOccurrences가 이미 지난·
+      // 마감된 회차를 걸러낸다).
+      final occurrences = PartySchedule.isRecurring(partyData)
+          ? PartySchedule.selectableOccurrences(partyData)
+          : const <PartyOccurrence>[];
+
       if (!mounted) return;
       setState(() {
         _placeData = placeSnap.data();
-        _partyData = partySnap.data();
+        _partyData = partyData;
+        _occurrences = occurrences;
+        // 고를 것이 하나뿐이면 선택 UI를 띄우지 않고 그대로 정한다.
+        _selectedOccurrence = occurrences.length == 1
+            ? occurrences.first
+            : null;
         _rooms = rooms;
         _selectedRoom = rooms.length == 1 ? rooms.first : null;
-        _bookingType = _reservationMode == 'hourly' ? 'hourly' : 'package';
+        _bookingMode = _defaultMode;
+        _nights = _stay.minNights;
         _loading = false;
       });
     } catch (_) {
@@ -117,7 +150,8 @@ class _PackageBookingScreenState extends State<PackageBookingScreen> {
 
   // ── 활성 데이터(선택된 룸, 없으면 장소 구스키마 필드로 폴백) ─────────────────
 
-  Map<String, dynamic> get _activeData => _selectedRoom ?? _placeData ?? const {};
+  Map<String, dynamic> get _activeData =>
+      _selectedRoom ?? _placeData ?? const {};
 
   List<Map<String, dynamic>> get _packages =>
       ((_activeData['packages'] as List?) ?? [])
@@ -126,9 +160,23 @@ class _PackageBookingScreenState extends State<PackageBookingScreen> {
           .where((p) => p['isActive'] != false)
           .toList();
 
-  String get _reservationMode =>
-      _activeData['reservationMode'] as String? ??
-      (_packages.isNotEmpty ? 'package' : 'hourly');
+  /// 이 룸(룸이 없으면 장소 구 스키마)이 받는 예약 방식 전체.
+  List<ReservationMode> get _modes =>
+      sortedModes(parseReservationModes(_activeData));
+
+  StayConfig get _stay => StayConfig.fromMap(_activeData);
+
+  /// 룸을 새로 고르면 그 룸이 받는 방식 중 첫 번째로 맞춘다 — 숙박을 받는
+  /// 숙소면 숙박이, 파티룸이면 시간제/패키지가 기본으로 잡힌다.
+  ReservationMode get _defaultMode => _modes.first;
+
+  int get _nightsClamped {
+    final stay = _stay;
+    final max = stay.maxNights;
+    var n = _nights < stay.minNights ? stay.minNights : _nights;
+    if (max != null && n > max) n = max;
+    return n;
+  }
 
   int get _capacity =>
       (_activeData['capacityMax'] as num?)?.toInt() ??
@@ -160,7 +208,8 @@ class _PackageBookingScreenState extends State<PackageBookingScreen> {
     return ((_activeData['closeHour'] as num?)?.toInt() ?? 23) * 60;
   }
 
-  int get _unitMinutes => (_activeData['bookingUnitMinutes'] as num?)?.toInt() ?? 60;
+  int get _unitMinutes =>
+      (_activeData['bookingUnitMinutes'] as num?)?.toInt() ?? 60;
 
   int get _minBookingMinutes {
     final v = (_activeData['minBookingMinutes'] as num?)?.toInt();
@@ -168,9 +217,23 @@ class _PackageBookingScreenState extends State<PackageBookingScreen> {
     return ((_activeData['minHours'] as num?)?.toInt() ?? 1) * 60;
   }
 
-  int? get _maxBookingMinutes => (_activeData['maxBookingMinutes'] as num?)?.toInt();
+  int? get _maxBookingMinutes =>
+      (_activeData['maxBookingMinutes'] as num?)?.toInt();
 
+  /// 이 예약이 대상으로 하는 파티 회차들(정기 파티만). 비어 있으면 회차 개념이
+  /// 없는 일회성 파티다.
+  List<PartyOccurrence> _occurrences = const [];
+
+  /// 사용자가 고른 회차. 회차가 하나뿐이면 [_load]에서 자동으로 정해진다.
+  PartyOccurrence? _selectedOccurrence;
+
+  /// 이 예약의 파티 날짜.
+  ///
+  /// 정기 파티에서 저장된 `partyDateTime`은 **첫 회차 캐시**라 그대로 쓰면 이미
+  /// 지난 날짜로 숙박을 잡게 된다 — 고른 회차의 시작 시각이 정답이다.
   DateTime? get _partyDateTime {
+    final picked = _selectedOccurrence;
+    if (picked != null) return picked.start;
     final ts = _partyData?['partyDateTime'];
     return ts is Timestamp ? ts.toDate() : null;
   }
@@ -182,13 +245,17 @@ class _PackageBookingScreenState extends State<PackageBookingScreen> {
   }
 
   List<Map<String, dynamic>> get _availablePackages => _packages.where((p) {
-        final days = (p['days'] as List?)?.cast<String>() ?? const [];
-        return days.isEmpty || days.contains(_partyWeekdayLabel);
-      }).toList();
+    final days = (p['days'] as List?)?.cast<String>() ?? const [];
+    return days.isEmpty || days.contains(_partyWeekdayLabel);
+  }).toList();
 
   List<int> get _startOptions {
     final options = <int>[];
-    for (var m = _openMinutes; m + _minBookingMinutes <= _closeMinutes; m += _unitMinutes) {
+    for (
+      var m = _openMinutes;
+      m + _minBookingMinutes <= _closeMinutes;
+      m += _unitMinutes
+    ) {
       options.add(m);
     }
     return options;
@@ -219,7 +286,10 @@ class _PackageBookingScreenState extends State<PackageBookingScreen> {
   // 신청 시점 기준으로 서버가 다시 계산).
 
   int get _roomPriceEstimate {
-    if (_bookingType == 'package') {
+    if (_bookingMode == ReservationMode.stay) {
+      return _stay.priceForNights(_nightsClamped);
+    }
+    if (_bookingMode == ReservationMode.package) {
       return (_selectedPackage?['price'] as num?)?.toInt() ?? 0;
     }
     if (_startMinutes == null || _durationMinutes == null) return 0;
@@ -229,36 +299,37 @@ class _PackageBookingScreenState extends State<PackageBookingScreen> {
   int get _partyFeeEstimate {
     final party = _partyData;
     if (party == null) return 0;
-    final gender = UserSession.gender;
-    int baseFee;
-    if (gender == 'male' && party['maleFee'] != null) {
-      baseFee = (party['maleFee'] as num).toInt();
-    } else if (gender == 'female' && party['femaleFee'] != null) {
-      baseFee = (party['femaleFee'] as num).toInt();
-    } else {
-      baseFee = ((party['maleFee'] ?? party['femaleFee']) as num?)?.toInt() ?? 0;
-    }
+    // 미리보기 금액. 확정 금액은 서버(createPendingPackageBooking)가 같은
+    // 규칙으로 다시 계산한다.
+    final baseFee = PartyPricing.fromMap(party).priceFor(UserSession.gender);
     return EarlyBird.effectivePrice(baseFee, party);
   }
 
   int get _totalEstimate => _roomPriceEstimate + _partyFeeEstimate;
 
   void _msg(String text) => ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(text), behavior: SnackBarBehavior.floating),
-      );
+    SnackBar(content: Text(text), behavior: SnackBarBehavior.floating),
+  );
 
   // ── 제출 ─────────────────────────────────────────────────────────────────
 
   Future<void> _submit() async {
+    // 파티 회차 = 숙박 날짜다. 고를 회차가 여럿인데 안 골랐으면 여기서 멈춘다
+    // (하나뿐이면 _load에서 이미 정해져 있어 이 분기에 걸리지 않는다).
+    if (_occurrences.isNotEmpty && _selectedOccurrence == null) {
+      _msg('참가할 파티 날짜를 선택해주세요');
+      return;
+    }
     if (_rooms.isNotEmpty && _selectedRoom == null) {
       _msg('숙박 객실을 선택해주세요');
       return;
     }
-    if (_bookingType == 'package' && _selectedPackage == null) {
+    if (_bookingMode == ReservationMode.package && _selectedPackage == null) {
       _msg('패키지를 선택해주세요');
       return;
     }
-    if (_bookingType == 'hourly' && (_startMinutes == null || _durationMinutes == null)) {
+    if (_bookingMode == ReservationMode.hourly &&
+        (_startMinutes == null || _durationMinutes == null)) {
       _msg('이용 시간을 선택해주세요');
       return;
     }
@@ -269,96 +340,117 @@ class _PackageBookingScreenState extends State<PackageBookingScreen> {
       return;
     }
 
+    // ── 결제수단 ──────────────────────────────────────────────────────────
+    // 무통장입금·현장결제만 실제로 고를 수 있다(PG 수단은 '준비중' 표시).
+    // 여기서 고르는 건 **수단뿐**이고, 금액(방 요금 + 파티 참가비)과 결제 상태는
+    // 서버가 파티 정원을 선점하면서 다시 계산한다.
+    PaymentInfo? payment;
+    if (_totalEstimate > 0) {
+      payment = await Navigator.push<PaymentInfo>(
+        context,
+        webFramedRoute(
+          (_) => PaymentMethodScreen(
+            summary: PaymentOrderSummary.placeRental(
+              placeName: _placeData?['name'] as String? ?? '숙박',
+              useText: '${_partyData?['title'] ?? '파티'} · $_peopleCount명',
+              roomText: _selectedRoom?['roomName'] as String? ?? '숙박+파티 패키지',
+              amount: _totalEstimate,
+            ),
+            defaultDepositorName: name,
+            // 돈을 받는 사람 = 이 숙소(장소)의 호스트.
+            hostId: _placeData?['hostId'] as String? ?? '',
+          ),
+        ),
+      );
+      if (payment == null || !mounted) return;
+    }
+
     setState(() {
       _isSubmitting = true;
       _submitStatus = '예약 확인 중...';
     });
 
-    String? bundleBookingId;
     try {
       final payload = <String, dynamic>{
+        if (payment != null) 'payment': payment.toMap(),
         'placeId': widget.placeId,
         if (_selectedRoom != null) 'roomId': _selectedRoom!['id'],
         'partyId': widget.partyId,
-        'bookingType': _bookingType,
+        // 참가 회차 — 서버가 저장된 정기 일정으로 **다시 계산해서** 실제로
+        // 열리는 회차인지 검증한다(이 값을 그대로 믿지 않는다).
+        'occurrenceId': ?_selectedOccurrence?.id,
+        'bookingType': _bookingMode.key,
         'peopleCount': _peopleCount,
         'requesterName': name,
         'requesterPhone': phone,
         'requestMessage': _requestCtrl.text.trim(),
-        if (_bookingType == 'package') 'packageId': _selectedPackage!['id'],
-        if (_bookingType == 'hourly')
+        if (_bookingMode == ReservationMode.stay) 'nights': _nightsClamped,
+        if (_bookingMode == ReservationMode.package)
+          'packageId': _selectedPackage!['id'],
+        if (_bookingMode == ReservationMode.hourly)
           'ranges': [
             {'start': _startMinutes, 'end': _startMinutes! + _durationMinutes!},
           ],
       };
 
-      final createCallable = FirebaseFunctions.instanceFor(region: 'asia-northeast3')
-          .httpsCallable('createPendingPackageBooking');
-      final createResult = await createCallable.call<Map<Object?, Object?>>(payload);
+      final createCallable = FirebaseFunctions.instanceFor(
+        region: 'asia-northeast3',
+      ).httpsCallable('createPendingPackageBooking');
+      final createResult = await createCallable.call<Map<Object?, Object?>>(
+        payload,
+      );
       final resultData = createResult.data;
-      bundleBookingId = resultData['bundleBookingId'] as String;
       final totalPrice = (resultData['totalPrice'] as num).toInt();
+      final status = PlaceRentalStatus.fromKey(resultData['status'] as String?);
+      final paymentStatus = PaymentStatus.fromKey(
+        resultData['paymentStatus'] as String?,
+      );
 
-      if (totalPrice > 0) {
-        setState(() => _submitStatus = '');
-        if (!mounted) return;
-        final paid = await Navigator.push<bool>(
-          context,
-          webFramedRoute((_) => PortoneCheckoutScreen(
-              paymentId: bundleBookingId!,
-              orderName: '숙박+파티 패키지',
-              amount: totalPrice,
-              buyerName: name,
-              buyerPhone: phone,
-            ),
-            fullscreenDialog: true,
-          ),
-        );
-        if (paid != true) {
-          await _cancelPending(bundleBookingId);
-          if (!mounted) return;
-          setState(() {
-            _isSubmitting = false;
-            _submitStatus = '';
-          });
-          _msg('결제가 완료되지 않아 예약이 취소됐어요.');
-          return;
-        }
-        setState(() => _submitStatus = '예약 확정 중...');
-      }
-
-      final verifyCallable = FirebaseFunctions.instanceFor(region: 'asia-northeast3')
-          .httpsCallable('verifyAndConfirmPackageBooking');
-      await verifyCallable.call<Map<Object?, Object?>>({'bundleBookingId': bundleBookingId});
-
+      // 결제창(PG)이 없다 — 서버가 방 시간과 파티 자리를 이미 함께 잡고
+      // 승인 여부·결제 상태까지 정해 돌려줬으므로 그대로 안내하면 끝이다.
       if (!mounted) return;
       setState(() {
         _isSubmitting = false;
         _submitStatus = '';
       });
+
+      final awaitingApproval = status == PlaceRentalStatus.requested;
+      final body = awaitingApproval
+          ? '업주가 승인하면 알림으로 알려드려요. 승인된 뒤에 입금 안내가 나가요.\n'
+                '진행 상황은 마이페이지 > 내 패키지 예약에서 볼 수 있어요.'
+          : totalPrice <= 0
+          ? '무료 예약이라 결제 없이 확정됐어요.'
+          : paymentStatus == PaymentStatus.awaitingDeposit
+          ? '기한 안에 입금하시면 숙박과 파티 자리가 그대로 유지돼요.\n'
+                '계좌와 입금기한은 마이페이지 > 내 패키지 예약에서 확인할 수 있어요.'
+          : '이용 당일 현장에서 결제하시면 돼요.';
+
       await showDialog<void>(
         context: context,
         barrierDismissible: false,
         builder: (_) => AlertDialog(
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-          title: const Row(
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(16),
+          ),
+          title: Row(
             children: [
-              Icon(Icons.check_circle, color: PartyChuColors.primary),
-              SizedBox(width: 8),
-              Text('예약 완료'),
+              const Icon(Icons.check_circle, color: PartyChuColors.primary),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(awaitingApproval ? '예약을 신청했어요' : '예약이 확정됐어요'),
+              ),
             ],
           ),
-          content: const Text(
-            '숙박+파티 패키지 예약이 확정됐어요.\n마이페이지에서 확인할 수 있어요.',
-            style: TextStyle(height: 1.5),
-          ),
+          content: Text(body, style: const TextStyle(height: 1.5)),
           actions: [
             ElevatedButton(
               onPressed: () => Navigator.pop(context),
               style: ElevatedButton.styleFrom(
                 backgroundColor: PartyChuColors.primary,
                 foregroundColor: Colors.white,
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(10),
+                ),
               ),
               child: const Text('확인'),
             ),
@@ -384,17 +476,6 @@ class _PackageBookingScreenState extends State<PackageBookingScreen> {
     }
   }
 
-  Future<void> _cancelPending(String bundleBookingId) async {
-    try {
-      final callable = FirebaseFunctions.instanceFor(region: 'asia-northeast3')
-          .httpsCallable('cancelPackageBooking');
-      await callable.call<Map<Object?, Object?>>({'bundleBookingId': bundleBookingId});
-    } catch (_) {
-      // 결제가 애초에 실패/취소된 흐름이므로 이 취소 호출 실패는 조용히
-      // 무시한다 — expireStalePackageBookings가 10분 뒤 자동으로 정리한다.
-    }
-  }
-
   // ── 빌드 ─────────────────────────────────────────────────────────────────
 
   @override
@@ -411,10 +492,19 @@ class _PackageBookingScreenState extends State<PackageBookingScreen> {
             elevation: 0,
           ),
           body: _loading
-              ? const Center(child: CircularProgressIndicator(color: PartyChuColors.primary))
+              ? const Center(
+                  child: CircularProgressIndicator(
+                    color: PartyChuColors.primary,
+                  ),
+                )
               : _loadError != null
-                  ? Center(child: Text(_loadError!, style: const TextStyle(color: Colors.black45)))
-                  : _buildContent(),
+              ? Center(
+                  child: Text(
+                    _loadError!,
+                    style: const TextStyle(color: Colors.black45),
+                  ),
+                )
+              : _buildContent(),
         ),
         if (_isSubmitting)
           IgnorePointer(
@@ -426,7 +516,10 @@ class _PackageBookingScreenState extends State<PackageBookingScreen> {
                 children: [
                   const CircularProgressIndicator(color: Colors.white),
                   const SizedBox(height: 20),
-                  Text(_submitStatus, style: const TextStyle(fontSize: 14, color: Colors.white)),
+                  Text(
+                    _submitStatus,
+                    style: const TextStyle(fontSize: 14, color: Colors.white),
+                  ),
                 ],
               ),
             ),
@@ -446,18 +539,52 @@ class _PackageBookingScreenState extends State<PackageBookingScreen> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Text(place['name'] as String? ?? '',
-                  style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+              Text(
+                place['name'] as String? ?? '',
+                style: const TextStyle(
+                  fontSize: 16,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
               const SizedBox(height: 4),
-              Text(party['title'] as String? ?? '',
-                  style: const TextStyle(fontSize: 13, color: Colors.black54)),
+              Text(
+                party['title'] as String? ?? '',
+                style: const TextStyle(fontSize: 13, color: Colors.black54),
+              ),
               const SizedBox(height: 8),
-              Text('일정 : ${PartyCard.formatDate(party)}',
-                  style: const TextStyle(fontSize: 13, color: Colors.black87)),
+              Text(
+                '일정 : ${PartyCard.formatDate(party)}',
+                style: const TextStyle(fontSize: 13, color: Colors.black87),
+              ),
             ],
           ),
         ),
         const SizedBox(height: 16),
+        // 참가 회차 = 숙박 날짜. 정기 파티는 회차가 여럿이라 결제 전에 고른다.
+        // **고를 것이 하나뿐이면 이 영역 자체를 그리지 않는다** — 선택지가
+        // 하나인 화면을 한 번 더 거치게 만들 이유가 없고, _load에서 이미
+        // 그 회차로 정해져 있다.
+        if (_occurrences.length > 1) ...[
+          _sectionTitle('참가할 파티 날짜'),
+          const SizedBox(height: 4),
+          const Text(
+            '고른 날짜의 파티에 참가하고, 숙박도 그 날짜로 잡혀요.',
+            style: TextStyle(fontSize: 12, color: Colors.black45),
+          ),
+          const SizedBox(height: 8),
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children: _occurrences.map((o) {
+              return _chip(
+                _occurrenceLabel(o),
+                selected: _selectedOccurrence?.id == o.id,
+                onTap: () => setState(() => _selectedOccurrence = o),
+              );
+            }).toList(),
+          ),
+          const SizedBox(height: 16),
+        ],
         if (_rooms.length > 1) ...[
           _sectionTitle('객실 선택'),
           const SizedBox(height: 8),
@@ -465,7 +592,8 @@ class _PackageBookingScreenState extends State<PackageBookingScreen> {
             spacing: 8,
             runSpacing: 8,
             children: _rooms.map((r) {
-              final selected = _selectedRoom != null && _selectedRoom!['id'] == r['id'];
+              final selected =
+                  _selectedRoom != null && _selectedRoom!['id'] == r['id'];
               return _chip(
                 r['roomName'] as String? ?? '객실',
                 selected: selected,
@@ -474,36 +602,78 @@ class _PackageBookingScreenState extends State<PackageBookingScreen> {
                   _selectedPackage = null;
                   _startMinutes = null;
                   _durationMinutes = null;
-                  _bookingType = _reservationMode == 'hourly' ? 'hourly' : 'package';
+                  // 객실마다 받는 예약 방식이 다르므로 함께 초기화한다.
+                  _bookingMode = _defaultMode;
+                  _nights = _stay.minNights;
                 }),
               );
             }).toList(),
           ),
           const SizedBox(height: 16),
         ],
-        if (_reservationMode == 'both') ...[
+        if (_modes.length > 1) ...[
           _sectionTitle('예약 방식'),
           const SizedBox(height: 8),
-          Row(
-            children: [
-              _chip('시간제', selected: _bookingType == 'hourly',
-                  onTap: () => setState(() => _bookingType = 'hourly')),
-              const SizedBox(width: 8),
-              _chip('패키지', selected: _bookingType == 'package',
-                  onTap: () => setState(() => _bookingType = 'package')),
-            ],
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children: _modes
+                .map(
+                  (m) => _chip(
+                    m.chipLabel,
+                    selected: _bookingMode == m,
+                    onTap: () => setState(() {
+                      _bookingMode = m;
+                      _selectedPackage = null;
+                      _startMinutes = null;
+                      _durationMinutes = null;
+                      _nights = _stay.minNights;
+                    }),
+                  ),
+                )
+                .toList(),
           ),
           const SizedBox(height: 16),
         ],
-        if (_bookingType == 'package') ...[
+        if (_bookingMode == ReservationMode.stay) ...[
+          _sectionTitle('숙박 기간'),
+          const SizedBox(height: 8),
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children: _stay
+                .nightOptions(fallbackMax: 7)
+                .map(
+                  (n) => _chip(
+                    '$n박',
+                    selected: _nightsClamped == n,
+                    onTap: () => setState(() => _nights = n),
+                  ),
+                )
+                .toList(),
+          ),
+          Padding(
+            padding: const EdgeInsets.only(top: 8),
+            child: Text(
+              '체크인 ${_stay.checkInTime} · 체크아웃 ${_stay.checkOutTime}',
+              style: const TextStyle(fontSize: 12, color: Colors.black45),
+            ),
+          ),
+          const SizedBox(height: 16),
+        ] else if (_bookingMode == ReservationMode.package) ...[
           _sectionTitle('패키지 선택'),
           const SizedBox(height: 8),
           if (_availablePackages.isEmpty)
-            const Text('선택 가능한 패키지가 없어요.', style: TextStyle(color: Colors.black45))
+            const Text(
+              '선택 가능한 패키지가 없어요.',
+              style: TextStyle(color: Colors.black45),
+            )
           else
             Column(
               children: _availablePackages.map((p) {
-                final selected = _selectedPackage != null && _selectedPackage!['id'] == p['id'];
+                final selected =
+                    _selectedPackage != null &&
+                    _selectedPackage!['id'] == p['id'];
                 return _packageTile(p, selected);
               }).toList(),
             ),
@@ -511,7 +681,10 @@ class _PackageBookingScreenState extends State<PackageBookingScreen> {
         ] else ...[
           _sectionTitle('이용 시간'),
           const SizedBox(height: 8),
-          Text('시작 시간', style: const TextStyle(fontSize: 13, color: Colors.black54)),
+          Text(
+            '시작 시간',
+            style: const TextStyle(fontSize: 13, color: Colors.black54),
+          ),
           const SizedBox(height: 6),
           Wrap(
             spacing: 8,
@@ -529,7 +702,10 @@ class _PackageBookingScreenState extends State<PackageBookingScreen> {
           ),
           if (_startMinutes != null) ...[
             const SizedBox(height: 14),
-            const Text('이용 시간(분)', style: TextStyle(fontSize: 13, color: Colors.black54)),
+            const Text(
+              '이용 시간(분)',
+              style: TextStyle(fontSize: 13, color: Colors.black54),
+            ),
             const SizedBox(height: 6),
             Wrap(
               spacing: 8,
@@ -557,12 +733,19 @@ class _PackageBookingScreenState extends State<PackageBookingScreen> {
         Row(
           children: [
             IconButton(
-              onPressed: _peopleCount > 1 ? () => setState(() => _peopleCount--) : null,
+              onPressed: _peopleCount > 1
+                  ? () => setState(() => _peopleCount--)
+                  : null,
               icon: const Icon(Icons.remove_circle_outline),
             ),
-            Text('$_peopleCount명', style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w600)),
+            Text(
+              '$_peopleCount명',
+              style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w600),
+            ),
             IconButton(
-              onPressed: _peopleCount < _capacity ? () => setState(() => _peopleCount++) : null,
+              onPressed: _peopleCount < _capacity
+                  ? () => setState(() => _peopleCount++)
+                  : null,
               icon: const Icon(Icons.add_circle_outline),
             ),
           ],
@@ -570,10 +753,7 @@ class _PackageBookingScreenState extends State<PackageBookingScreen> {
         const SizedBox(height: 16),
         _sectionTitle('예약자 정보'),
         const SizedBox(height: 8),
-        TextField(
-          controller: _nameCtrl,
-          decoration: _inputDeco('예약자 이름'),
-        ),
+        TextField(controller: _nameCtrl, decoration: _inputDeco('예약자 이름')),
         const SizedBox(height: 8),
         TextField(
           controller: _phoneCtrl,
@@ -613,8 +793,13 @@ class _PackageBookingScreenState extends State<PackageBookingScreen> {
             style: ElevatedButton.styleFrom(
               backgroundColor: PartyChuColors.primary,
               foregroundColor: Colors.white,
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
-              textStyle: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(14),
+              ),
+              textStyle: const TextStyle(
+                fontSize: 16,
+                fontWeight: FontWeight.bold,
+              ),
             ),
             child: const Text('결제하고 예약 확정하기'),
           ),
@@ -647,17 +832,34 @@ class _PackageBookingScreenState extends State<PackageBookingScreen> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text(p['name'] as String? ?? '패키지',
-                      style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w600)),
+                  Text(
+                    p['name'] as String? ?? '패키지',
+                    style: const TextStyle(
+                      fontSize: 14,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
                   if (start.isNotEmpty && end.isNotEmpty) ...[
                     const SizedBox(height: 2),
-                    Text('$start ~ $end', style: const TextStyle(fontSize: 12, color: Colors.black54)),
+                    Text(
+                      '$start ~ $end',
+                      style: const TextStyle(
+                        fontSize: 12,
+                        color: Colors.black54,
+                      ),
+                    ),
                   ],
                 ],
               ),
             ),
-            Text(formatPrice(price),
-                style: const TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: PartyChuColors.primary)),
+            Text(
+              formatPrice(price),
+              style: const TextStyle(
+                fontSize: 14,
+                fontWeight: FontWeight.bold,
+                color: PartyChuColors.primary,
+              ),
+            ),
           ],
         ),
       ),
@@ -673,43 +875,62 @@ class _PackageBookingScreenState extends State<PackageBookingScreen> {
     return Row(
       mainAxisAlignment: MainAxisAlignment.spaceBetween,
       children: [
-        Text(label, style: style.copyWith(color: emphasize ? PartyChuColors.primary : Colors.black54)),
+        Text(
+          label,
+          style: style.copyWith(
+            color: emphasize ? PartyChuColors.primary : Colors.black54,
+          ),
+        ),
         Text(formatPrice(amount), style: style),
       ],
     );
   }
 
-  Widget _sectionTitle(String text) =>
-      Text(text, style: const TextStyle(fontSize: 15, fontWeight: FontWeight.bold));
+  /// '8월 15일(금)' — 회차 칩에 쓰는 짧은 표기.
+  static String _occurrenceLabel(PartyOccurrence o) {
+    const week = ['월', '화', '수', '목', '금', '토', '일'];
+    return '${o.start.month}월 ${o.start.day}일(${week[o.start.weekday - 1]})';
+  }
 
-  Widget _chip(String label, {required bool selected, required VoidCallback onTap}) => GestureDetector(
-        onTap: onTap,
-        child: Container(
-          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
-          decoration: BoxDecoration(
-            color: selected ? const Color(0xFFF3EFFA) : const Color(0xFFF7F7FA),
-            borderRadius: BorderRadius.circular(20),
-            border: Border.all(color: selected ? PartyChuColors.primary : const Color(0xFFDDE1EC)),
-          ),
-          child: Text(
-            label,
-            style: TextStyle(
-              fontSize: 13,
-              color: selected ? PartyChuColors.primary : Colors.black54,
-              fontWeight: selected ? FontWeight.w600 : FontWeight.normal,
-            ),
-          ),
+  Widget _sectionTitle(String text) => Text(
+    text,
+    style: const TextStyle(fontSize: 15, fontWeight: FontWeight.bold),
+  );
+
+  Widget _chip(
+    String label, {
+    required bool selected,
+    required VoidCallback onTap,
+  }) => GestureDetector(
+    onTap: onTap,
+    child: Container(
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+      decoration: BoxDecoration(
+        color: selected ? const Color(0xFFF3EFFA) : const Color(0xFFF7F7FA),
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(
+          color: selected ? PartyChuColors.primary : const Color(0xFFDDE1EC),
         ),
-      );
+      ),
+      child: Text(
+        label,
+        style: TextStyle(
+          fontSize: 13,
+          color: selected ? PartyChuColors.primary : Colors.black54,
+          fontWeight: selected ? FontWeight.w600 : FontWeight.normal,
+        ),
+      ),
+    ),
+  );
 
   InputDecoration _inputDeco(String hint) => InputDecoration(
-        hintText: hint,
-        filled: true,
-        fillColor: const Color(0xFFF7F7FA),
-        contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
-        border: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(12),
-          borderSide: BorderSide.none,
-        ),
-      );
+    hintText: hint,
+    filled: true,
+    fillColor: const Color(0xFFF7F7FA),
+    contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
+    border: OutlineInputBorder(
+      borderRadius: BorderRadius.circular(12),
+      borderSide: BorderSide.none,
+    ),
+  );
 }

@@ -48,7 +48,11 @@ class _ThemeCard extends StatelessWidget {
   final bool selected;
   final VoidCallback onTap;
 
-  const _ThemeCard({required this.theme, required this.selected, required this.onTap});
+  const _ThemeCard({
+    required this.theme,
+    required this.selected,
+    required this.onTap,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -60,7 +64,10 @@ class _ThemeCard extends StatelessWidget {
         decoration: BoxDecoration(
           color: theme.sectionBackground,
           borderRadius: BorderRadius.circular(14),
-          border: Border.all(color: selected ? theme.primary : Colors.black12, width: selected ? 2 : 1),
+          border: Border.all(
+            color: selected ? theme.primary : Colors.black12,
+            width: selected ? 2 : 1,
+          ),
         ),
         child: Column(
           mainAxisSize: MainAxisSize.min,
@@ -73,10 +80,15 @@ class _ThemeCard extends StatelessWidget {
                     theme.label,
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
-                    style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: theme.headingColor),
+                    style: TextStyle(
+                      fontSize: 12,
+                      fontWeight: FontWeight.bold,
+                      color: theme.headingColor,
+                    ),
                   ),
                 ),
-                if (selected) Icon(Icons.check_circle, size: 16, color: theme.primary),
+                if (selected)
+                  Icon(Icons.check_circle, size: 16, color: theme.primary),
               ],
             ),
             const SizedBox(height: 10),
@@ -84,13 +96,24 @@ class _ThemeCard extends StatelessWidget {
             Container(
               width: 22,
               height: 5,
-              decoration: BoxDecoration(color: theme.subheadingColor, borderRadius: BorderRadius.circular(3)),
+              decoration: BoxDecoration(
+                color: theme.subheadingColor,
+                borderRadius: BorderRadius.circular(3),
+              ),
             ),
             const SizedBox(height: 8),
             // 본문 라인 샘플
-            Container(width: double.infinity, height: 5, color: theme.bodyColor.withValues(alpha: 0.55)),
+            Container(
+              width: double.infinity,
+              height: 5,
+              color: theme.bodyColor.withValues(alpha: 0.55),
+            ),
             const SizedBox(height: 4),
-            Container(width: 58, height: 5, color: theme.bodyColor.withValues(alpha: 0.35)),
+            Container(
+              width: 58,
+              height: 5,
+              color: theme.bodyColor.withValues(alpha: 0.35),
+            ),
             const SizedBox(height: 10),
             // 카드/아이콘 색 샘플
             Container(
@@ -106,11 +129,17 @@ class _ThemeCard extends StatelessWidget {
                   Container(
                     width: 14,
                     height: 14,
-                    decoration: BoxDecoration(color: theme.iconBackground, shape: BoxShape.circle),
+                    decoration: BoxDecoration(
+                      color: theme.iconBackground,
+                      shape: BoxShape.circle,
+                    ),
                   ),
                   const SizedBox(width: 6),
                   Expanded(
-                    child: Container(height: 5, color: theme.mutedColor.withValues(alpha: 0.5)),
+                    child: Container(
+                      height: 5,
+                      color: theme.mutedColor.withValues(alpha: 0.5),
+                    ),
                   ),
                 ],
               ),

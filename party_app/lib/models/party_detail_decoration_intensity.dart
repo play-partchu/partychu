@@ -19,7 +19,9 @@ enum PartyDetailDecorationIntensity {
 
 /// 저장된 값이 없거나(기존 파티) 알 수 없는 값이면 항상
 /// [PartyDetailDecorationIntensity.standard]로 안전하게 대체한다.
-PartyDetailDecorationIntensity partyDetailDecorationIntensityFromString(String? raw) {
+PartyDetailDecorationIntensity partyDetailDecorationIntensityFromString(
+  String? raw,
+) {
   for (final value in PartyDetailDecorationIntensity.values) {
     if (value.name == raw) return value;
   }

@@ -120,7 +120,9 @@ const _lovely = PartyDetailThemeData(
   selectedTabForeground: Colors.white,
   unselectedTabForeground: Color(0xFF8A7480),
   tabTrackBackground: Color(0xFFFCEFF5),
-  cardShadow: [BoxShadow(color: Color(0x1FB98CA8), blurRadius: 12, offset: Offset(0, 4))],
+  cardShadow: [
+    BoxShadow(color: Color(0x1FB98CA8), blurRadius: 12, offset: Offset(0, 4)),
+  ],
   contentGap: 16,
 );
 
@@ -214,12 +216,14 @@ class PartyDetailThemeRegistry {
     PartyDetailThemeKey.minimal: _minimal,
   };
 
-  static PartyDetailThemeData fromKey(PartyDetailThemeKey key) => _all[key] ?? _partychu;
+  static PartyDetailThemeData fromKey(PartyDetailThemeKey key) =>
+      _all[key] ?? _partychu;
 
   /// Firestore에서 읽어온 원시 문자열(또는 null)로부터 바로 팔레트를 만든다.
   static PartyDetailThemeData fromString(String? raw) =>
       fromKey(partyDetailThemeKeyFromString(raw));
 
   /// 에디터 테마 선택 카드 목록에 쓰는 전체 팔레트 리스트.
-  static List<PartyDetailThemeData> get all => _all.values.toList(growable: false);
+  static List<PartyDetailThemeData> get all =>
+      _all.values.toList(growable: false);
 }

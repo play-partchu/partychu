@@ -4,7 +4,11 @@ import 'package:party_app/models/party_detail_block.dart';
 void main() {
   group('PartyDetailBlock 라운드트립', () {
     test('heading', () {
-      const b = PartyDetailBlock(id: '1', type: PartyDetailBlockType.heading, text: '제목');
+      const b = PartyDetailBlock(
+        id: '1',
+        type: PartyDetailBlockType.heading,
+        text: '제목',
+      );
       final restored = PartyDetailBlock.fromMap(b.toMap());
       expect(restored.id, '1');
       expect(restored.type, PartyDetailBlockType.heading);
@@ -12,21 +16,33 @@ void main() {
     });
 
     test('subheading', () {
-      const b = PartyDetailBlock(id: '2', type: PartyDetailBlockType.subheading, text: '소제목');
+      const b = PartyDetailBlock(
+        id: '2',
+        type: PartyDetailBlockType.subheading,
+        text: '소제목',
+      );
       final restored = PartyDetailBlock.fromMap(b.toMap());
       expect(restored.type, PartyDetailBlockType.subheading);
       expect(restored.text, '소제목');
     });
 
     test('paragraph', () {
-      const b = PartyDetailBlock(id: '3', type: PartyDetailBlockType.paragraph, text: '본문 내용');
+      const b = PartyDetailBlock(
+        id: '3',
+        type: PartyDetailBlockType.paragraph,
+        text: '본문 내용',
+      );
       final restored = PartyDetailBlock.fromMap(b.toMap());
       expect(restored.type, PartyDetailBlockType.paragraph);
       expect(restored.text, '본문 내용');
     });
 
     test('notice', () {
-      const b = PartyDetailBlock(id: '4', type: PartyDetailBlockType.notice, text: '외부 음식 반입 불가');
+      const b = PartyDetailBlock(
+        id: '4',
+        type: PartyDetailBlockType.notice,
+        text: '외부 음식 반입 불가',
+      );
       final restored = PartyDetailBlock.fromMap(b.toMap());
       expect(restored.type, PartyDetailBlockType.notice);
       expect(restored.text, '외부 음식 반입 불가');
@@ -71,7 +87,12 @@ void main() {
 
   group('알 수 없는 type 안전 처리', () {
     test('unknown으로 분류되고 원본 데이터가 보존된다', () {
-      final raw = {'id': 'x', 'type': 'faceRecognition', 'videoUrl': 'https://example.com/v.mp4', 'extra': 123};
+      final raw = {
+        'id': 'x',
+        'type': 'faceRecognition',
+        'videoUrl': 'https://example.com/v.mp4',
+        'extra': 123,
+      };
       final block = PartyDetailBlock.fromMap(raw);
       expect(block.type, PartyDetailBlockType.unknown);
       expect(block.rawUnknown, isNotNull);
@@ -81,7 +102,12 @@ void main() {
     });
 
     test('재직렬화해도 원본과 동일하게 복원된다', () {
-      final raw = {'id': 'x', 'type': 'faceRecognition', 'question': 'Q', 'answer': 'A'};
+      final raw = {
+        'id': 'x',
+        'type': 'faceRecognition',
+        'question': 'Q',
+        'answer': 'A',
+      };
       final block = PartyDetailBlock.fromMap(raw);
       final restored = PartyDetailBlock.fromMap(block.toMap());
       expect(restored.type, PartyDetailBlockType.unknown);
@@ -140,12 +166,28 @@ void main() {
     test('listFromDynamic → listToMaps → listFromDynamic 왕복 후에도 순서 유지', () {
       final original = [
         const PartyDetailBlock(id: '1', type: PartyDetailBlockType.divider),
-        const PartyDetailBlock(id: '2', type: PartyDetailBlockType.heading, text: '제목'),
-        const PartyDetailBlock(id: '3', type: PartyDetailBlockType.image, imageUrl: 'u'),
-        const PartyDetailBlock(id: '4', type: PartyDetailBlockType.notice, text: '주의'),
+        const PartyDetailBlock(
+          id: '2',
+          type: PartyDetailBlockType.heading,
+          text: '제목',
+        ),
+        const PartyDetailBlock(
+          id: '3',
+          type: PartyDetailBlockType.image,
+          imageUrl: 'u',
+        ),
+        const PartyDetailBlock(
+          id: '4',
+          type: PartyDetailBlockType.notice,
+          text: '주의',
+        ),
       ];
-      final round1 = PartyDetailBlock.listFromDynamic(PartyDetailBlock.listToMaps(original));
-      final round2 = PartyDetailBlock.listFromDynamic(PartyDetailBlock.listToMaps(round1));
+      final round1 = PartyDetailBlock.listFromDynamic(
+        PartyDetailBlock.listToMaps(original),
+      );
+      final round2 = PartyDetailBlock.listFromDynamic(
+        PartyDetailBlock.listToMaps(round1),
+      );
       expect(round2.map((b) => b.type).toList(), [
         PartyDetailBlockType.divider,
         PartyDetailBlockType.heading,
@@ -193,7 +235,11 @@ void main() {
     });
 
     test('items가 List가 아니면 크래시 없이 빈 리스트로 처리한다', () {
-      final block = PartyDetailBlock.fromMap({'id': '1', 'type': 'checklist', 'items': 'oops'});
+      final block = PartyDetailBlock.fromMap({
+        'id': '1',
+        'type': 'checklist',
+        'items': 'oops',
+      });
       expect(block.checklist!.items, isEmpty);
     });
   });
@@ -206,15 +252,25 @@ void main() {
         faq: PartyDetailFaqPayload(
           title: '자주 묻는 질문',
           items: [
-            PartyDetailFaqItem(id: 'a', question: '혼자 가도 되나요?', answer: '네, 혼자 오시는 분이 많습니다.'),
+            PartyDetailFaqItem(
+              id: 'a',
+              question: '혼자 가도 되나요?',
+              answer: '네, 혼자 오시는 분이 많습니다.',
+            ),
             PartyDetailFaqItem(id: 'b', question: '주차 되나요?', answer: '네.'),
           ],
         ),
       );
       final restored = PartyDetailBlock.fromMap(b.toMap());
       expect(restored.faq!.title, '자주 묻는 질문');
-      expect(restored.faq!.items.map((i) => i.question).toList(), ['혼자 가도 되나요?', '주차 되나요?']);
-      expect(restored.faq!.items.map((i) => i.answer).toList(), ['네, 혼자 오시는 분이 많습니다.', '네.']);
+      expect(restored.faq!.items.map((i) => i.question).toList(), [
+        '혼자 가도 되나요?',
+        '주차 되나요?',
+      ]);
+      expect(restored.faq!.items.map((i) => i.answer).toList(), [
+        '네, 혼자 오시는 분이 많습니다.',
+        '네.',
+      ]);
     });
 
     test('질문/답변이 모두 빈 쌍은 안전하게 제외된다', () {
@@ -250,13 +306,26 @@ void main() {
         timeline: PartyDetailTimelinePayload(
           title: '진행 일정',
           items: [
-            PartyDetailTimelineItem(id: 'a', time: '19:00', title: '입장 및 웰컴드링크', description: '간단한 안내 후 입장합니다.'),
-            PartyDetailTimelineItem(id: 'b', time: '20:00', title: 'BBQ 파티', description: ''),
+            PartyDetailTimelineItem(
+              id: 'a',
+              time: '19:00',
+              title: '입장 및 웰컴드링크',
+              description: '간단한 안내 후 입장합니다.',
+            ),
+            PartyDetailTimelineItem(
+              id: 'b',
+              time: '20:00',
+              title: 'BBQ 파티',
+              description: '',
+            ),
           ],
         ),
       );
       final restored = PartyDetailBlock.fromMap(b.toMap());
-      expect(restored.timeline!.items.map((i) => i.time).toList(), ['19:00', '20:00']);
+      expect(restored.timeline!.items.map((i) => i.time).toList(), [
+        '19:00',
+        '20:00',
+      ]);
       expect(restored.timeline!.items[0].description, '간단한 안내 후 입장합니다.');
       expect(restored.timeline!.items[1].description, '');
     });
@@ -280,7 +349,11 @@ void main() {
       const b = PartyDetailBlock(
         id: '1',
         type: PartyDetailBlockType.infoCard,
-        infoCard: PartyDetailInfoCardPayload(title: '준비물', text: '신분증을 반드시 지참해주세요.', icon: 'badge'),
+        infoCard: PartyDetailInfoCardPayload(
+          title: '준비물',
+          text: '신분증을 반드시 지참해주세요.',
+          icon: 'badge',
+        ),
       );
       final restored = PartyDetailBlock.fromMap(b.toMap());
       expect(restored.infoCard!.title, '준비물');
@@ -301,7 +374,13 @@ void main() {
 
     test('7개 아이콘 후보 모두 유효하게 저장/복원된다', () {
       for (final name in partyDetailInfoCardIconNames) {
-        final block = PartyDetailBlock.fromMap({'id': '1', 'type': 'infoCard', 'title': 't', 'text': 'x', 'icon': name});
+        final block = PartyDetailBlock.fromMap({
+          'id': '1',
+          'type': 'infoCard',
+          'title': 't',
+          'text': 'x',
+          'icon': name,
+        });
         expect(block.infoCard!.icon, name);
       }
     });
@@ -345,7 +424,13 @@ void main() {
 
   group('확장 블록 공통 안전성', () {
     test('필드가 통째로 누락돼도 크래시 없이 빈 payload를 만든다', () {
-      for (final type in ['checklist', 'faq', 'timeline', 'infoCard', 'video']) {
+      for (final type in [
+        'checklist',
+        'faq',
+        'timeline',
+        'infoCard',
+        'video',
+      ]) {
         final block = PartyDetailBlock.fromMap({'id': '1', 'type': type});
         expect(block.type.name, type);
       }
@@ -354,10 +439,20 @@ void main() {
     test('기존 6종과 새 5종이 섞인 배열도 순서를 그대로 유지한다', () {
       final raw = [
         {'id': '1', 'type': 'heading', 'text': '제목'},
-        {'id': '2', 'type': 'checklist', 'items': ['a']},
+        {
+          'id': '2',
+          'type': 'checklist',
+          'items': ['a'],
+        },
         {'id': '3', 'type': 'image', 'imageUrl': 'u'},
         {'id': '4', 'type': 'video', 'videoUrl': 'v'},
-        {'id': '5', 'type': 'faq', 'items': [{'question': 'q', 'answer': 'a'}]},
+        {
+          'id': '5',
+          'type': 'faq',
+          'items': [
+            {'question': 'q', 'answer': 'a'},
+          ],
+        },
       ];
       final blocks = PartyDetailBlock.listFromDynamic(raw);
       expect(blocks.map((b) => b.type).toList(), [

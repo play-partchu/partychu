@@ -12,7 +12,9 @@ import 'package:package_info_plus/package_info_plus.dart';
 import 'package:permission_handler/permission_handler.dart';
 
 import 'package:party_app/screens/notifications_screen.dart';
+import 'package:party_app/services/notification_service.dart';
 import 'package:party_app/utils/notification_route.dart';
+import 'package:party_app/utils/root_gate.dart';
 import 'package:party_app/widgets/web_frame.dart';
 
 /// 사용자에게 보여줄 알림 권한 상태.
@@ -41,7 +43,8 @@ extension PushPermissionStateX on PushPermissionState {
 
   /// OS 권한 팝업을 띄우는 게 의미가 있는 상태인가.
   bool get canPrompt =>
-      this == PushPermissionState.notAsked || this == PushPermissionState.denied;
+      this == PushPermissionState.notAsked ||
+      this == PushPermissionState.denied;
 
   /// 앱 설정 화면으로 보내야 하는 상태인가.
   bool get needsSettings => this == PushPermissionState.blocked;
@@ -278,10 +281,7 @@ class PushNotificationService {
     }
   }
 
-  static void _openFromPayload(
-    String? payload,
-    GlobalKey<NavigatorState> key,
-  ) {
+  static void _openFromPayload(String? payload, GlobalKey<NavigatorState> key) {
     if (payload == null || payload.isEmpty) return;
     try {
       final decoded = jsonDecode(payload);
@@ -296,8 +296,32 @@ class PushNotificationService {
   static void _open(Map<String, dynamic> data, GlobalKey<NavigatorState> key) {
     final navigator = key.currentState;
     if (navigator == null) return;
+    // 루트 게이트가 막고 있으면 그 위에 화면을 쌓지 않는다 — 알림 탭은 게이트를
+    // 거치지 않고 전역 네비게이터에 직접 push하므로, 이걸 보지 않으면 본인확인
+    // 화면 위로 상세·알림함이 올라가 게이트가 무력화된다(deep_link_service.dart
+    // 와 같은 처리). 게이트를 통과하고 나면 알림함에서 같은 소식을 볼 수 있다.
+    if (rootGateBlocksService) {
+      debugPrint('[Push] 루트 게이트가 막고 있어 이동하지 않음');
+      return;
+    }
+    // 푸시를 눌러 소식을 확인했으면 알림함에서도 읽은 것이다 — 여기서 읽음
+    // 처리하지 않으면 알림함을 따로 열어 다시 누르기 전까지 종 배지가 계속
+    // 켜져 있다. 서버가 payload에 이미 넣어 둔 문서 id를 쓸 뿐이라
+    // (functions/pushDispatch.js의 routeData) 발송·이동 로직은 그대로다.
+    _markPushRead(data);
     final target = notificationTarget(data) ?? const NotificationsScreen();
     navigator.push(webFramedRoute((_) => target));
+  }
+
+  /// 푸시가 가리키는 알림 문서를 읽음으로. 실패해도 이동은 막지 않는다 —
+  /// 읽음 표시가 안 된 것보다 소식을 못 여는 쪽이 훨씬 나쁘다.
+  /// (채팅 푸시처럼 알림 문서가 없는 종류는 id가 비어 있어 그냥 지나간다.)
+  static void _markPushRead(Map<String, dynamic> data) {
+    final id = data['notificationId'];
+    if (id is! String || id.isEmpty) return;
+    NotificationService.markRead(
+      id,
+    ).catchError((Object e) => debugPrint('[Push] 읽음 처리 실패: $e'));
   }
 
   // ── 토큰 수명주기 ───────────────────────────────────────────────────

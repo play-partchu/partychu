@@ -15,9 +15,9 @@ enum PartyDetailViewMode {
   static const _prefsKey = 'party_detail_view_mode';
 
   String get label => switch (this) {
-        PartyDetailViewMode.designed => '상세페이지',
-        PartyDetailViewMode.textOnly => '글만보기',
-      };
+    PartyDetailViewMode.designed => '상세페이지',
+    PartyDetailViewMode.textOnly => '글만보기',
+  };
 
   /// 저장된 값이 없거나(최초 실행) 알 수 없는 값(예전 버전의 값 등)이면
   /// 항상 [designed]로 안전하게 대체한다.

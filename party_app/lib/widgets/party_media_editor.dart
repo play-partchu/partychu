@@ -1,11 +1,12 @@
-import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:video_compress/video_compress.dart';
-import 'package:video_player/video_player.dart';
 import 'package:party_app/screens/video_trim_screen.dart';
 import 'package:party_app/screens/video_crop_screen.dart';
 import 'package:party_app/screens/photo_crop_screen.dart';
+import 'package:party_app/services/media_upload_service.dart';
+import 'package:party_app/utils/card_media_frame.dart';
+import 'package:party_app/utils/local_media.dart';
 import 'package:party_app/widgets/web_frame.dart';
 
 /// 대표 미디어(cover) 선택 결과 — 업로드 완료 후 부모 화면이 최종 URL로
@@ -84,8 +85,7 @@ class PartyMediaEditor extends StatefulWidget {
 
   /// true(기본값)면 "썸네일 위치조정" 버튼을 보여주고, 대표 미디어의 크롭을
   /// 정하지 않으면 선택 완료를 막는다. 장소대여 등록/수정처럼 "기본 카드"
-  /// 개념이 없는 화면은 false로 꺼서 버튼 자체를 숨기고 필수 검증도 건너뛴다
-  /// (showSpotifySection과 동일한 패턴).
+  /// 개념이 없는 화면은 false로 꺼서 버튼 자체를 숨기고 필수 검증도 건너뛴다.
   final bool showVideoCropButton;
 
   /// 동영상 압축 시작/종료 시 호출 — 부모 화면의 버튼 비활성화 등에 사용
@@ -190,7 +190,7 @@ class PartyMediaEditorState extends State<PartyMediaEditor>
   List<XFile> get newMediaFiles => List.unmodifiable(_selectedMedia);
   bool get isCompressing => _isCompressing;
   bool get hasVideo =>
-      _existingVideoUrl != null || _selectedMedia.any((f) => _isVideo(f.path));
+      _existingVideoUrl != null || _selectedMedia.any((f) => _isVideo(f));
   double get basicCardFocalX => _basicCardFocalX;
   double get basicCardFocalY => _basicCardFocalY;
   double get basicCardScale => _basicCardScale;
@@ -208,7 +208,7 @@ class PartyMediaEditorState extends State<PartyMediaEditor>
       return const _CoverRef(_CoverKind.existingImage, 0);
     }
     final firstNewImageIdx = _selectedMedia.indexWhere(
-      (f) => !_isVideo(f.path),
+      (f) => !_isVideo(f),
     );
     if (firstNewImageIdx >= 0) {
       return _CoverRef(_CoverKind.newFile, firstNewImageIdx);
@@ -216,9 +216,7 @@ class PartyMediaEditorState extends State<PartyMediaEditor>
     if (_existingVideoUrl != null) {
       return const _CoverRef(_CoverKind.existingVideo);
     }
-    final firstNewVideoIdx = _selectedMedia.indexWhere(
-      (f) => _isVideo(f.path),
-    );
+    final firstNewVideoIdx = _selectedMedia.indexWhere((f) => _isVideo(f));
     if (firstNewVideoIdx >= 0) {
       return _CoverRef(_CoverKind.newFile, firstNewVideoIdx);
     }
@@ -236,7 +234,7 @@ class PartyMediaEditorState extends State<PartyMediaEditor>
       return _photoCrops.containsKey(_existingImageUrls[ref.index]);
     }
     final file = _selectedMedia[ref.index];
-    if (_isVideo(file.path)) return _videoCropConfirmed;
+    if (_isVideo(file)) return _videoCropConfirmed;
     return _photoCrops.containsKey(file.path);
   }
 
@@ -256,7 +254,7 @@ class PartyMediaEditorState extends State<PartyMediaEditor>
       case _CoverKind.newFile:
         if (c.index < 0 || c.index >= _selectedMedia.length) return null;
         final file = _selectedMedia[c.index];
-        if (_isVideo(file.path)) {
+        if (_isVideo(file)) {
           return const PartyCoverPick(isNewVideo: true);
         }
         // 새 이미지들 중 몇 번째(0-based)인지 계산 — 업로드 루프가 _selectedMedia
@@ -264,7 +262,7 @@ class PartyMediaEditorState extends State<PartyMediaEditor>
         // imageUrls 리스트의 같은 인덱스가 된다.
         final ordinal = _selectedMedia
             .take(c.index)
-            .where((f) => !_isVideo(f.path))
+            .where((f) => !_isVideo(f))
             .length;
         return PartyCoverPick(newImageOrdinal: ordinal);
     }
@@ -310,13 +308,13 @@ class PartyMediaEditorState extends State<PartyMediaEditor>
       return idx >= 0 ? _CoverRef(_CoverKind.existingImage, idx) : null;
     }
     if (pick.isNewVideo) {
-      final idx = _selectedMedia.indexWhere((f) => _isVideo(f.path));
+      final idx = _selectedMedia.indexWhere((f) => _isVideo(f));
       return idx >= 0 ? _CoverRef(_CoverKind.newFile, idx) : null;
     }
     if (pick.newImageOrdinal != null) {
       var count = 0;
       for (var i = 0; i < _selectedMedia.length; i++) {
-        if (_isVideo(_selectedMedia[i].path)) continue;
+        if (_isVideo(_selectedMedia[i])) continue;
         if (count == pick.newImageOrdinal) {
           return _CoverRef(_CoverKind.newFile, i);
         }
@@ -329,12 +327,18 @@ class PartyMediaEditorState extends State<PartyMediaEditor>
   // ── 유틸 ───────────────────────────────────────────────────────────────────
   /// 부모 화면도 State가 아직 없는 첫 프레임에 같은 기준으로 판단할 수 있게
   /// static으로 열어둔다(예: 미디어 등록 화면의 동영상 권유 카드).
-  static bool isVideoPath(String path) {
-    final p = path.toLowerCase();
-    return p.endsWith('.mp4') || p.endsWith('.mov');
-  }
+  ///
+  /// **경로 문자열만 있을 때만 쓴다** — 손에 파일이 있으면 [isVideoFile]이다.
+  /// 웹에서 XFile.path는 확장자가 없는 blob URL이라 여기서는 가릴 수 없다.
+  static bool isVideoPath(String path) =>
+      MediaUploadService.isVideoPath(path);
 
-  bool _isVideo(String path) => isVideoPath(path);
+  /// 고른 파일이 동영상인가 — 판정은 업로더와 **같은 함수 하나**를 쓴다.
+  /// 대표 미디어 순번·크롭 키가 전부 이 판정 위에 서 있어서, 편집기와
+  /// 업로더가 다르게 판단하면 조용히 어긋난다.
+  static bool isVideoFile(XFile file) => MediaUploadService.isVideoFile(file);
+
+  bool _isVideo(XFile file) => isVideoFile(file);
 
   void _msg(String text) {
     if (!mounted) return;
@@ -350,20 +354,17 @@ class PartyMediaEditorState extends State<PartyMediaEditor>
   // 작아 사실상 조작이 불가능하다 — 비율만 같으면 어느 크기로 보여줘도
   // "잘리는 지점"은 동일하므로(카드가 크든 작든 cropX/cropY/cropScale은
   // 비율 기반 값), 크게 보여줘도 WYSIWYG는 그대로 유지된다.
-  Size _cardFrameSize(BuildContext context) {
-    final screenW = MediaQuery.of(context).size.width;
-    final cardW = (screenW - 42) / 2; // 좌우 여백 16*2 + 카드 사이 간격 10
-    const cardH = 130.0;
-    final displayW = screenW - 48;
-    final displayH = displayW * cardH / cardW;
-    return Size(displayW, displayH);
-  }
+  /// 크롭 편집 화면에 넘길 미리보기 프레임 — 계산은 카드 비율 정본
+  /// ([basicCardCropFrameSize])이 갖고 있다. 사진·동영상이 같은 함수를 쓰므로
+  /// 두 크롭이 서로 다른 기준을 잡을 수 없다.
+  Size _cardFrameSize(BuildContext context) => basicCardCropFrameSize(context);
 
-  Future<void> _pushCropEditor({String? videoUrl, File? videoFile}) async {
+  Future<void> _pushCropEditor({String? videoUrl, XFile? videoFile}) async {
     final frameSize = _cardFrameSize(context);
     final result = await Navigator.push<Map<String, double>>(
       context,
-      webFramedRoute((_) => VideoCropScreen(
+      webFramedRoute(
+        (_) => VideoCropScreen(
           videoUrl: videoUrl,
           videoFile: videoFile,
           frameWidth: frameSize.width,
@@ -389,14 +390,15 @@ class PartyMediaEditorState extends State<PartyMediaEditor>
   /// 그대로 쓴다(둘 다 세션 내내 안정적으로 유지되는 값).
   Future<void> _pushPhotoCropEditor({
     String? imageUrl,
-    File? imageFile,
+    XFile? imageFile,
     required String cropKey,
   }) async {
     final frameSize = _cardFrameSize(context);
     final existing = _photoCrops[cropKey];
     final result = await Navigator.push<Map<String, double>>(
       context,
-      webFramedRoute((_) => PhotoCropScreen(
+      webFramedRoute(
+        (_) => PhotoCropScreen(
           imageUrl: imageUrl,
           imageFile: imageFile,
           frameWidth: frameSize.width,
@@ -434,10 +436,10 @@ class PartyMediaEditorState extends State<PartyMediaEditor>
       return;
     }
     final file = _selectedMedia[ref.index];
-    if (_isVideo(file.path)) {
-      await _pushCropEditor(videoFile: File(file.path));
+    if (_isVideo(file)) {
+      await _pushCropEditor(videoFile: file);
     } else {
-      await _pushPhotoCropEditor(imageFile: File(file.path), cropKey: file.path);
+      await _pushPhotoCropEditor(imageFile: file, cropKey: file.path);
     }
   }
 
@@ -458,7 +460,7 @@ class PartyMediaEditorState extends State<PartyMediaEditor>
     final files = await ImagePicker().pickMultipleMedia();
 
     for (final file in files) {
-      final isVid = _isVideo(file.path);
+      final isVid = _isVideo(file);
 
       if (isVid) {
         if (hasVideo) {
@@ -466,7 +468,7 @@ class PartyMediaEditorState extends State<PartyMediaEditor>
           continue;
         }
 
-        final ctrl = VideoPlayerController.file(File(file.path));
+        final ctrl = LocalMedia.videoController(file);
         await ctrl.initialize();
         final secs = ctrl.value.duration.inSeconds;
         await ctrl.dispose();
@@ -477,9 +479,17 @@ class PartyMediaEditorState extends State<PartyMediaEditor>
         var videoToUpload = file;
         if (secs > 30) {
           if (!mounted) return;
+          // 웹에는 video_trimmer 구현이 없다 — 자르기 화면 대신 안내하고
+          // 받지 않는다. 30초 제한 자체는 앱과 같고, 서버도 업로드 허가를
+          // 만들 때 maxDurationSeconds로 다시 강제한다.
+          if (!LocalMedia.canTrimVideo) {
+            _msg('30초 이내 동영상만 올릴 수 있어요. 영상을 먼저 편집해 주세요.');
+            continue;
+          }
           final trimmedPath = await Navigator.push<String>(
             context,
-            webFramedRoute((_) => VideoTrimScreen(sourceFile: File(file.path)),
+            webFramedRoute(
+              (_) => VideoTrimScreen(sourceFile: file),
               fullscreenDialog: true,
             ),
           );
@@ -511,7 +521,7 @@ class PartyMediaEditorState extends State<PartyMediaEditor>
       } else {
         final imgCnt =
             _existingImageUrls.length +
-            _selectedMedia.where((f) => !_isVideo(f.path)).length;
+            _selectedMedia.where((f) => !_isVideo(f)).length;
         if (imgCnt >= widget.maxImages) {
           _msg('사진은 최대 ${widget.maxImages}장까지 업로드 가능해요');
           continue;
@@ -522,7 +532,14 @@ class PartyMediaEditorState extends State<PartyMediaEditor>
   }
 
   Future<XFile?> _compressVideo(XFile file) async {
-    final srcExists = File(file.path).existsSync();
+    // 웹에는 video_compress 구현이 없다(부르면 MissingPluginException).
+    // 압축은 어디까지나 최적화라 건너뛰어도 등록은 그대로 진행된다 —
+    // 길이(30초)·용량 검증과 서버 검증은 웹에서도 그대로 걸린다.
+    if (!LocalMedia.canCompressVideo) {
+      debugPrint('[MediaEditor] 웹 — 동영상 압축 단계를 건너뜁니다');
+      return null;
+    }
+    final srcExists = (await LocalMedia.stat(file)).exists;
     debugPrint(
       '[MediaEditor] _compressVideo 입력 파일 exists=$srcExists path=${file.path}',
     );
@@ -794,7 +811,7 @@ class PartyMediaEditorState extends State<PartyMediaEditor>
               ..._selectedMedia.asMap().entries.map((entry) {
                 final i = entry.key;
                 final file = entry.value;
-                final isVid = _isVideo(file.path);
+                final isVid = _isVideo(file);
                 final isSelected =
                     _cover?.kind == _CoverKind.newFile && _cover!.index == i;
                 return GestureDetector(
@@ -827,7 +844,7 @@ class PartyMediaEditorState extends State<PartyMediaEditor>
                                     ],
                                   ),
                                 )
-                              : Image.file(File(file.path), fit: BoxFit.cover),
+                              : LocalMedia.image(file, fit: BoxFit.cover),
                         ),
                       ),
                       coverOverlay(isSelected),
@@ -879,7 +896,7 @@ class PartyMediaEditorState extends State<PartyMediaEditor>
                     children: [
                       Icon(Icons.add_photo_alternate_outlined, size: 28),
                       SizedBox(height: 4),
-                      Text('사진/동영상', style: TextStyle(fontSize: 11)),
+                      Text('사진 / 동영상', style: TextStyle(fontSize: 11)),
                     ],
                   ),
                 ),
@@ -896,7 +913,7 @@ class PartyMediaEditorState extends State<PartyMediaEditor>
             const SizedBox(height: 10),
             Text(
               '사진 최대 ${widget.maxImages}장 · 동영상 최대 30초\n'
-              '대표 미디어를 선택하면 목록에 그 사진(또는 영상)이 표시돼요.',
+              '대표 사진 / 동영상을 선택하면 목록에 그 사진(또는 영상)이 표시돼요.',
               style: const TextStyle(fontSize: 11, color: Colors.black38),
             ),
           ] else if (totalMediaCount >= 1) ...[
@@ -904,7 +921,10 @@ class PartyMediaEditorState extends State<PartyMediaEditor>
             if (_cover == null)
               Container(
                 width: double.infinity,
-                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 12,
+                  vertical: 10,
+                ),
                 decoration: BoxDecoration(
                   color: const Color(0xFFFFF0F5),
                   borderRadius: BorderRadius.circular(10),
@@ -916,7 +936,7 @@ class PartyMediaEditorState extends State<PartyMediaEditor>
                     SizedBox(width: 6),
                     Expanded(
                       child: Text(
-                        '위 사진·동영상 중 대표로 쓸 것을 먼저 탭해서 선택해주세요. 선택하지 않으면 첫 번째로 등록한 미디어가 자동으로 대표가 돼요.',
+                        '위 사진 / 동영상 중 대표로 쓸 것을 먼저 탭해서 선택해주세요. 선택하지 않으면 첫 번째로 등록한 사진 / 동영상이 자동으로 대표가 돼요.',
                         style: TextStyle(
                           fontSize: 12,
                           color: Color(0xFFFF6FA0),
@@ -930,7 +950,7 @@ class PartyMediaEditorState extends State<PartyMediaEditor>
               )
             else
               const Text(
-                '사진·동영상을 탭하면 대표 미디어를 바꿀 수 있어요.',
+                '사진 / 동영상을 탭하면 대표를 바꿀 수 있어요.',
                 style: TextStyle(fontSize: 11, color: Colors.black38),
               ),
           ],

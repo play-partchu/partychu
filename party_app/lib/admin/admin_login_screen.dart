@@ -29,7 +29,10 @@ class _AdminLoginScreenState extends State<AdminLoginScreen> {
 
   Future<void> _login() async {
     if (_isSubmitting) return;
-    setState(() { _isSubmitting = true; _error = null; });
+    setState(() {
+      _isSubmitting = true;
+      _error = null;
+    });
 
     try {
       final cred = await FirebaseAuth.instance.signInWithEmailAndPassword(
@@ -39,7 +42,10 @@ class _AdminLoginScreenState extends State<AdminLoginScreen> {
       final uid = cred.user?.uid;
       if (uid == null) throw Exception('로그인에 실패했습니다.');
 
-      final userDoc = await FirebaseFirestore.instance.collection('users').doc(uid).get();
+      final userDoc = await FirebaseFirestore.instance
+          .collection('users')
+          .doc(uid)
+          .get();
       final role = userDoc.data()?['role'] as String?;
       if (role != 'admin') {
         await FirebaseAuth.instance.signOut();
@@ -71,20 +77,28 @@ class _AdminLoginScreenState extends State<AdminLoginScreen> {
               color: Colors.white,
               borderRadius: BorderRadius.circular(20),
               boxShadow: const [
-                BoxShadow(color: Color(0x1AFF6FA0), blurRadius: 24, offset: Offset(0, 8)),
+                BoxShadow(
+                  color: Color(0x1AFF6FA0),
+                  blurRadius: 24,
+                  offset: Offset(0, 8),
+                ),
               ],
             ),
             child: Column(
               mainAxisSize: MainAxisSize.min,
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
-                const Text('PartyChu Admin',
-                    textAlign: TextAlign.center,
-                    style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold)),
+                const Text(
+                  'PartyChu Admin',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold),
+                ),
                 const SizedBox(height: 6),
-                const Text('의견함 관리자 로그인',
-                    textAlign: TextAlign.center,
-                    style: TextStyle(fontSize: 13, color: Colors.black45)),
+                const Text(
+                  '의견함 관리자 로그인',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(fontSize: 13, color: Colors.black45),
+                ),
                 const SizedBox(height: 28),
                 TextField(
                   controller: _emailCtrl,
@@ -107,7 +121,13 @@ class _AdminLoginScreenState extends State<AdminLoginScreen> {
                 ),
                 if (_error != null) ...[
                   const SizedBox(height: 12),
-                  Text(_error!, style: const TextStyle(color: Colors.redAccent, fontSize: 13)),
+                  Text(
+                    _error!,
+                    style: const TextStyle(
+                      color: Colors.redAccent,
+                      fontSize: 13,
+                    ),
+                  ),
                 ],
                 const SizedBox(height: 20),
                 SizedBox(
@@ -117,13 +137,23 @@ class _AdminLoginScreenState extends State<AdminLoginScreen> {
                     style: ElevatedButton.styleFrom(
                       backgroundColor: const Color(0xFFFF6FA0),
                       foregroundColor: Colors.white,
-                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(12),
+                      ),
                     ),
                     child: _isSubmitting
                         ? const SizedBox(
-                            width: 20, height: 20,
-                            child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
-                        : const Text('로그인', style: TextStyle(fontWeight: FontWeight.bold)),
+                            width: 20,
+                            height: 20,
+                            child: CircularProgressIndicator(
+                              strokeWidth: 2,
+                              color: Colors.white,
+                            ),
+                          )
+                        : const Text(
+                            '로그인',
+                            style: TextStyle(fontWeight: FontWeight.bold),
+                          ),
                   ),
                 ),
               ],

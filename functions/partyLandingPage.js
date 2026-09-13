@@ -343,3 +343,7 @@ exports.partyLandingPage = onRequest({ region: 'asia-northeast3', cors: true }, 
   const html = pageShell({ title: `${title} · PartyChu`, description, image, url, bodyHtml });
   res.status(200).set('Content-Type', 'text/html; charset=utf-8').set('Cache-Control', 'public, max-age=60').send(html);
 });
+
+// 대표자 승인 페이지(businessDelegation.js)도 같은 이스케이프를 쓴다 —
+// XSS 방어를 두 벌로 두면 한쪽만 고쳐진다.
+module.exports.escapeHtml = escapeHtml;

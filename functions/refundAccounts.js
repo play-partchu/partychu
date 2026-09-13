@@ -113,14 +113,66 @@ function buildRefundRequest({
     createdAt: admin.firestore.FieldValue.serverTimestamp(),
     completedAt: null,
     completedBy: null,
+    // 누가 어떤 방식으로 끝냈는지 — 아래 COMPLETED_BY / COMPLETION_METHOD.
+    completedByRole: null,
+    completionMethod: null,
     adminMemo: null,
     rejectedReason: null,
+    // 호스트에게 "아직 안 보냈다"고 다시 알린 시각. 재촉이 두 번 가지 않게
+    // 표시해 둔다(refundOverdue 스케줄러).
+    overdueNotifiedAt: null,
   };
+}
+
+/** 완료 처리를 누른 사람의 역할. */
+const COMPLETED_BY = {
+  host: 'host', // 돈을 받은 호스트 본인
+  admin: 'admin', // 운영자 개입(분쟁·장기 미처리 등)
+};
+
+/**
+ * 완료가 어떤 뜻인지 — **지금은 하나뿐이고, 자동 송금이 아니다.**
+ *
+ * 참가자 돈은 파티츄가 아니라 호스트가 직접 받으므로(payoutAccounts.js),
+ * 환불도 호스트가 자기 계좌에서 손으로 보낸다. 시스템은 그 송금을 확인할
+ * 방법이 없다 — '완료'는 어디까지나 **"보냈다고 표시함"**이다.
+ *
+ * 나중에 PG 환불 API가 붙으면 그때 'pg_refund' 같은 값이 생기고, 그 둘은
+ * 화면에서도 다르게 표기해야 한다(한쪽은 증빙이 있고 한쪽은 없다).
+ */
+const COMPLETION_METHOD = {
+  markedManually: 'marked_manually',
+};
+
+/**
+ * 접수된 지 오래됐는데 아직 처리되지 않았는가.
+ *
+ * 호스트가 방치하면 참가자는 돈을 못 돌려받은 채로 남는다. 자동 송금이 없는
+ * 구조에서는 이 판정이 유일한 안전망이라, 재촉 알림과 관리자 개입이 모두 이
+ * 값 하나를 본다(화면·스케줄러가 따로 계산하면 기준이 갈린다).
+ */
+const OVERDUE_MS = 3 * 24 * 60 * 60 * 1000; // 3일
+
+function isOverdue(requestData, nowMs, thresholdMs = OVERDUE_MS) {
+  if (!requestData || requestData.status !== REFUND_REQUEST_STATUS.requested) {
+    return false;
+  }
+  const createdAt = requestData.createdAt;
+  const createdMs =
+    createdAt && typeof createdAt.toMillis === 'function'
+      ? createdAt.toMillis()
+      : Number(createdAt) || 0;
+  if (!createdMs) return false;
+  return nowMs - createdMs >= thresholdMs;
 }
 
 module.exports = {
   REFUND_REQUEST_STATUS,
+  COMPLETED_BY,
+  COMPLETION_METHOD,
+  OVERDUE_MS,
   requiresRefundAccount,
   normalizeRefundAccount,
   buildRefundRequest,
+  isOverdue,
 };

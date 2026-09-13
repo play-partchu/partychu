@@ -294,15 +294,32 @@ class _LoginPageState extends State<LoginPage> {
         return;
       }
 
-      final tokenResult = await FlutterNaverLogin.getCurrentAccessToken();
-      debugPrint(
-        '[Login] Naver token acquired. empty=${tokenResult.accessToken.isEmpty}',
-      );
+      // iOS/TestFlight에서는 logIn() 직후 SDK 저장소에서 토큰을 다시 읽을 때
+      // 빈 값이 돌아올 수 있어, 로그인 결과에 포함된 토큰을 우선 사용한다.
+      var naverToken = loginResult.accessToken?.accessToken ?? '';
+
+      if (naverToken.isEmpty) {
+        final refetched = await FlutterNaverLogin.getCurrentAccessToken();
+        naverToken = refetched.accessToken;
+        debugPrint(
+          '[Login] Naver token refetched. empty=${naverToken.isEmpty}',
+        );
+      } else {
+        debugPrint('[Login] Naver token acquired from loginResult');
+      }
+
+      if (naverToken.isEmpty) {
+        debugPrint('[Login] Naver token is empty');
+        if (context.mounted) {
+          _showError(context, '네이버 인증 정보를 받지 못했습니다. 다시 시도해주세요.');
+        }
+        return;
+      }
 
       final callable = FirebaseFunctions.instanceFor(
         region: _functionsRegion,
       ).httpsCallable('naverCustomToken');
-      final result = await callable.call({'token': tokenResult.accessToken});
+      final result = await callable.call({'token': naverToken});
       final customToken = result.data['customToken'] as String;
       debugPrint('[Login] Naver customToken acquired');
 
@@ -318,6 +335,13 @@ class _LoginPageState extends State<LoginPage> {
       await LastLoginMethod.naver.save();
 
       if (context.mounted) await _onLoginSuccess(context, provider: 'naver');
+    } on FirebaseFunctionsException catch (error) {
+      debugPrint(
+        '[Login] Naver server error: ${error.code} / ${error.message}',
+      );
+      if (context.mounted) {
+        _showError(context, '네이버 로그인에 실패했습니다. (${error.code})');
+      }
     } on MissingPluginException catch (error) {
       // iOS 플러그인은 Info.plist의 NidClientID/NidClientSecret/NidAppName/
       // NidUrlScheme 중 하나라도 없으면 **메서드 채널 자체를 등록하지 않는다**
@@ -362,7 +386,9 @@ class _LoginPageState extends State<LoginPage> {
       if (context.mounted) await _onLoginSuccess(context);
     } catch (error, st) {
       debugPrint('[Login] Email error: $error\n$st');
-      if (context.mounted) _showError(context, '테스트 로그인에 실패했습니다: $error');
+      if (context.mounted) {
+        _showError(context, '테스트 로그인에 실패했습니다.');
+      }
     }
   }
 

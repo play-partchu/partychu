@@ -122,7 +122,7 @@ class _UsageStatsScreenState extends State<UsageStatsScreen> {
               SizedBox(width: 220, child: StatCard(label: '조회 수', future: AdminFirestoreService.totalPartyViewsAllTime())),
               SizedBox(width: 220, child: StatCard(label: '신청 수', future: AdminFirestoreService.totalApplications())),
               SizedBox(width: 220, child: StatCard(label: '승인 수', future: AdminFirestoreService.applicationsByStatus('approved'))),
-              SizedBox(width: 220, child: StatCard(label: '실제 참여 수', future: AdminFirestoreService.applicationsByStatus('attended'))),
+              SizedBox(width: 220, child: StatCard(label: '실제 참여 수', future: AdminFirestoreService.applicationsByStatus(AdminFirestoreService.checkedInStatus))),
               SizedBox(width: 220, child: StatCard(label: '취소 수', future: AdminFirestoreService.applicationsByStatus('cancelled'))),
               SizedBox(width: 220, child: StatCard(label: '노쇼 수', future: AdminFirestoreService.applicationsByStatus('no_show'))),
             ],

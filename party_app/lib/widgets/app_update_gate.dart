@@ -92,8 +92,10 @@ class _UpdateDialogContentState extends State<_UpdateDialogContent> {
         try {
           // launchUrl 자체가 멈춰있는 극단적인 경우에도 무한 로딩으로 남지
           // 않도록 타임아웃을 둔다.
-          opened = await launchUrl(uri, mode: LaunchMode.externalApplication)
-              .timeout(const Duration(seconds: 5));
+          opened = await launchUrl(
+            uri,
+            mode: LaunchMode.externalApplication,
+          ).timeout(const Duration(seconds: 5));
           if (!opened) {
             failureMessage = '스토어 페이지를 열 수 없습니다.\n잠시 후 다시 시도해주세요.';
           }
@@ -115,7 +117,19 @@ class _UpdateDialogContentState extends State<_UpdateDialogContent> {
     showDialog<void>(
       context: context,
       builder: (infoContext) => AlertDialog(
-        title: const Text('안내', style: TextStyle(fontFamily: 'SeoulHangang', fontWeight: FontWeight.w500, shadows: [Shadow(color: Colors.black87, offset: Offset(0.3, 0)), Shadow(color: Colors.black87, offset: Offset(-0.3, 0)), Shadow(color: Colors.black87, offset: Offset(0, 0.3)), Shadow(color: Colors.black87, offset: Offset(0, -0.3))])),
+        title: const Text(
+          '안내',
+          style: TextStyle(
+            fontFamily: 'SeoulHangang',
+            fontWeight: FontWeight.w500,
+            shadows: [
+              Shadow(color: Colors.black87, offset: Offset(0.3, 0)),
+              Shadow(color: Colors.black87, offset: Offset(-0.3, 0)),
+              Shadow(color: Colors.black87, offset: Offset(0, 0.3)),
+              Shadow(color: Colors.black87, offset: Offset(0, -0.3)),
+            ],
+          ),
+        ),
         content: Text(message),
         actions: [
           TextButton(
@@ -129,7 +143,10 @@ class _UpdateDialogContentState extends State<_UpdateDialogContent> {
 
   Future<void> _dismiss() async {
     final prefs = await SharedPreferences.getInstance();
-    await prefs.setString(_kDismissedVersionPrefsKey, widget.info.latestVersion);
+    await prefs.setString(
+      _kDismissedVersionPrefsKey,
+      widget.info.latestVersion,
+    );
     if (mounted) Navigator.pop(context);
   }
 
@@ -141,7 +158,16 @@ class _UpdateDialogContentState extends State<_UpdateDialogContent> {
     return AlertDialog(
       title: Text(
         dismissible ? '업데이트 안내' : '필수 업데이트',
-        style: const TextStyle(fontFamily: 'SeoulHangang', fontWeight: FontWeight.w500, shadows: [Shadow(color: Colors.black87, offset: Offset(0.3, 0)), Shadow(color: Colors.black87, offset: Offset(-0.3, 0)), Shadow(color: Colors.black87, offset: Offset(0, 0.3)), Shadow(color: Colors.black87, offset: Offset(0, -0.3))]),
+        style: const TextStyle(
+          fontFamily: 'SeoulHangang',
+          fontWeight: FontWeight.w500,
+          shadows: [
+            Shadow(color: Colors.black87, offset: Offset(0.3, 0)),
+            Shadow(color: Colors.black87, offset: Offset(-0.3, 0)),
+            Shadow(color: Colors.black87, offset: Offset(0, 0.3)),
+            Shadow(color: Colors.black87, offset: Offset(0, -0.3)),
+          ],
+        ),
       ),
       content: Text(
         dismissible

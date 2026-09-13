@@ -42,12 +42,22 @@ class PartyTitleField extends StatefulWidget {
   final String? Function(String?)? validator;
   final Key? fieldKey;
 
+  /// 필수값 검증에 걸렸을 때 이 칸으로 커서를 옮기기 위한 포커스 노드.
+  final FocusNode? focusNode;
+
+  /// **사용자가 직접 입력했을 때만** 불린다 — 컨트롤러에 코드로 값을 넣는
+  /// 경우(자동 복사·임시저장 복원 등)에는 호출되지 않는다. 콤보 등록에서
+  /// "파티 제목을 손댔는지"를 이 콜백으로 판별한다.
+  final ValueChanged<String>? onChanged;
+
   const PartyTitleField({
     super.key,
     required this.controller,
     required this.decoration,
     this.validator,
     this.fieldKey,
+    this.focusNode,
+    this.onChanged,
   });
 
   @override
@@ -71,15 +81,18 @@ class _PartyTitleFieldState extends State<PartyTitleField> {
 
   @override
   Widget build(BuildContext context) {
-    final overLimit = widget.controller.text.length > kPartyCardTitleVisibleLength;
+    final overLimit =
+        widget.controller.text.length > kPartyCardTitleVisibleLength;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         TextFormField(
           key: widget.fieldKey,
           controller: widget.controller,
+          focusNode: widget.focusNode,
           decoration: widget.decoration,
           validator: widget.validator,
+          onChanged: widget.onChanged,
         ),
         if (overLimit)
           const Padding(

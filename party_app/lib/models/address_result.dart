@@ -15,9 +15,11 @@ class AddressResult {
     required this.longitude,
   });
 
-  String get displayName =>
-      placeName.isNotEmpty ? placeName : roadAddress.isNotEmpty ? roadAddress : address;
+  String get displayName => placeName.isNotEmpty
+      ? placeName
+      : roadAddress.isNotEmpty
+      ? roadAddress
+      : address;
 
-  String get displayAddress =>
-      roadAddress.isNotEmpty ? roadAddress : address;
+  String get displayAddress => roadAddress.isNotEmpty ? roadAddress : address;
 }

@@ -11,7 +11,10 @@ Future<int?> showAgePickerSheet(
   PartyAudienceType audienceType = PartyAudienceType.adult,
 }) async {
   final range = partyAgeRangeFor(audienceType);
-  final ages = List.generate(range.maxAge - range.minAge + 1, (i) => range.minAge + i);
+  final ages = List.generate(
+    range.maxAge - range.minAge + 1,
+    (i) => range.minAge + i,
+  );
   int selectedAge = currentAge.clamp(range.minAge, range.maxAge);
   final controller = FixedExtentScrollController(
     initialItem: ages.indexOf(selectedAge),
@@ -20,21 +23,26 @@ Future<int?> showAgePickerSheet(
   final result = await showModalBottomSheet<int>(
     context: context,
     shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
+      borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+    ),
     builder: (_) => SizedBox(
       height: 300,
       child: Column(
         children: [
           const SizedBox(height: 12),
           Container(
-              width: 40,
-              height: 4,
-              decoration: BoxDecoration(
-                  color: Colors.grey.shade300,
-                  borderRadius: BorderRadius.circular(4))),
+            width: 40,
+            height: 4,
+            decoration: BoxDecoration(
+              color: Colors.grey.shade300,
+              borderRadius: BorderRadius.circular(4),
+            ),
+          ),
           const SizedBox(height: 16),
-          const Text('나이 선택',
-              style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+          const Text(
+            '나이 선택',
+            style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+          ),
           const SizedBox(height: 8),
           Expanded(
             child: ListWheelScrollView.useDelegate(
@@ -65,18 +73,26 @@ Future<int?> showAgePickerSheet(
           ),
           Padding(
             padding: EdgeInsets.fromLTRB(
-                20, 8, 20, 16 + MediaQuery.of(context).padding.bottom),
+              20,
+              8,
+              20,
+              16 + MediaQuery.of(context).padding.bottom,
+            ),
             child: SizedBox(
               width: double.infinity,
               height: 48,
               child: ElevatedButton(
                 style: ElevatedButton.styleFrom(
                   backgroundColor: Colors.indigo,
-                  shape:
-                      RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(12),
+                  ),
                 ),
                 onPressed: () => Navigator.pop(context, selectedAge),
-                child: const Text('확인', style: TextStyle(fontSize: 16, color: Colors.white)),
+                child: const Text(
+                  '확인',
+                  style: TextStyle(fontSize: 16, color: Colors.white),
+                ),
               ),
             ),
           ),

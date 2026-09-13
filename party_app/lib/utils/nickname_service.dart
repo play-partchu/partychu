@@ -93,9 +93,9 @@ class NicknameService {
     if (error != null) throw StateError(error);
     final nickname = sanitize(raw);
     try {
-      await _fn
-          .httpsCallable('setNickname')
-          .call<Map<String, dynamic>>({'nickname': nickname});
+      await _fn.httpsCallable('setNickname').call<Map<String, dynamic>>({
+        'nickname': nickname,
+      });
     } on FirebaseFunctionsException catch (e) {
       // 서버가 돌려준 문구를 그대로 쓴다(중복·규칙 위반 모두 사용자용 문장이다).
       // 코드·stack trace는 화면에 내보내지 않는다.

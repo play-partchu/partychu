@@ -18,3 +18,9 @@ node_modules/
 firebase-debug.log
 firestore-debug.log
 ui-debug.log
+
+# 심사·데모 콘텐츠 스크립트 산출물 (scripts/demoContentRewrite.js)
+#
+# ⚠️ 여기에는 **운영 Firestore 문서 원문**이 그대로 들어간다(백업/플랜/적용
+#    기록). 커밋하면 운영 데이터가 저장소로 새어 나간다.
+scripts/.demo-out/
