@@ -16,7 +16,7 @@ publish_to: 'none' # Remove this line if you wish to publish to pub.dev
 # https://developer.apple.com/library/archive/documentation/General/Reference/InfoPlistKeyReference/Articles/CoreFoundationKeys.html
 # In Windows, build-name is used as the major, minor, and patch parts
 # of the product and file versions while build-number is used as the build suffix.
-version: 1.0.0+3
+version: 1.0.0+4
 
 environment:
   sdk: ^3.11.4
@@ -93,7 +93,7 @@ dependencies:
   video_trimmer: ^5.0.0
   # QR 이용권 — 발급(렌더링)은 qr_flutter, 사장님 스캔은 mobile_scanner.
   qr_flutter: ^4.1.0
-  mobile_scanner: ^5.2.3
+  mobile_scanner: ^7.4.1
   flutter_web_plugins:
     sdk: flutter
   flutter_volume_controller: ^2.0.1
@@ -102,7 +102,7 @@ dependencies:
   # 붙여 무음 스위치를 그대로 따르고, 안드로이드는 오디오 포커스를 잡지 않아
   # 재생 중인 음악을 끊거나 줄이지 않는다(lib/services/ui_sound_service.dart).
   audioplayers: ^6.1.0
-  app_settings: ^9.0.0
+  app_settings: 7.0.0
   # The following adds the Cupertino Icons font to your application.
   # Use with the CupertinoIcons class for iOS style icons.
 
