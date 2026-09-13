@@ -6,6 +6,8 @@
 		<string>현재 위치를 지도에 표시하기 위해 위치 권한이 필요합니다.</string>
 		<key>NSLocationAlwaysUsageDescription</key>
 		<string>현재 위치를 지도에 표시하기 위해 위치 권한이 필요합니다.</string>
+		<key>NSLocationAlwaysAndWhenInUseUsageDescription</key>
+		<string>현재 위치를 지도에 표시하기 위해 위치 권한이 필요합니다.</string>
 		<key>NSCameraUsageDescription</key>
 		<string>프로필 사진 촬영과 이용권 QR 스캔을 위해 카메라 접근 권한이 필요합니다.</string>
 		<key>NSPhotoLibraryUsageDescription</key>
