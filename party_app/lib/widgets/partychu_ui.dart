@@ -20,8 +20,28 @@ class PartyChuColors {
   static const border = Color(0xFFFFDCE8);
   static const heading = Color(0xFF3A2E39);
   static const muted = Color(0xFF8C7A87);
+
+  /// [muted]보다 한 단계 진한 보조 텍스트 색.
+  ///
+  /// 상세검색 필터의 "선택값" 줄처럼 **작지만 반드시 읽혀야 하는** 글자에 쓴다.
+  /// muted는 힌트·부연설명용이라 작은 글자에 얹으면 흐려서 눈에 안 들어온다.
+  static const subtleText = Color(0xFF6B5A66);
   static const neonPink = Color(0xFFFF2D95);
   static const neonPurple = Color(0xFFB026FF);
+
+  /// 혜택·매장 이벤트 계열의 **은은한 골드**.
+  ///
+  /// 원래 이벤트 등록 화면 맨 위 "파티츄 오픈혜택" 안내
+  /// ([PartychuEventPerkBanner])의 테두리 색이었다. 플레이스 상세의
+  /// ✨ 매장 이벤트 카드도 같은 선을 두르므로, 같은 금색을 화면마다 다시
+  /// 적지 않도록 값을 여기 한 곳에 모은다.
+  ///
+  /// 노란색이 아니라 **샴페인 골드**다 — 카드가 번쩍이지 않고 "이건 이벤트
+  /// 카드"라는 것만 알아볼 정도로만 선다.
+  static const eventGold = Color(0xFFF2D79B);
+
+  /// [eventGold]와 짝이 되는 아주 옅은 금색 바탕.
+  static const eventGoldBg = Color(0xFFFFF9EC);
 }
 
 /// 프로젝트 전체에서 "제목"에만 쓰는 커스텀 폰트 — 본문/설명/버튼/입력창
@@ -78,7 +98,11 @@ class PawSectionTitle extends StatelessWidget {
         ),
         if (sparkle) ...[
           const SizedBox(width: 4),
-          Icon(Icons.auto_awesome, size: fontSize - 3, color: color.withValues(alpha: 0.7)),
+          Icon(
+            Icons.auto_awesome,
+            size: fontSize - 3,
+            color: color.withValues(alpha: 0.7),
+          ),
         ],
       ],
     );
@@ -95,18 +119,18 @@ class PawDivider extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     Widget line() => Expanded(
-          child: Container(
-            height: 1.2,
-            decoration: BoxDecoration(
-              gradient: LinearGradient(
-                colors: [
-                  PartyChuColors.border.withValues(alpha: 0),
-                  PartyChuColors.border,
-                ],
-              ),
-            ),
+      child: Container(
+        height: 1.2,
+        decoration: BoxDecoration(
+          gradient: LinearGradient(
+            colors: [
+              PartyChuColors.border.withValues(alpha: 0),
+              PartyChuColors.border,
+            ],
           ),
-        );
+        ),
+      ),
+    );
     return Padding(
       padding: EdgeInsets.symmetric(vertical: verticalPadding),
       child: Row(
@@ -114,7 +138,11 @@ class PawDivider extends StatelessWidget {
           line(),
           Padding(
             padding: const EdgeInsets.symmetric(horizontal: 10),
-            child: Icon(Icons.pets, size: 13, color: PartyChuColors.primary.withValues(alpha: 0.55)),
+            child: Icon(
+              Icons.pets,
+              size: 13,
+              color: PartyChuColors.primary.withValues(alpha: 0.55),
+            ),
           ),
           Transform.flip(flipX: true, child: line()),
         ],
@@ -173,6 +201,26 @@ class PartyChuCard extends StatelessWidget {
     this.radius = 28,
   });
 
+  /// 한두 줄짜리 안내용 — 테두리·그림자·핑크 톤은 그대로 두고 **안쪽 여백만**
+  /// 줄인 카드다.
+  ///
+  /// 기본 여백(사방 26)은 본문이 여러 줄인 카드(환불 규정 등)에 맞춘 값이라,
+  /// 얼리버드 안내처럼 내용이 한두 줄인 곳에서는 글자보다 여백이 더 커 보였다.
+  /// 내용 높이는 Column이 이미 알아서 줄이므로, 여백만 줄이면 카드가 내용
+  /// 높이에 맞게 붙는다.
+  const PartyChuCard.compact({
+    super.key,
+    required this.child,
+    this.padding = compactPadding,
+    this.radius = compactRadius,
+  });
+
+  static const EdgeInsets compactPadding = EdgeInsets.symmetric(
+    horizontal: 16,
+    vertical: 12,
+  );
+  static const double compactRadius = 18;
+
   @override
   Widget build(BuildContext context) {
     return Container(
@@ -192,10 +240,7 @@ class PartyChuCard extends StatelessWidget {
             offset: const Offset(0, 14),
           ),
           // 카드 전체를 감싸는 아주 약한 흰색 glow.
-          BoxShadow(
-            color: Colors.white.withValues(alpha: 0.6),
-            blurRadius: 16,
-          ),
+          BoxShadow(color: Colors.white.withValues(alpha: 0.6), blurRadius: 16),
         ],
       ),
       child: child,
@@ -249,7 +294,11 @@ class PawEmptyState extends StatelessWidget {
             Text(
               subtitle!,
               textAlign: TextAlign.center,
-              style: const TextStyle(fontSize: 12.5, color: PartyChuColors.muted, height: 1.5),
+              style: const TextStyle(
+                fontSize: 12.5,
+                color: PartyChuColors.muted,
+                height: 1.5,
+              ),
             ),
           ],
         ],
@@ -318,7 +367,10 @@ class _PartyChuPrimaryButtonState extends State<PartyChuPrimaryButton> {
                   : const LinearGradient(
                       begin: Alignment.topLeft,
                       end: Alignment.bottomRight,
-                      colors: [PartyChuColors.primary, PartyChuColors.primaryLight],
+                      colors: [
+                        PartyChuColors.primary,
+                        PartyChuColors.primaryLight,
+                      ],
                     ),
               borderRadius: BorderRadius.circular(20),
               boxShadow: disabled
@@ -367,14 +419,18 @@ class _PartyChuPrimaryButtonState extends State<PartyChuPrimaryButton> {
                             width: 30,
                             height: 30,
                             decoration: BoxDecoration(
-                              color: Colors.white.withValues(alpha: disabled ? 0.7 : 1),
+                              color: Colors.white.withValues(
+                                alpha: disabled ? 0.7 : 1,
+                              ),
                               shape: BoxShape.circle,
                             ),
                             alignment: Alignment.center,
                             child: Icon(
                               widget.badgeIcon,
                               size: 16,
-                              color: disabled ? Colors.black38 : PartyChuColors.primary,
+                              color: disabled
+                                  ? Colors.black38
+                                  : PartyChuColors.primary,
                             ),
                           ),
                           const SizedBox(width: 10),
@@ -389,7 +445,11 @@ class _PartyChuPrimaryButtonState extends State<PartyChuPrimaryButton> {
                         ),
                         if (widget.showSparkle && !disabled) ...[
                           const SizedBox(width: 6),
-                          const Icon(Icons.auto_awesome, color: Colors.white70, size: 15),
+                          const Icon(
+                            Icons.auto_awesome,
+                            color: Colors.white70,
+                            size: 15,
+                          ),
                         ],
                       ],
                     ),

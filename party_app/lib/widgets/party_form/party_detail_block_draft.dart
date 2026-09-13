@@ -29,7 +29,8 @@ class FaqItemDraft {
       questionCtrl = TextEditingController(text: question ?? ''),
       answerCtrl = TextEditingController(text: answer ?? '');
 
-  FaqItemDraft copy() => FaqItemDraft(question: questionCtrl.text, answer: answerCtrl.text);
+  FaqItemDraft copy() =>
+      FaqItemDraft(question: questionCtrl.text, answer: answerCtrl.text);
 
   void dispose() {
     questionCtrl.dispose();
@@ -98,7 +99,9 @@ class ImageGroupItemDraft {
     cropScale: cropScale,
   );
 
-  bool get isEmpty => newImageFile == null && (uploadedImageUrl == null || uploadedImageUrl!.isEmpty);
+  bool get isEmpty =>
+      newImageFile == null &&
+      (uploadedImageUrl == null || uploadedImageUrl!.isEmpty);
 }
 
 /// 블록 에디터 화면에서만 쓰는 mutable 작업 단위 — `PartyRoundDraft`와 같은
@@ -206,9 +209,17 @@ class PartyDetailBlockDraft {
       case PartyDetailBlockType.subheading:
       case PartyDetailBlockType.paragraph:
       case PartyDetailBlockType.notice:
-        return PartyDetailBlockDraft._(id: id, type: type, textCtrl: TextEditingController());
+        return PartyDetailBlockDraft._(
+          id: id,
+          type: type,
+          textCtrl: TextEditingController(),
+        );
       case PartyDetailBlockType.image:
-        return PartyDetailBlockDraft._(id: id, type: type, captionCtrl: TextEditingController());
+        return PartyDetailBlockDraft._(
+          id: id,
+          type: type,
+          captionCtrl: TextEditingController(),
+        );
       case PartyDetailBlockType.divider:
         return PartyDetailBlockDraft._(id: id, type: type);
       case PartyDetailBlockType.checklist:
@@ -240,9 +251,17 @@ class PartyDetailBlockDraft {
           textCtrl: TextEditingController(),
         );
       case PartyDetailBlockType.video:
-        return PartyDetailBlockDraft._(id: id, type: type, captionCtrl: TextEditingController());
+        return PartyDetailBlockDraft._(
+          id: id,
+          type: type,
+          captionCtrl: TextEditingController(),
+        );
       case PartyDetailBlockType.imageGroup:
-        return PartyDetailBlockDraft._(id: id, type: type, captionCtrl: TextEditingController());
+        return PartyDetailBlockDraft._(
+          id: id,
+          type: type,
+          captionCtrl: TextEditingController(),
+        );
       case PartyDetailBlockType.unknown:
         throw UnsupportedError('unknown 타입은 새로 만들 수 없습니다.');
     }
@@ -294,7 +313,10 @@ class PartyDetailBlockDraft {
           faqItems: payload.items.isEmpty
               ? [FaqItemDraft()]
               : payload.items
-                    .map((i) => FaqItemDraft(question: i.question, answer: i.answer))
+                    .map(
+                      (i) =>
+                          FaqItemDraft(question: i.question, answer: i.answer),
+                    )
                     .toList(),
         );
       case PartyDetailBlockType.timeline:
@@ -316,7 +338,8 @@ class PartyDetailBlockDraft {
                     .toList(),
         );
       case PartyDetailBlockType.infoCard:
-        final payload = b.infoCard ?? const PartyDetailInfoCardPayload(title: '', text: '');
+        final payload =
+            b.infoCard ?? const PartyDetailInfoCardPayload(title: '', text: '');
         return PartyDetailBlockDraft._(
           id: b.id,
           type: b.type,
@@ -331,7 +354,9 @@ class PartyDetailBlockDraft {
           type: b.type,
           captionCtrl: TextEditingController(text: payload.caption ?? ''),
           uploadedVideoUid: payload.videoUid,
-          uploadedVideoUrl: payload.videoUrl.isNotEmpty ? payload.videoUrl : null,
+          uploadedVideoUrl: payload.videoUrl.isNotEmpty
+              ? payload.videoUrl
+              : null,
           uploadedVideoThumbnailUrl: payload.thumbnailUrl,
           videoAspectRatio: payload.aspectRatio,
         );
@@ -342,14 +367,16 @@ class PartyDetailBlockDraft {
           type: b.type,
           captionCtrl: TextEditingController(text: payload.caption ?? ''),
           imageGroupItems: payload.items
-              .map((i) => ImageGroupItemDraft(
-                    uploadedImageUrl: i.imageUrl,
-                    width: i.width,
-                    height: i.height,
-                    cropX: i.cropX,
-                    cropY: i.cropY,
-                    cropScale: i.cropScale,
-                  ))
+              .map(
+                (i) => ImageGroupItemDraft(
+                  uploadedImageUrl: i.imageUrl,
+                  width: i.width,
+                  height: i.height,
+                  cropX: i.cropX,
+                  cropY: i.cropY,
+                  cropScale: i.cropScale,
+                ),
+              )
               .toList(),
         );
       case PartyDetailBlockType.unknown:
@@ -456,7 +483,11 @@ class PartyDetailBlockDraft {
       case PartyDetailBlockType.subheading:
       case PartyDetailBlockType.paragraph:
       case PartyDetailBlockType.notice:
-        return PartyDetailBlock(id: id, type: type, text: textCtrl?.text.trim() ?? '');
+        return PartyDetailBlock(
+          id: id,
+          type: type,
+          text: textCtrl?.text.trim() ?? '',
+        );
       case PartyDetailBlockType.image:
         final cap = captionCtrl?.text.trim();
         return PartyDetailBlock(
@@ -501,7 +532,10 @@ class PartyDetailBlockDraft {
         return PartyDetailBlock(
           id: id,
           type: type,
-          faq: PartyDetailFaqPayload(title: (t == null || t.isEmpty) ? null : t, items: items),
+          faq: PartyDetailFaqPayload(
+            title: (t == null || t.isEmpty) ? null : t,
+            items: items,
+          ),
         );
       case PartyDetailBlockType.timeline:
         final items = timelineItems
@@ -551,15 +585,17 @@ class PartyDetailBlockDraft {
         final cap = captionCtrl?.text.trim();
         final items = imageGroupItems
             .where((i) => !i.isEmpty)
-            .map((i) => PartyDetailImageGroupItem(
-                  id: i.uiKey,
-                  imageUrl: i.uploadedImageUrl ?? '',
-                  width: i.width,
-                  height: i.height,
-                  cropX: i.cropX,
-                  cropY: i.cropY,
-                  cropScale: i.cropScale,
-                ))
+            .map(
+              (i) => PartyDetailImageGroupItem(
+                id: i.uiKey,
+                imageUrl: i.uploadedImageUrl ?? '',
+                width: i.width,
+                height: i.height,
+                cropX: i.cropX,
+                cropY: i.cropY,
+                cropScale: i.cropScale,
+              ),
+            )
             .toList();
         return PartyDetailBlock(
           id: id,
@@ -570,7 +606,11 @@ class PartyDetailBlockDraft {
           ),
         );
       case PartyDetailBlockType.unknown:
-        return PartyDetailBlock(id: id, type: PartyDetailBlockType.unknown, rawUnknown: rawUnknown);
+        return PartyDetailBlock(
+          id: id,
+          type: PartyDetailBlockType.unknown,
+          rawUnknown: rawUnknown,
+        );
     }
   }
 
@@ -584,7 +624,8 @@ class PartyDetailBlockDraft {
       case PartyDetailBlockType.notice:
         return (textCtrl?.text.trim().isEmpty) ?? true;
       case PartyDetailBlockType.image:
-        return newImageFile == null && (uploadedImageUrl == null || uploadedImageUrl!.isEmpty);
+        return newImageFile == null &&
+            (uploadedImageUrl == null || uploadedImageUrl!.isEmpty);
       case PartyDetailBlockType.divider:
       case PartyDetailBlockType.unknown:
         return false;
@@ -592,7 +633,9 @@ class PartyDetailBlockDraft {
         return checklistItems.every((i) => i.textCtrl.text.trim().isEmpty);
       case PartyDetailBlockType.faq:
         return faqItems.every(
-          (i) => i.questionCtrl.text.trim().isEmpty && i.answerCtrl.text.trim().isEmpty,
+          (i) =>
+              i.questionCtrl.text.trim().isEmpty &&
+              i.answerCtrl.text.trim().isEmpty,
         );
       case PartyDetailBlockType.timeline:
         return timelineItems.every(
@@ -602,9 +645,11 @@ class PartyDetailBlockDraft {
               i.descriptionCtrl.text.trim().isEmpty,
         );
       case PartyDetailBlockType.infoCard:
-        return (titleCtrl?.text.trim().isEmpty ?? true) && (textCtrl?.text.trim().isEmpty ?? true);
+        return (titleCtrl?.text.trim().isEmpty ?? true) &&
+            (textCtrl?.text.trim().isEmpty ?? true);
       case PartyDetailBlockType.video:
-        return newVideoFile == null && (uploadedVideoUrl == null || uploadedVideoUrl!.isEmpty);
+        return newVideoFile == null &&
+            (uploadedVideoUrl == null || uploadedVideoUrl!.isEmpty);
       case PartyDetailBlockType.imageGroup:
         // 2장 미만이면 콜라주로서 의미가 없으므로 저장 시 걸러낸다.
         return imageGroupItems.where((i) => !i.isEmpty).length < 2;

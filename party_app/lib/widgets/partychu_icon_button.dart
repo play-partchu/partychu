@@ -62,12 +62,19 @@ class _PartyChuIconTapState extends State<PartyChuIconTap> {
                   decoration: BoxDecoration(
                     shape: BoxShape.circle,
                     boxShadow: [
-                      const BoxShadow(color: Color(0x1F000000), blurRadius: 2.5),
+                      const BoxShadow(
+                        color: Color(0x1F000000),
+                        blurRadius: 2.5,
+                      ),
                       BoxShadow(
                         color: widget.glowColor.withValues(
-                          alpha: _pressed ? (widget.glowAlpha + 0.28).clamp(0.0, 1.0) : widget.glowAlpha,
+                          alpha: _pressed
+                              ? (widget.glowAlpha + 0.28).clamp(0.0, 1.0)
+                              : widget.glowAlpha,
                         ),
-                        blurRadius: _pressed ? widget.glowBlur * 1.7 : widget.glowBlur,
+                        blurRadius: _pressed
+                            ? widget.glowBlur * 1.7
+                            : widget.glowBlur,
                         spreadRadius: _pressed ? 1.4 : 0.4,
                       ),
                     ],
@@ -149,7 +156,9 @@ class MuteToggleIconButton extends StatelessWidget {
           padding: padding,
           glow: false,
           child: HugeIcon(
-            icon: muted ? HugeIcons.strokeRoundedVolumeMute02 : HugeIcons.strokeRoundedVolumeHigh,
+            icon: muted
+                ? HugeIcons.strokeRoundedVolumeMute02
+                : HugeIcons.strokeRoundedVolumeHigh,
             color: color,
             size: size,
           ),

@@ -90,6 +90,17 @@ class UserSession {
   static String nickname = '';
   static String profileImageUrl = '';
 
+  // ── 로그인 계정 표시용(마이페이지) — utils/login_account.dart가 쓴다 ──
+  // 기록 주체가 다 다르다:
+  //  · socialAccount — 서버(functions/socialAuth.js)가 카카오·네이버 로그인
+  //    **매번** 소셜 계정 이메일을 기록한다. 카카오·네이버 표시의 1순위.
+  //  · signupProvider — login.dart가 최초 1회. 제공자 판정 폴백.
+  //  · email — onUserCreated(functions/index.js)가 가입 시 Auth에서 복사. 폴백.
+  static String socialAccountProvider = '';
+  static String socialAccountEmail = '';
+  static String signupProvider = '';
+  static String accountEmail = '';
+
   /// 서버가 정하는 계정 상태 — 'active' · 'withdrawal_pending' · 'withdrawn' 등.
   /// 탈퇴 대기 중이면 앱이 서비스 화면 대신 안내 화면을 띄운다. 이 값은
   /// 규칙상 클라이언트가 쓸 수 없어 앱에서는 읽기만 한다.
@@ -278,6 +289,10 @@ class UserSession {
     role = '';
     nickname = '';
     profileImageUrl = '';
+    socialAccountProvider = '';
+    socialAccountEmail = '';
+    signupProvider = '';
+    accountEmail = '';
     accountStatus = 'active';
     withdrawalScheduledAt = null;
     // [identityStatus]는 위 값들로 그때그때 계산되므로 따로 되돌릴 것이 없다 —
@@ -442,6 +457,15 @@ class UserSession {
       role = data['role'] as String? ?? '';
       nickname = data['nickname'] as String? ?? '';
       profileImageUrl = data['profileImageUrl'] as String? ?? '';
+      signupProvider = data['signupProvider'] as String? ?? '';
+      accountEmail = data['email'] as String? ?? '';
+      final social = data['socialAccount'];
+      socialAccountProvider = social is Map && social['provider'] is String
+          ? social['provider'] as String
+          : '';
+      socialAccountEmail = social is Map && social['email'] is String
+          ? social['email'] as String
+          : '';
       accountStatus = data['accountStatus'] as String? ?? 'active';
       withdrawalScheduledAt = (data['withdrawalScheduledAt'] as Timestamp?)
           ?.toDate();
@@ -462,6 +486,10 @@ class UserSession {
       role = '';
       nickname = '';
       profileImageUrl = '';
+      socialAccountProvider = '';
+      socialAccountEmail = '';
+      signupProvider = '';
+      accountEmail = '';
     }
   }
 }

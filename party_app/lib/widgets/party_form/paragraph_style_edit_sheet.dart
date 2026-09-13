@@ -47,7 +47,8 @@ class _ParagraphStyleEditSheet extends StatefulWidget {
   });
 
   @override
-  State<_ParagraphStyleEditSheet> createState() => _ParagraphStyleEditSheetState();
+  State<_ParagraphStyleEditSheet> createState() =>
+      _ParagraphStyleEditSheetState();
 }
 
 class _ParagraphStyleEditSheetState extends State<_ParagraphStyleEditSheet> {
@@ -79,9 +80,12 @@ class _ParagraphStyleEditSheetState extends State<_ParagraphStyleEditSheet> {
   }
 
   Widget _sectionLabel(String text) => Padding(
-        padding: const EdgeInsets.only(bottom: 10),
-        child: Text(text, style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w700)),
-      );
+    padding: const EdgeInsets.only(bottom: 10),
+    child: Text(
+      text,
+      style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w700),
+    ),
+  );
 
   @override
   Widget build(BuildContext context) {
@@ -98,7 +102,10 @@ class _ParagraphStyleEditSheetState extends State<_ParagraphStyleEditSheet> {
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            const Text('문단 스타일 편집', style: TextStyle(fontSize: 17, fontWeight: FontWeight.bold)),
+            const Text(
+              '문단 스타일 편집',
+              style: TextStyle(fontSize: 17, fontWeight: FontWeight.bold),
+            ),
             const SizedBox(height: 18),
             _sectionLabel('스타일'),
             Wrap(
@@ -113,16 +120,23 @@ class _ParagraphStyleEditSheetState extends State<_ParagraphStyleEditSheet> {
                     selectedColor: _kAccent.withValues(alpha: 0.15),
                     labelStyle: TextStyle(
                       color: category == _category ? _kAccent : Colors.black87,
-                      fontWeight: category == _category ? FontWeight.w700 : FontWeight.w500,
+                      fontWeight: category == _category
+                          ? FontWeight.w700
+                          : FontWeight.w500,
                     ),
-                    side: BorderSide(color: category == _category ? _kAccent : Colors.black12),
+                    side: BorderSide(
+                      color: category == _category ? _kAccent : Colors.black12,
+                    ),
                   ),
               ],
             ),
             const SizedBox(height: 20),
             _sectionLabel('이모지'),
             if (emojiPool.isEmpty)
-              const Text('이 스타일에는 이모지가 붙지 않아요', style: TextStyle(fontSize: 13, color: Colors.black54))
+              const Text(
+                '이 스타일에는 이모지가 붙지 않아요',
+                style: TextStyle(fontSize: 13, color: Colors.black54),
+              )
             else
               Wrap(
                 spacing: 8,
@@ -164,7 +178,9 @@ class _ParagraphStyleEditSheetState extends State<_ParagraphStyleEditSheet> {
                     onPressed: () => Navigator.pop(context),
                     style: OutlinedButton.styleFrom(
                       padding: const EdgeInsets.symmetric(vertical: 13),
-                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(12),
+                      ),
                     ),
                     child: const Text('취소'),
                   ),
@@ -177,9 +193,14 @@ class _ParagraphStyleEditSheetState extends State<_ParagraphStyleEditSheet> {
                       backgroundColor: _kAccent,
                       foregroundColor: Colors.white,
                       padding: const EdgeInsets.symmetric(vertical: 13),
-                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(12),
+                      ),
                     ),
-                    child: const Text('적용', style: TextStyle(fontWeight: FontWeight.bold)),
+                    child: const Text(
+                      '적용',
+                      style: TextStyle(fontWeight: FontWeight.bold),
+                    ),
                   ),
                 ),
               ],

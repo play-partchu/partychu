@@ -53,17 +53,30 @@ enum _FailureKind {
 class _AttemptOutcome {
   final bool success;
   final _FailureKind? failureKind;
-  final String logTag; // success / timeout / failure
+  final String logTag; // success / timeout / failure / duplicate
+
+  /// 서버가 "이 CI는 이미 다른 계정에 연결됨"이라고 답한 경우의 안내 문구.
+  /// null이 아니면 재시도 대상이 아니라 정책상 거부이므로, 재시도 버튼 없이
+  /// 이 문구만 보여주고 화면을 닫게 한다.
+  final String? blockMessage;
+
   const _AttemptOutcome.success()
-      : success = true,
-        failureKind = null,
-        logTag = 'success';
+    : success = true,
+      failureKind = null,
+      blockMessage = null,
+      logTag = 'success';
   const _AttemptOutcome.retryable(this.logTag)
-      : success = false,
-        failureKind = _FailureKind.retryable;
+    : success = false,
+      blockMessage = null,
+      failureKind = _FailureKind.retryable;
   const _AttemptOutcome.permanent(this.logTag)
-      : success = false,
-        failureKind = _FailureKind.permanent;
+    : success = false,
+      blockMessage = null,
+      failureKind = _FailureKind.permanent;
+  const _AttemptOutcome.blocked(this.blockMessage)
+    : success = false,
+      logTag = 'duplicate',
+      failureKind = _FailureKind.permanent;
 }
 
 /// Navigator.push 결과: true = 성공, false = 취소/실패
@@ -89,6 +102,10 @@ class _NiceAuthVerificationScreenState
   /// _fetchResult가 한 번만 실행되도록 onNavigationRequest 단계에서 즉시 세운다.
   bool _isProcessingResult = false;
   String? _lastWebTransactionId;
+
+  /// "이미 다른 계정에서 본인확인이 완료됨" 안내 — 정책상 거부이므로 재시도
+  /// 버튼 없이 이 문구만 보여준다(null이면 해당 상태가 아님).
+  String? _blockedMessage;
 
   @override
   void initState() {
@@ -148,6 +165,11 @@ class _NiceAuthVerificationScreenState
       debugPrint('[NiceAuth] ❌ ${e.code}: ${e.message}');
 
       if (e.code == 'already-exists') {
+        // 서버가 "이미 본인확인된 계정"이라고 답한 경우 — 세션도 그 사실로
+        // 맞춰 두어야, 앱이 다시 이 화면으로 보내지 않는다.
+        try {
+          await UserSession.loadFromFirestore();
+        } catch (_) {}
         if (mounted) Navigator.pop(context, true);
         return;
       }
@@ -210,52 +232,60 @@ class _NiceAuthVerificationScreenState
 
     final ctrl = WebViewController()
       ..setJavaScriptMode(JavaScriptMode.unrestricted)
-      ..setNavigationDelegate(NavigationDelegate(
-        onPageStarted: (url) => debugPrint('[NiceAuth] onPageStarted: $url'),
-        onPageFinished: (url) => debugPrint('[NiceAuth] onPageFinished: $url'),
-        onNavigationRequest: (NavigationRequest req) {
-          debugPrint('[NiceAuth] onNavigationRequest: ${req.url}'
-              ' isMainFrame=${req.isMainFrame}');
+      ..setNavigationDelegate(
+        NavigationDelegate(
+          onPageStarted: (url) => debugPrint('[NiceAuth] onPageStarted: $url'),
+          onPageFinished: (url) =>
+              debugPrint('[NiceAuth] onPageFinished: $url'),
+          onNavigationRequest: (NavigationRequest req) {
+            debugPrint(
+              '[NiceAuth] onNavigationRequest: ${req.url}'
+              ' isMainFrame=${req.isMainFrame}',
+            );
 
-          if (req.url.startsWith(_kNiceReturnUrl)) {
-            // 콜백 URL 감지는 여기서 한 번만 처리한다 — 이미 결과 조회를
-            // 시작했다면(_isProcessingResult) 리다이렉트가 중복 감지되어도
-            // 다시 트리거하지 않는다.
-            if (_isProcessingResult) {
-              debugPrint('[NiceAuth] 콜백 중복 감지 — 무시');
+            if (req.url.startsWith(_kNiceReturnUrl)) {
+              // 콜백 URL 감지는 여기서 한 번만 처리한다 — 이미 결과 조회를
+              // 시작했다면(_isProcessingResult) 리다이렉트가 중복 감지되어도
+              // 다시 트리거하지 않는다.
+              if (_isProcessingResult) {
+                debugPrint('[NiceAuth] 콜백 중복 감지 — 무시');
+                return NavigationDecision.prevent;
+              }
+
+              final uri = Uri.tryParse(req.url);
+
+              if (uri?.queryParameters['closed'] == '1') {
+                debugPrint('[NiceAuth] 닫기 버튼으로 취소');
+                if (mounted) Navigator.pop(context, false);
+                return NavigationDecision.prevent;
+              }
+
+              // 문서 1.5 GET 방식 예시: web_transaction_id를 Query String에서 추출
+              final webTransactionId =
+                  uri?.queryParameters['web_transaction_id'];
+              debugPrint('[NiceAuth APP] callback detected');
+
+              if (webTransactionId != null && webTransactionId.isNotEmpty) {
+                _isProcessingResult = true; // 동기적으로 즉시 세워 중복 진입 차단
+                _lastWebTransactionId = webTransactionId;
+                _startResultCheck(webTransactionId);
+              } else {
+                // 문서: "해당 값을 받지 못할 경우 사용자 인증이 완료되지 않은 상태"
+                debugPrint('[NiceAuth] web_transaction_id 없음 → 인증 미완료');
+                if (mounted) Navigator.pop(context, false);
+              }
               return NavigationDecision.prevent;
             }
-
-            final uri = Uri.tryParse(req.url);
-
-            if (uri?.queryParameters['closed'] == '1') {
-              debugPrint('[NiceAuth] 닫기 버튼으로 취소');
-              if (mounted) Navigator.pop(context, false);
-              return NavigationDecision.prevent;
-            }
-
-            // 문서 1.5 GET 방식 예시: web_transaction_id를 Query String에서 추출
-            final webTransactionId = uri?.queryParameters['web_transaction_id'];
-            debugPrint('[NiceAuth APP] callback detected');
-
-            if (webTransactionId != null && webTransactionId.isNotEmpty) {
-              _isProcessingResult = true; // 동기적으로 즉시 세워 중복 진입 차단
-              _lastWebTransactionId = webTransactionId;
-              _startResultCheck(webTransactionId);
-            } else {
-              // 문서: "해당 값을 받지 못할 경우 사용자 인증이 완료되지 않은 상태"
-              debugPrint('[NiceAuth] web_transaction_id 없음 → 인증 미완료');
-              if (mounted) Navigator.pop(context, false);
-            }
-            return NavigationDecision.prevent;
-          }
-          return NavigationDecision.navigate;
-        },
-        onWebResourceError: (WebResourceError e) => debugPrint(
-            '[NiceAuth] onWebResourceError: ${e.errorCode} ${e.description} url=${e.url}'),
-        onHttpError: (HttpResponseError e) => debugPrint(
-            '[NiceAuth] onHttpError: ${e.response?.statusCode} url=${e.request?.uri}'),
-      ))
+            return NavigationDecision.navigate;
+          },
+          onWebResourceError: (WebResourceError e) => debugPrint(
+            '[NiceAuth] onWebResourceError: ${e.errorCode} ${e.description} url=${e.url}',
+          ),
+          onHttpError: (HttpResponseError e) => debugPrint(
+            '[NiceAuth] onHttpError: ${e.response?.statusCode} url=${e.request?.uri}',
+          ),
+        ),
+      )
       ..loadRequest(Uri.parse(authUrl));
 
     _safeSetState(() {
@@ -294,21 +324,43 @@ class _NiceAuthVerificationScreenState
 
       final remainingBudget = _kOverallDeadline - overallStopwatch.elapsed;
       if (remainingBudget <= Duration.zero) break;
-      final attemptTimeout =
-          remainingBudget < _kAttemptTimeout ? remainingBudget : _kAttemptTimeout;
+      final attemptTimeout = remainingBudget < _kAttemptTimeout
+          ? remainingBudget
+          : _kAttemptTimeout;
 
       debugPrint('[NiceAuth APP] result request attempt ${attempt + 1}');
       final attemptStopwatch = Stopwatch()..start();
       final outcome = await _fetchResultOnce(webTransactionId, attemptTimeout);
-      debugPrint('[NiceAuth APP] attempt ${attempt + 1} completed: '
-          '${attemptStopwatch.elapsedMilliseconds}ms — ${outcome.logTag}');
+      debugPrint(
+        '[NiceAuth APP] attempt ${attempt + 1} completed: '
+        '${attemptStopwatch.elapsedMilliseconds}ms — ${outcome.logTag}',
+      );
 
       if (_disposed) return;
 
       if (outcome.success) {
         debugPrint('[NiceAuth APP] success');
-        await UserSession.loadFromFirestore();
+        // 세션 갱신에 실패하더라도 인증 성공 자체는 그대로 알린다 — 여기서
+        // 막히면 인증을 마친 사용자가 이 화면에 갇힌다(호출부가 서버 값을
+        // 다시 확인한다).
+        try {
+          await UserSession.loadFromFirestore();
+        } catch (e) {
+          debugPrint('[NiceAuth APP] 세션 갱신 실패(무시): $e');
+        }
         if (mounted) Navigator.pop(context, true);
+        return;
+      }
+
+      // 정책상 거부(같은 사람이 이미 다른 계정에서 인증 완료) — 재시도해도
+      // 결과가 바뀌지 않으므로 안내 문구만 보여주고 끝낸다.
+      if (outcome.blockMessage != null) {
+        debugPrint('[NiceAuth APP] blocked (duplicate identity)');
+        _safeSetState(() {
+          _completing = false;
+          _loading = false;
+          _blockedMessage = outcome.blockMessage;
+        });
         return;
       }
 
@@ -334,7 +386,9 @@ class _NiceAuthVerificationScreenState
   }
 
   Future<_AttemptOutcome> _fetchResultOnce(
-      String webTransactionId, Duration timeout) async {
+    String webTransactionId,
+    Duration timeout,
+  ) async {
     try {
       await FirebaseFunctions.instanceFor(region: _kRegion)
           .httpsCallable(
@@ -351,12 +405,27 @@ class _NiceAuthVerificationScreenState
       // 계속되다 자체 timeout으로 종료되지만, 이 Future는 여기서 손을 뗀다).
       return const _AttemptOutcome.retryable('timeout');
     } on FirebaseFunctionsException catch (e) {
-      final detailCode = (e.details is Map) ? e.details['code'] as String? : null;
-      debugPrint('[NiceAuth] niceAuthResult 오류: ${e.code} detail=$detailCode '
-          '${e.message}');
+      final detailCode = (e.details is Map)
+          ? e.details['code'] as String?
+          : null;
+      debugPrint(
+        '[NiceAuth] niceAuthResult 오류: ${e.code} detail=$detailCode '
+        '${e.message}',
+      );
+
+      // "1명의 실사용자 = 파티츄 계정 1개" 정책 위반 — CI가 이미 다른 계정에
+      // 연결되어 서버가 인증을 거부했다. 서버 문구를 그대로 보여준다.
+      if (detailCode == 'IDENTITY_ALREADY_LINKED') {
+        return _AttemptOutcome.blocked(
+          e.message ??
+              '이미 다른 파티츄 계정에서 본인확인이 완료된 정보입니다.\n'
+                  '기존 계정으로 로그인해주세요.',
+        );
+      }
 
       // 서버가 명시적으로 "재시도 가능"이라고 알려주는 경우
-      if (detailCode == 'NICE_RESULT_TIMEOUT' || e.code == 'deadline-exceeded') {
+      if (detailCode == 'NICE_RESULT_TIMEOUT' ||
+          e.code == 'deadline-exceeded') {
         return const _AttemptOutcome.retryable('timeout');
       }
       // 사용자가 표준창에서 취소했거나 NICE가 실패로 응답 — 재시도 무의미
@@ -385,8 +454,20 @@ class _NiceAuthVerificationScreenState
     return Scaffold(
       backgroundColor: Colors.white,
       appBar: AppBar(
-        title: const Text('본인확인',
-            style: TextStyle(color: Colors.black87, fontFamily: 'SeoulHangang', fontWeight: FontWeight.w500, shadows: [Shadow(color: Colors.black87, offset: Offset(0.3, 0)), Shadow(color: Colors.black87, offset: Offset(-0.3, 0)), Shadow(color: Colors.black87, offset: Offset(0, 0.3)), Shadow(color: Colors.black87, offset: Offset(0, -0.3))])),
+        title: const Text(
+          '본인확인',
+          style: TextStyle(
+            color: Colors.black87,
+            fontFamily: 'SeoulHangang',
+            fontWeight: FontWeight.w500,
+            shadows: [
+              Shadow(color: Colors.black87, offset: Offset(0.3, 0)),
+              Shadow(color: Colors.black87, offset: Offset(-0.3, 0)),
+              Shadow(color: Colors.black87, offset: Offset(0, 0.3)),
+              Shadow(color: Colors.black87, offset: Offset(0, -0.3)),
+            ],
+          ),
+        ),
         backgroundColor: Colors.white,
         foregroundColor: Colors.black87,
         elevation: 0.5,
@@ -397,10 +478,14 @@ class _NiceAuthVerificationScreenState
       ),
       body: Stack(
         children: [
-          if (_ctrl != null && _error == null && !_resultCheckFailed)
+          if (_ctrl != null &&
+              _error == null &&
+              !_resultCheckFailed &&
+              _blockedMessage == null)
             WebViewWidget(controller: _ctrl!),
           if (_error != null) _buildUrlErrorView(),
           if (_resultCheckFailed) _buildResultFailedView(),
+          if (_blockedMessage != null) _buildBlockedView(),
           if (_loading || _completing) _buildLoadingOverlay(),
         ],
       ),
@@ -418,9 +503,11 @@ class _NiceAuthVerificationScreenState
             children: [
               const CircularProgressIndicator(color: Color(0xFFFF6FA0)),
               const SizedBox(height: 16),
-              Text(_step.label,
-                  textAlign: TextAlign.center,
-                  style: const TextStyle(fontSize: 13, color: Colors.black45)),
+              Text(
+                _step.label,
+                textAlign: TextAlign.center,
+                style: const TextStyle(fontSize: 13, color: Colors.black45),
+              ),
             ],
           ),
         ),
@@ -437,21 +524,82 @@ class _NiceAuthVerificationScreenState
           children: [
             const Icon(Icons.error_outline, size: 56, color: Colors.redAccent),
             const SizedBox(height: 20),
-            Text(_error!,
-                textAlign: TextAlign.center,
-                style: const TextStyle(fontSize: 14, color: Colors.black54, height: 1.6)),
+            Text(
+              _error!,
+              textAlign: TextAlign.center,
+              style: const TextStyle(
+                fontSize: 14,
+                color: Colors.black54,
+                height: 1.6,
+              ),
+            ),
             const SizedBox(height: 28),
             ElevatedButton(
               onPressed: _requestAuthUrl,
               style: ElevatedButton.styleFrom(
                 backgroundColor: const Color(0xFFFF6FA0),
                 foregroundColor: Colors.white,
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                padding: const EdgeInsets.symmetric(horizontal: 28, vertical: 14),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 28,
+                  vertical: 14,
+                ),
               ),
               child: const Text('다시 시도'),
             ),
           ],
+        ),
+      ),
+    );
+  }
+
+  /// "1명의 실사용자 = 파티츄 계정 1개" 정책 안내 — 이미 다른 계정에서 본인확인을
+  /// 마친 사람이라 재시도로 풀리지 않는다. 그래서 재시도 버튼을 두지 않고
+  /// "확인"으로 화면을 닫는 것만 제공한다.
+  Widget _buildBlockedView() {
+    return Container(
+      color: Colors.white,
+      child: Center(
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 28),
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              const Icon(
+                Icons.person_off_outlined,
+                size: 56,
+                color: Color(0xFFFF6FA0),
+              ),
+              const SizedBox(height: 20),
+              Text(
+                _blockedMessage!,
+                textAlign: TextAlign.center,
+                style: const TextStyle(
+                  fontSize: 14,
+                  color: Colors.black54,
+                  height: 1.6,
+                ),
+              ),
+              const SizedBox(height: 28),
+              ElevatedButton(
+                onPressed: () => Navigator.pop(context, false),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: const Color(0xFFFF6FA0),
+                  foregroundColor: Colors.white,
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 28,
+                    vertical: 14,
+                  ),
+                ),
+                child: const Text('확인'),
+              ),
+            ],
+          ),
         ),
       ),
     );
@@ -469,7 +617,11 @@ class _NiceAuthVerificationScreenState
             const Text(
               '인증 결과를 확인하지 못했습니다.\n잠시 후 다시 시도해주세요.',
               textAlign: TextAlign.center,
-              style: TextStyle(fontSize: 14, color: Colors.black54, height: 1.6),
+              style: TextStyle(
+                fontSize: 14,
+                color: Colors.black54,
+                height: 1.6,
+              ),
             ),
             const SizedBox(height: 28),
             Row(
@@ -480,8 +632,13 @@ class _NiceAuthVerificationScreenState
                   style: OutlinedButton.styleFrom(
                     foregroundColor: const Color(0xFFFF6FA0),
                     side: const BorderSide(color: Color(0xFFFF6FA0)),
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                    padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 20,
+                      vertical: 14,
+                    ),
                   ),
                   child: const Text('다시 확인'),
                 ),
@@ -495,8 +652,13 @@ class _NiceAuthVerificationScreenState
                   style: ElevatedButton.styleFrom(
                     backgroundColor: const Color(0xFFFF6FA0),
                     foregroundColor: Colors.white,
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                    padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 20,
+                      vertical: 14,
+                    ),
                   ),
                   child: const Text('본인인증 다시하기'),
                 ),

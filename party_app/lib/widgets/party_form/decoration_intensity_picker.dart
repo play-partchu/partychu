@@ -38,7 +38,9 @@ class DecorationIntensityPicker extends StatelessWidget {
                 decoration: BoxDecoration(
                   color: isSelected ? accentColor : const Color(0xFFF7F7FA),
                   borderRadius: BorderRadius.circular(10),
-                  border: Border.all(color: isSelected ? accentColor : const Color(0xFFE8EBF2)),
+                  border: Border.all(
+                    color: isSelected ? accentColor : const Color(0xFFE8EBF2),
+                  ),
                 ),
                 alignment: Alignment.center,
                 child: Text(

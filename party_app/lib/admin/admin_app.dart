@@ -47,8 +47,10 @@ class _NotAdminScreen extends StatelessWidget {
           children: [
             const Icon(Icons.lock_outline, size: 48, color: Colors.black38),
             const SizedBox(height: 16),
-            const Text('관리자 권한이 없는 계정입니다.',
-                style: TextStyle(fontSize: 15, fontWeight: FontWeight.bold)),
+            const Text(
+              '관리자 권한이 없는 계정입니다.',
+              style: TextStyle(fontSize: 15, fontWeight: FontWeight.bold),
+            ),
             const SizedBox(height: 20),
             ElevatedButton(
               onPressed: () async {
@@ -76,7 +78,9 @@ class _AdminAuthGateState extends State<_AdminAuthGate> {
       builder: (context, snap) {
         if (snap.connectionState == ConnectionState.waiting) {
           return const Scaffold(
-            body: Center(child: CircularProgressIndicator(color: Color(0xFFFF6FA0))),
+            body: Center(
+              child: CircularProgressIndicator(color: Color(0xFFFF6FA0)),
+            ),
           );
         }
         final user = snap.data;
@@ -87,11 +91,16 @@ class _AdminAuthGateState extends State<_AdminAuthGate> {
         // (AdminLoginScreen에서 이미 확인하지만, 새로고침으로 세션이 복원된
         //  경우를 위해 여기서도 재확인한다)
         return FutureBuilder<DocumentSnapshot<Map<String, dynamic>>>(
-          future: FirebaseFirestore.instance.collection('users').doc(user.uid).get(),
+          future: FirebaseFirestore.instance
+              .collection('users')
+              .doc(user.uid)
+              .get(),
           builder: (context, userSnap) {
             if (userSnap.connectionState == ConnectionState.waiting) {
               return const Scaffold(
-                body: Center(child: CircularProgressIndicator(color: Color(0xFFFF6FA0))),
+                body: Center(
+                  child: CircularProgressIndicator(color: Color(0xFFFF6FA0)),
+                ),
               );
             }
             final role = userSnap.data?.data()?['role'] as String?;

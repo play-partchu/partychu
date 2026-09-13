@@ -18,12 +18,12 @@ class _AddressSearchScreenState extends State<AddressSearchScreen> {
   Timer? _debounce;
 
   // 디버그 상태
-  int    _statusCode       = 0;
-  String _errorMessage     = '';
-  String _searchedKeyword  = '';
+  int _statusCode = 0;
+  String _errorMessage = '';
+  String _searchedKeyword = '';
   String _normalizedKeyword = '';
-  int    _resultCount      = 0;
-  bool   _isAuthError      = false;
+  int _resultCount = 0;
+  bool _isAuthError = false;
 
   @override
   void dispose() {
@@ -43,60 +43,63 @@ class _AddressSearchScreenState extends State<AddressSearchScreen> {
   Future<void> _search(String query) async {
     if (query.isEmpty) {
       setState(() {
-        _results        = [];
-        _hasSearched    = false;
-        _statusCode     = 0;
-        _errorMessage   = '';
-        _searchedKeyword  = '';
+        _results = [];
+        _hasSearched = false;
+        _statusCode = 0;
+        _errorMessage = '';
+        _searchedKeyword = '';
         _normalizedKeyword = '';
-        _resultCount    = 0;
-        _isAuthError    = false;
+        _resultCount = 0;
+        _isAuthError = false;
       });
       return;
     }
 
     setState(() {
-      _isLoading    = true;
-      _hasSearched  = true;
+      _isLoading = true;
+      _hasSearched = true;
       _errorMessage = '';
-      _isAuthError  = false;
+      _isAuthError = false;
     });
 
     debugPrint('[AddressSearch] 검색어: $query');
 
     try {
-      final callable = FirebaseFunctions.instanceFor(region: 'asia-northeast3')
-          .httpsCallable('geocodeAddress');
-      final result =
-          await callable.call<Map<Object?, Object?>>({'query': query});
+      final callable = FirebaseFunctions.instanceFor(
+        region: 'asia-northeast3',
+      ).httpsCallable('geocodeAddress');
+      final result = await callable.call<Map<Object?, Object?>>({
+        'query': query,
+      });
 
-      final body   = result.data;
+      final body = result.data;
       final status = body['status'] as String? ?? '';
-      final code   = (body['statusCode'] as num?)?.toInt() ?? 0;
-      final debug  = body['debug'] as Map<Object?, Object?>? ?? {};
+      final code = (body['statusCode'] as num?)?.toInt() ?? 0;
+      final debug = body['debug'] as Map<Object?, Object?>? ?? {};
 
-      final rawQuery        = debug['rawQuery']        as String? ?? query;
+      final rawQuery = debug['rawQuery'] as String? ?? query;
       final normalizedQuery = debug['normalizedQuery'] as String? ?? query;
 
-      final addressesList =
-          (body['addresses'] as List<Object?>?) ?? [];
+      final addressesList = (body['addresses'] as List<Object?>?) ?? [];
 
-      debugPrint('[AddressSearch] status=$status statusCode=$code '
-          'rawQuery=$rawQuery normalizedQuery=$normalizedQuery '
-          'resultCount=${addressesList.length}');
+      debugPrint(
+        '[AddressSearch] status=$status statusCode=$code '
+        'rawQuery=$rawQuery normalizedQuery=$normalizedQuery '
+        'resultCount=${addressesList.length}',
+      );
 
       // 인증 오류
       if (status == 'AUTH_ERROR' || code == 401 || code == 403) {
         if (mounted) {
           setState(() {
-            _results          = [];
-            _isLoading        = false;
-            _statusCode       = code;
-            _errorMessage     = '지도 API 인증 오류입니다. 관리자 설정을 확인해주세요.';
-            _searchedKeyword  = rawQuery;
+            _results = [];
+            _isLoading = false;
+            _statusCode = code;
+            _errorMessage = '지도 API 인증 오류입니다. 관리자 설정을 확인해주세요.';
+            _searchedKeyword = rawQuery;
             _normalizedKeyword = normalizedQuery;
-            _resultCount      = 0;
-            _isAuthError      = true;
+            _resultCount = 0;
+            _isAuthError = true;
           });
         }
         return;
@@ -105,44 +108,46 @@ class _AddressSearchScreenState extends State<AddressSearchScreen> {
       // 결과 파싱
       final List<AddressResult> results = [];
       for (final addr in addressesList) {
-        final m    = addr as Map<Object?, Object?>;
-        final road  = m['roadAddress']  as String? ?? '';
+        final m = addr as Map<Object?, Object?>;
+        final road = m['roadAddress'] as String? ?? '';
         final jibun = m['jibunAddress'] as String? ?? '';
-        final lng   = double.tryParse(m['x'] as String? ?? '') ?? 0.0;
-        final lat   = double.tryParse(m['y'] as String? ?? '') ?? 0.0;
-        results.add(AddressResult(
-          placeName:    '',
-          address:      road.isNotEmpty ? road : jibun,
-          roadAddress:  road,
-          jibunAddress: jibun,
-          latitude:     lat,
-          longitude:    lng,
-        ));
+        final lng = double.tryParse(m['x'] as String? ?? '') ?? 0.0;
+        final lat = double.tryParse(m['y'] as String? ?? '') ?? 0.0;
+        results.add(
+          AddressResult(
+            placeName: '',
+            address: road.isNotEmpty ? road : jibun,
+            roadAddress: road,
+            jibunAddress: jibun,
+            latitude: lat,
+            longitude: lng,
+          ),
+        );
       }
 
       if (mounted) {
         setState(() {
-          _results           = results;
-          _isLoading         = false;
-          _statusCode        = code;
-          _errorMessage      = results.isEmpty
+          _results = results;
+          _isLoading = false;
+          _statusCode = code;
+          _errorMessage = results.isEmpty
               ? '검색 결과가 없습니다. 도로명 또는 지번 주소로 다시 검색해주세요.'
               : '';
-          _searchedKeyword   = rawQuery;
+          _searchedKeyword = rawQuery;
           _normalizedKeyword = normalizedQuery;
-          _resultCount       = results.length;
-          _isAuthError       = false;
+          _resultCount = results.length;
+          _isAuthError = false;
         });
       }
     } catch (e, st) {
       debugPrint('[AddressSearch] 예외: $e\n$st');
       if (mounted) {
         setState(() {
-          _isLoading        = false;
-          _errorMessage     = '요청 실패: $e';
-          _searchedKeyword  = query;
+          _isLoading = false;
+          _errorMessage = '요청 실패: $e';
+          _searchedKeyword = query;
           _normalizedKeyword = '';
-          _resultCount      = 0;
+          _resultCount = 0;
         });
       }
     }
@@ -223,9 +228,10 @@ class _AddressSearchScreenState extends State<AddressSearchScreen> {
               const Text(
                 '지도 API 인증 오류입니다.',
                 style: TextStyle(
-                    color: Colors.red,
-                    fontSize: 15,
-                    fontWeight: FontWeight.bold),
+                  color: Colors.red,
+                  fontSize: 15,
+                  fontWeight: FontWeight.bold,
+                ),
               ),
               const SizedBox(height: 4),
               const Text(
@@ -247,8 +253,11 @@ class _AddressSearchScreenState extends State<AddressSearchScreen> {
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              const Icon(Icons.location_off_outlined,
-                  size: 64, color: Colors.black26),
+              const Icon(
+                Icons.location_off_outlined,
+                size: 64,
+                color: Colors.black26,
+              ),
               const SizedBox(height: 12),
               const Text(
                 '검색 결과가 없습니다',
@@ -276,8 +285,10 @@ class _AddressSearchScreenState extends State<AddressSearchScreen> {
       itemBuilder: (context, index) {
         final r = _results[index];
         return ListTile(
-          contentPadding:
-              const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
+          contentPadding: const EdgeInsets.symmetric(
+            horizontal: 16,
+            vertical: 6,
+          ),
           leading: Container(
             width: 36,
             height: 36,
@@ -293,29 +304,27 @@ class _AddressSearchScreenState extends State<AddressSearchScreen> {
           ),
           title: Text(
             r.roadAddress.isNotEmpty ? r.roadAddress : r.jibunAddress,
-            style:
-                const TextStyle(fontWeight: FontWeight.w600, fontSize: 14),
+            style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 14),
             maxLines: 2,
             overflow: TextOverflow.ellipsis,
           ),
-          subtitle: r.jibunAddress.isNotEmpty &&
-                  r.jibunAddress != r.roadAddress
+          subtitle: r.jibunAddress.isNotEmpty && r.jibunAddress != r.roadAddress
               ? Padding(
                   padding: const EdgeInsets.only(top: 4),
                   child: Row(
                     children: [
                       Container(
                         padding: const EdgeInsets.symmetric(
-                            horizontal: 4, vertical: 1),
+                          horizontal: 4,
+                          vertical: 1,
+                        ),
                         decoration: BoxDecoration(
-                          border:
-                              Border.all(color: Colors.grey.shade400),
+                          border: Border.all(color: Colors.grey.shade400),
                           borderRadius: BorderRadius.circular(3),
                         ),
                         child: const Text(
                           '지번',
-                          style: TextStyle(
-                              fontSize: 10, color: Colors.black54),
+                          style: TextStyle(fontSize: 10, color: Colors.black54),
                         ),
                       ),
                       const SizedBox(width: 4),
@@ -323,7 +332,9 @@ class _AddressSearchScreenState extends State<AddressSearchScreen> {
                         child: Text(
                           r.jibunAddress,
                           style: const TextStyle(
-                              fontSize: 12, color: Colors.black45),
+                            fontSize: 12,
+                            color: Colors.black45,
+                          ),
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
                         ),
@@ -356,16 +367,26 @@ class _AddressSearchScreenState extends State<AddressSearchScreen> {
           const Text(
             '디버그 정보',
             style: TextStyle(
-                fontSize: 12,
-                fontWeight: FontWeight.bold,
-                color: Colors.black54),
+              fontSize: 12,
+              fontWeight: FontWeight.bold,
+              color: Colors.black54,
+            ),
           ),
           const SizedBox(height: 6),
-          _debugRow('statusCode',       '$_statusCode'),
-          _debugRow('errorMessage',     _errorMessage.isNotEmpty ? _errorMessage : '-'),
-          _debugRow('searchedKeyword',  _searchedKeyword.isNotEmpty ? _searchedKeyword : '-'),
-          _debugRow('normalizedKeyword',_normalizedKeyword.isNotEmpty ? _normalizedKeyword : '-'),
-          _debugRow('resultCount',      '$_resultCount'),
+          _debugRow('statusCode', '$_statusCode'),
+          _debugRow(
+            'errorMessage',
+            _errorMessage.isNotEmpty ? _errorMessage : '-',
+          ),
+          _debugRow(
+            'searchedKeyword',
+            _searchedKeyword.isNotEmpty ? _searchedKeyword : '-',
+          ),
+          _debugRow(
+            'normalizedKeyword',
+            _normalizedKeyword.isNotEmpty ? _normalizedKeyword : '-',
+          ),
+          _debugRow('resultCount', '$_resultCount'),
         ],
       ),
     );
@@ -377,14 +398,15 @@ class _AddressSearchScreenState extends State<AddressSearchScreen> {
       child: RichText(
         text: TextSpan(
           style: const TextStyle(
-              fontSize: 11,
-              color: Colors.black54,
-              fontFamily: 'monospace'),
+            fontSize: 11,
+            color: Colors.black54,
+            fontFamily: 'monospace',
+          ),
           children: [
             TextSpan(
-                text: '$key: ',
-                style:
-                    const TextStyle(fontWeight: FontWeight.bold)),
+              text: '$key: ',
+              style: const TextStyle(fontWeight: FontWeight.bold),
+            ),
             TextSpan(text: value),
           ],
         ),

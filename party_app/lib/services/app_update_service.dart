@@ -73,8 +73,8 @@ class AppUpdateService {
     final platformKey = Platform.isAndroid
         ? 'android'
         : Platform.isIOS
-            ? 'ios'
-            : null;
+        ? 'ios'
+        : null;
     if (platformKey == null) return AppUpdateInfo.none;
 
     try {
@@ -91,7 +91,8 @@ class AppUpdateService {
       final latestVersion = platformData['latestVersion'] as String? ?? '';
       final minVersion = platformData['minVersion'] as String? ?? '';
       final storeUrl = platformData['storeUrl'] as String? ?? '';
-      final message = platformData['message'] as String? ??
+      final message =
+          platformData['message'] as String? ??
           '새로운 버전이 출시되었습니다.\n최신 기능을 사용해보세요.';
 
       if (latestVersion.isEmpty || storeUrl.isEmpty) return AppUpdateInfo.none;
@@ -133,7 +134,9 @@ class AppUpdateService {
   static int _compareVersions(String a, String b) {
     final aParts = a.split('.');
     final bParts = b.split('.');
-    final length = aParts.length > bParts.length ? aParts.length : bParts.length;
+    final length = aParts.length > bParts.length
+        ? aParts.length
+        : bParts.length;
 
     for (var i = 0; i < length; i++) {
       final aVal = i < aParts.length ? int.tryParse(aParts[i]) ?? 0 : 0;

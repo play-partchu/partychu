@@ -44,6 +44,14 @@ mixin DraftableRegister<T extends StatefulWidget>
   /// 곧바로 불러온다. 화면은 보통 `widget.autoRestoreDraft`를 반환한다.
   bool get draftAutoRestore;
 
+  /// 진입할 때 "작성 중인 내용이 있습니다" 복구 팝업을 띄울지.
+  ///
+  /// 기본값 true — 대부분의 등록 화면은 예전 그대로 동작한다. 통합
+  /// 플레이스+파티 등록처럼 **한 화면 안에서 유형을 바꿔** 본문이 새로
+  /// 마운트되는 경우에만 false로 내려서, 방금 입력하던 공통 정보를 예전
+  /// 임시저장이 덮어쓰지 않게 한다([draftAutoRestore]가 true면 그쪽이 우선).
+  bool get draftOfferRestore => true;
+
   // ── 믹스인 내부 상태 ───────────────────────────────────────────────
   DraftAutosaver? _autosaver;
   bool _draftReady = false;
@@ -67,10 +75,10 @@ mixin DraftableRegister<T extends StatefulWidget>
   }
 
   DraftSnapshot _snapshot() => DraftSnapshot(
-        title: draftTitle.trim(),
-        coverImageUrl: draftCoverImageUrl,
-        payload: buildDraftPayload(),
-      );
+    title: draftTitle.trim(),
+    coverImageUrl: draftCoverImageUrl,
+    payload: buildDraftPayload(),
+  );
 
   // ── 수명주기 훅 ────────────────────────────────────────────────────
   /// initState에서 호출.
@@ -115,6 +123,13 @@ mixin DraftableRegister<T extends StatefulWidget>
       return;
     }
 
+    // 화면 안에서 유형만 바꿔 다시 마운트된 경우 — 지금 입력 중인 내용을
+    // 예전 임시저장이 덮어쓰면 안 되므로 묻지 않고 그냥 둔다.
+    if (!draftOfferRestore) {
+      _draftReady = true;
+      return;
+    }
+
     final choice = await showDialog<String>(
       context: context,
       barrierDismissible: false,
@@ -133,8 +148,9 @@ mixin DraftableRegister<T extends StatefulWidget>
           ElevatedButton(
             onPressed: () => Navigator.pop(context, 'continue'),
             style: ElevatedButton.styleFrom(
-                backgroundColor: const Color(0xFFFF6FA0),
-                foregroundColor: Colors.white),
+              backgroundColor: const Color(0xFFFF6FA0),
+              foregroundColor: Colors.white,
+            ),
             child: const Text('이어서 작성'),
           ),
         ],
@@ -179,7 +195,7 @@ mixin DraftableRegister<T extends StatefulWidget>
     if (!mounted || record == null) return;
     setState(() => applyDraftPayload(record.payload));
     if (draftMediaNeedsReselect) {
-      _showSnack('임시저장된 사진/동영상 일부는 다시 선택해주세요.');
+      _showSnack('임시저장된 사진 / 동영상 일부는 다시 선택해주세요.');
     }
   }
 
@@ -191,9 +207,10 @@ mixin DraftableRegister<T extends StatefulWidget>
         await _autosaver?.flushNow(_snapshot);
         if (mounted) _showSnack('임시저장되었습니다');
       },
-      child: const Text('임시저장',
-          style: TextStyle(
-              color: Color(0xFFFF6FA0), fontWeight: FontWeight.w700)),
+      child: const Text(
+        '임시저장',
+        style: TextStyle(color: Color(0xFFFF6FA0), fontWeight: FontWeight.w700),
+      ),
     );
   }
 
@@ -216,9 +233,9 @@ mixin DraftableRegister<T extends StatefulWidget>
               child: Text(
                 synced ? '자동 저장됨 · $hh:$mm' : '기기에 보관됨 · $hh:$mm',
                 style: TextStyle(
-                    fontSize: 11,
-                    color:
-                        synced ? Colors.black45 : const Color(0xFFC26A00)),
+                  fontSize: 11,
+                  color: synced ? Colors.black45 : const Color(0xFFC26A00),
+                ),
               ),
             ),
           );
@@ -242,8 +259,10 @@ mixin DraftableRegister<T extends StatefulWidget>
           Icon(Icons.info_outline, size: 18, color: Color(0xFFC26A00)),
           SizedBox(width: 8),
           Expanded(
-            child: Text('임시저장된 사진/동영상 일부는 다시 선택해주세요.',
-                style: TextStyle(fontSize: 12.5, color: Color(0xFF8A5A00))),
+            child: Text(
+              '임시저장된 사진 / 동영상 일부는 다시 선택해주세요.',
+              style: TextStyle(fontSize: 12.5, color: Color(0xFF8A5A00)),
+            ),
           ),
         ],
       ),
@@ -258,8 +277,7 @@ mixin DraftableRegister<T extends StatefulWidget>
     final leave = await showDialog<bool>(
       context: context,
       builder: (_) => AlertDialog(
-        title:
-            const Text('작성 중인 내용이 임시저장되었습니다', style: _dialogTitleStyle),
+        title: const Text('작성 중인 내용이 임시저장되었습니다', style: _dialogTitleStyle),
         content: const Text('나중에 이어서 작성할 수 있습니다.'),
         actions: [
           TextButton(
@@ -274,6 +292,14 @@ mixin DraftableRegister<T extends StatefulWidget>
       ),
     );
     return leave ?? false;
+  }
+
+  /// 지금 상태를 즉시 임시저장한다(debounce를 기다리지 않음).
+  ///
+  /// 통합 등록 화면에서 유형을 바꾸기 직전에 호출한다 — 화면에서 사라지는
+  /// 유형 전용 입력값이 그 유형의 임시저장에는 남아 있게 한다.
+  Future<void> saveDraftNow() async {
+    await _autosaver?.flushNow(_snapshot);
   }
 
   /// 최종 등록 성공 시 이 유형의 임시저장을 삭제한다.

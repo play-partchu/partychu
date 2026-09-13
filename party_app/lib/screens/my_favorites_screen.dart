@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:party_app/utils/party_utils.dart';
 import 'package:party_app/models/region_data.dart';
 import 'package:party_app/utils/user_session.dart';
 import 'package:party_app/utils/favorites_service.dart';
@@ -47,7 +48,19 @@ class _MyFavoritesScreenState extends State<MyFavoritesScreen>
         backgroundColor: Colors.white,
         elevation: 0,
         foregroundColor: Colors.black,
-        title: const Text('관심 목록', style: TextStyle(fontFamily: 'SeoulHangang', fontWeight: FontWeight.w500, shadows: [Shadow(color: Colors.black87, offset: Offset(0.3, 0)), Shadow(color: Colors.black87, offset: Offset(-0.3, 0)), Shadow(color: Colors.black87, offset: Offset(0, 0.3)), Shadow(color: Colors.black87, offset: Offset(0, -0.3))])),
+        title: const Text(
+          '관심 목록',
+          style: TextStyle(
+            fontFamily: 'SeoulHangang',
+            fontWeight: FontWeight.w500,
+            shadows: [
+              Shadow(color: Colors.black87, offset: Offset(0.3, 0)),
+              Shadow(color: Colors.black87, offset: Offset(-0.3, 0)),
+              Shadow(color: Colors.black87, offset: Offset(0, 0.3)),
+              Shadow(color: Colors.black87, offset: Offset(0, -0.3)),
+            ],
+          ),
+        ),
         bottom: TabBar(
           controller: _tabController,
           isScrollable: true,
@@ -56,8 +69,14 @@ class _MyFavoritesScreenState extends State<MyFavoritesScreen>
           unselectedLabelColor: Colors.black45,
           indicatorColor: const Color(0xFFFF6FA0),
           indicatorWeight: 2.5,
-          labelStyle: const TextStyle(fontSize: 14, fontWeight: FontWeight.w700),
-          unselectedLabelStyle: const TextStyle(fontSize: 14, fontWeight: FontWeight.w500),
+          labelStyle: const TextStyle(
+            fontSize: 14,
+            fontWeight: FontWeight.w700,
+          ),
+          unselectedLabelStyle: const TextStyle(
+            fontSize: 14,
+            fontWeight: FontWeight.w500,
+          ),
           tabs: const [
             Tab(text: '파티'),
             Tab(text: '플레이스'),
@@ -72,7 +91,10 @@ class _MyFavoritesScreenState extends State<MyFavoritesScreen>
       body: AuthRebuilder(
         builder: (context) => UserSession.userId.isEmpty
             ? const Center(
-                child: Text('로그인 후 이용 가능합니다.', style: TextStyle(color: Colors.black45)),
+                child: Text(
+                  '로그인 후 이용 가능합니다.',
+                  style: TextStyle(color: Colors.black45),
+                ),
               )
             : TabBarView(
                 controller: _tabController,
@@ -129,7 +151,11 @@ class _FavoriteTypeList extends StatelessWidget {
               child: Column(
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  const Icon(Icons.error_outline, size: 48, color: Colors.black26),
+                  const Icon(
+                    Icons.error_outline,
+                    size: 48,
+                    color: Colors.black26,
+                  ),
                   const SizedBox(height: 12),
                   const Text(
                     '관심 목록을 불러오지 못했어요.\n잠시 후 다시 시도해주세요.',
@@ -143,7 +169,8 @@ class _FavoriteTypeList extends StatelessWidget {
         }
         if (!snapshot.hasData) {
           return const Center(
-              child: CircularProgressIndicator(color: Color(0xFFFF6FA0)));
+            child: CircularProgressIndicator(color: Color(0xFFFF6FA0)),
+          );
         }
         final favoriteDocs = snapshot.data!.docs;
         if (favoriteDocs.isEmpty) {
@@ -153,8 +180,10 @@ class _FavoriteTypeList extends StatelessWidget {
               children: [
                 const Icon(Icons.pets, size: 56, color: Colors.black26),
                 const SizedBox(height: 12),
-                Text(_kFavoriteEmptyMessage[type] ?? '찜한 항목이 없어요',
-                    style: const TextStyle(color: Colors.black45)),
+                Text(
+                  _kFavoriteEmptyMessage[type] ?? '찜한 항목이 없어요',
+                  style: const TextStyle(color: Colors.black45),
+                ),
               ],
             ),
           );
@@ -177,30 +206,73 @@ class _FavoriteTypeList extends StatelessWidget {
   }
 }
 
-class _FavoriteItemCard extends StatelessWidget {
+class _FavoriteItemCard extends StatefulWidget {
   final String type;
   final String itemId;
 
-  const _FavoriteItemCard({super.key, required this.type, required this.itemId});
+  const _FavoriteItemCard({
+    super.key,
+    required this.type,
+    required this.itemId,
+  });
+
+  @override
+  State<_FavoriteItemCard> createState() => _FavoriteItemCardState();
+}
+
+class _FavoriteItemCardState extends State<_FavoriteItemCard> {
+  late Future<DocumentSnapshot<Map<String, dynamic>>> _future = _read();
+
+  String get type => widget.type;
+  String get itemId => widget.itemId;
+
+  Future<DocumentSnapshot<Map<String, dynamic>>> _read() {
+    final future = FirebaseFirestore.instance
+        .collection(_kFavoriteCollection[type]!)
+        .doc(itemId)
+        .get();
+    // 만들자마자 한 번 관찰해 둔다 — "다시 시도"로 새로 만든 future는
+    // FutureBuilder가 구독하기 전에 실패할 수 있고, 그러면 Dart가 관찰자 없는
+    // 에러로 보고해 콘솔에 Unhandled Exception이 찍힌다(실제로 재현됨).
+    // 여기서 삼키되 로그는 남기고, 화면은 아래 FutureBuilder가 같은 future의
+    // 에러를 그대로 받아 실패 카드를 그린다.
+    future.then(
+      (_) {},
+      onError: (Object e, StackTrace st) {
+        logFirestoreStreamError('MyFavorites:item($type/$itemId)', e, st);
+      },
+    );
+    return future;
+  }
+
+  void _retry() => setState(() => _future = _read());
 
   @override
   Widget build(BuildContext context) {
-    final collection = _kFavoriteCollection[type]!;
     return FutureBuilder<DocumentSnapshot<Map<String, dynamic>>>(
-      future: FirebaseFirestore.instance.collection(collection).doc(itemId).get(),
+      future: _future,
       builder: (context, snapshot) {
+        // 원본 문서를 **못 읽은 것**(권한/네트워크)과 **없는 것**(삭제됨)은
+        // 전혀 다른 상황이라 반드시 갈라서 다룬다. 예전에는 에러도 hasData가
+        // false라 로딩 스피너가 영원히 돌았고, 그러면 "찜은 됐는데 목록이
+        // 계속 로딩만 한다"가 되어 원인을 짚을 수 없었다.
+        // 로그는 _read()에서 한 번만 남긴다(여기서 또 남기면 중복된다).
+        if (snapshot.hasError) return _unreadableCard();
         if (!snapshot.hasData) {
           return const SizedBox(
             height: 72,
             child: Center(
-                child: SizedBox(
-                    width: 18,
-                    height: 18,
-                    child: CircularProgressIndicator(strokeWidth: 2))),
+              child: SizedBox(
+                width: 18,
+                height: 18,
+                child: CircularProgressIndicator(strokeWidth: 2),
+              ),
+            ),
           );
         }
         final doc = snapshot.data!;
         // 게시물이 삭제됐으면 목록에서 조용히 제외한다(끊어진 찜 노출 방지).
+        // 위에서 에러를 먼저 걸렀으므로, 여기 오는 건 "정말 없는 문서"뿐이다.
         if (!doc.exists) return const SizedBox.shrink();
         final data = doc.data()!;
 
@@ -222,6 +294,46 @@ class _FavoriteItemCard extends StatelessWidget {
             return const SizedBox.shrink();
         }
       },
+    );
+  }
+
+  /// 찜은 남아 있는데 원본을 **못 읽은** 경우 — 조용히 감추면 "찜이 사라졌다"로
+  /// 보이므로, 찜 자체는 살아 있다는 것과 다시 시도할 방법을 함께 보여준다.
+  Widget _unreadableCard() {
+    return Container(
+      margin: const EdgeInsets.only(bottom: 12),
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(16),
+        boxShadow: const [
+          BoxShadow(
+            color: Color(0x10000000),
+            blurRadius: 10,
+            offset: Offset(0, 4),
+          ),
+        ],
+      ),
+      child: Row(
+        children: [
+          const Icon(Icons.cloud_off_rounded, size: 20, color: Colors.black26),
+          const SizedBox(width: 10),
+          const Expanded(
+            child: Text(
+              '항목을 불러오지 못했어요',
+              style: TextStyle(fontSize: 13, color: Colors.black54),
+            ),
+          ),
+          TextButton(
+            onPressed: _retry,
+            style: TextButton.styleFrom(
+              foregroundColor: const Color(0xFFFF6FA0),
+              visualDensity: VisualDensity.compact,
+            ),
+            child: const Text('다시 시도'),
+          ),
+        ],
+      ),
     );
   }
 }
@@ -253,26 +365,37 @@ class _PlaceFavoriteCard extends StatelessWidget {
           color: Colors.white,
           borderRadius: BorderRadius.circular(16),
           boxShadow: const [
-            BoxShadow(color: Color(0x10000000), blurRadius: 10, offset: Offset(0, 4)),
+            BoxShadow(
+              color: Color(0x10000000),
+              blurRadius: 10,
+              offset: Offset(0, 4),
+            ),
           ],
         ),
         child: Row(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             ClipRRect(
-              borderRadius: const BorderRadius.horizontal(left: Radius.circular(16)),
+              borderRadius: const BorderRadius.horizontal(
+                left: Radius.circular(16),
+              ),
               child: SizedBox(
                 width: 90,
                 height: 90,
                 child: imageUrls.isNotEmpty
-                    ? Image.network(imageUrls[0],
+                    ? Image.network(
+                        imageUrls[0],
                         fit: BoxFit.cover,
                         errorBuilder: (_, e, st) =>
-                            Container(color: const Color(0xFFF3EFFA)))
+                            Container(color: const Color(0xFFF3EFFA)),
+                      )
                     : Container(
                         color: const Color(0xFFF3EFFA),
-                        child: const Icon(Icons.home_outlined,
-                            size: 32, color: Color(0xFF7C5CBF)),
+                        child: const Icon(
+                          Icons.home_outlined,
+                          size: 32,
+                          color: Color(0xFF7C5CBF),
+                        ),
                       ),
               ),
             ),
@@ -282,22 +405,36 @@ class _PlaceFavoriteCard extends StatelessWidget {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text(name,
-                        style: const TextStyle(fontSize: 15, fontWeight: FontWeight.bold),
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis),
+                    Text(
+                      name,
+                      style: const TextStyle(
+                        fontSize: 15,
+                        fontWeight: FontWeight.bold,
+                      ),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
                     if (address.isNotEmpty) ...[
                       const SizedBox(height: 4),
-                      Text(address,
-                          style: const TextStyle(fontSize: 12, color: Colors.black45),
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis),
+                      Text(
+                        address,
+                        style: const TextStyle(
+                          fontSize: 12,
+                          color: Colors.black45,
+                        ),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                      ),
                     ],
                   ],
                 ),
               ),
             ),
-            FavoriteStarButton(itemType: FavoriteType.place, itemId: placeId, dense: true),
+            FavoriteStarButton(
+              itemType: FavoriteType.place,
+              itemId: placeId,
+              dense: true,
+            ),
             const SizedBox(width: 4),
           ],
         ),
@@ -320,12 +457,20 @@ class _ShopFavoriteCard extends StatelessWidget {
     final location = rawLocation.isEmpty
         ? ''
         : RegionData.shortDistrictDong(rawLocation);
-    final mainImgUrl = data['mainImageUrl'] as String? ?? '';
+    // 대표 미디어 — 앱 전체가 쓰는 공용 정본 하나로 읽는다
+    // ([getPartyCoverMedia]). 대표가 사진이면 그 사진이, 동영상이면 그
+    // 영상의 정지 썸네일이 온다(카드는 영상을 재생하지 않는다). 대표 계약이
+    // 없던 옛 문서는 그 함수의 레거시 분기가 예전처럼 `mainImageUrl`을
+    // 돌려주므로 보이는 모습이 달라지지 않는다.
+    final mainImgUrl =
+        getPartyCoverMedia(data, tag: 'ShopFavoriteCard')?.thumbnailUrl ?? '';
 
     return GestureDetector(
       onTap: () => Navigator.push(
         context,
-        webFramedRoute((_) => PartyShopDetailScreen(shopId: shopId, shopData: data)),
+        webFramedRoute(
+          (_) => PartyShopDetailScreen(shopId: shopId, shopData: data),
+        ),
       ),
       child: Container(
         margin: const EdgeInsets.only(bottom: 12),
@@ -333,26 +478,37 @@ class _ShopFavoriteCard extends StatelessWidget {
           color: Colors.white,
           borderRadius: BorderRadius.circular(16),
           boxShadow: const [
-            BoxShadow(color: Color(0x10000000), blurRadius: 10, offset: Offset(0, 4)),
+            BoxShadow(
+              color: Color(0x10000000),
+              blurRadius: 10,
+              offset: Offset(0, 4),
+            ),
           ],
         ),
         child: Row(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             ClipRRect(
-              borderRadius: const BorderRadius.horizontal(left: Radius.circular(16)),
+              borderRadius: const BorderRadius.horizontal(
+                left: Radius.circular(16),
+              ),
               child: SizedBox(
                 width: 90,
                 height: 90,
                 child: mainImgUrl.isNotEmpty
-                    ? Image.network(mainImgUrl,
+                    ? Image.network(
+                        mainImgUrl,
                         fit: BoxFit.cover,
                         errorBuilder: (_, e, st) =>
-                            Container(color: const Color(0xFFFFE0EE)))
+                            Container(color: const Color(0xFFFFE0EE)),
+                      )
                     : Container(
                         color: const Color(0xFFFFE0EE),
-                        child: const Icon(Icons.store_outlined,
-                            size: 32, color: Color(0xFFFF6FA0)),
+                        child: const Icon(
+                          Icons.store_outlined,
+                          size: 32,
+                          color: Color(0xFFFF6FA0),
+                        ),
                       ),
               ),
             ),
@@ -362,22 +518,36 @@ class _ShopFavoriteCard extends StatelessWidget {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text(name,
-                        style: const TextStyle(fontSize: 15, fontWeight: FontWeight.bold),
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis),
+                    Text(
+                      name,
+                      style: const TextStyle(
+                        fontSize: 15,
+                        fontWeight: FontWeight.bold,
+                      ),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
                     if (location.isNotEmpty) ...[
                       const SizedBox(height: 4),
-                      Text(location,
-                          style: const TextStyle(fontSize: 12, color: Colors.black45),
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis),
+                      Text(
+                        location,
+                        style: const TextStyle(
+                          fontSize: 12,
+                          color: Colors.black45,
+                        ),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                      ),
                     ],
                   ],
                 ),
               ),
             ),
-            FavoriteStarButton(itemType: FavoriteType.shop, itemId: shopId, dense: true),
+            FavoriteStarButton(
+              itemType: FavoriteType.shop,
+              itemId: shopId,
+              dense: true,
+            ),
             const SizedBox(width: 4),
           ],
         ),
@@ -405,7 +575,9 @@ class _EventFavoriteCard extends StatelessWidget {
     return GestureDetector(
       onTap: () => Navigator.push(
         context,
-        webFramedRoute((_) => EventDetailScreen(eventId: eventId, eventData: data)),
+        webFramedRoute(
+          (_) => EventDetailScreen(eventId: eventId, eventData: data),
+        ),
       ),
       child: Container(
         margin: const EdgeInsets.only(bottom: 12),
@@ -413,26 +585,37 @@ class _EventFavoriteCard extends StatelessWidget {
           color: Colors.white,
           borderRadius: BorderRadius.circular(16),
           boxShadow: const [
-            BoxShadow(color: Color(0x10000000), blurRadius: 10, offset: Offset(0, 4)),
+            BoxShadow(
+              color: Color(0x10000000),
+              blurRadius: 10,
+              offset: Offset(0, 4),
+            ),
           ],
         ),
         child: Row(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             ClipRRect(
-              borderRadius: const BorderRadius.horizontal(left: Radius.circular(16)),
+              borderRadius: const BorderRadius.horizontal(
+                left: Radius.circular(16),
+              ),
               child: SizedBox(
                 width: 90,
                 height: 90,
                 child: mainImgUrl.isNotEmpty
-                    ? Image.network(mainImgUrl,
+                    ? Image.network(
+                        mainImgUrl,
                         fit: BoxFit.cover,
                         errorBuilder: (_, e, st) =>
-                            Container(color: const Color(0xFFFFE0EE)))
+                            Container(color: const Color(0xFFFFE0EE)),
+                      )
                     : Container(
                         color: const Color(0xFFFFE0EE),
-                        child: const Icon(Icons.celebration_outlined,
-                            size: 32, color: Color(0xFFFF6FA0)),
+                        child: const Icon(
+                          Icons.celebration_outlined,
+                          size: 32,
+                          color: Color(0xFFFF6FA0),
+                        ),
                       ),
               ),
             ),
@@ -442,22 +625,36 @@ class _EventFavoriteCard extends StatelessWidget {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text(name,
-                        style: const TextStyle(fontSize: 15, fontWeight: FontWeight.bold),
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis),
+                    Text(
+                      name,
+                      style: const TextStyle(
+                        fontSize: 15,
+                        fontWeight: FontWeight.bold,
+                      ),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
                     if (location.isNotEmpty) ...[
                       const SizedBox(height: 4),
-                      Text(location,
-                          style: const TextStyle(fontSize: 12, color: Colors.black45),
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis),
+                      Text(
+                        location,
+                        style: const TextStyle(
+                          fontSize: 12,
+                          color: Colors.black45,
+                        ),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                      ),
                     ],
                   ],
                 ),
               ),
             ),
-            FavoriteStarButton(itemType: FavoriteType.event, itemId: eventId, dense: true),
+            FavoriteStarButton(
+              itemType: FavoriteType.event,
+              itemId: eventId,
+              dense: true,
+            ),
             const SizedBox(width: 4),
           ],
         ),
@@ -490,7 +687,11 @@ class _CrewFavoriteCard extends StatelessWidget {
         color: Colors.white,
         borderRadius: BorderRadius.circular(16),
         boxShadow: const [
-          BoxShadow(color: Color(0x0FFF6FA0), blurRadius: 8, offset: Offset(0, 2)),
+          BoxShadow(
+            color: Color(0x0FFF6FA0),
+            blurRadius: 8,
+            offset: Offset(0, 2),
+          ),
         ],
       ),
       child: Row(
@@ -502,38 +703,54 @@ class _CrewFavoriteCard extends StatelessWidget {
               children: [
                 if (crewType.isNotEmpty)
                   Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 8,
+                      vertical: 3,
+                    ),
                     decoration: BoxDecoration(
                       color: crewType == '구인'
                           ? const Color(0xFFFFF0F5)
                           : const Color(0xFFF3EFFA),
                       borderRadius: BorderRadius.circular(20),
                     ),
-                    child: Text(crewType,
-                        style: TextStyle(
-                          fontSize: 11,
-                          fontWeight: FontWeight.w700,
-                          color: crewType == '구인'
-                              ? const Color(0xFFFF6FA0)
-                              : const Color(0xFF7C5CBF),
-                        )),
+                    child: Text(
+                      crewType,
+                      style: TextStyle(
+                        fontSize: 11,
+                        fontWeight: FontWeight.w700,
+                        color: crewType == '구인'
+                            ? const Color(0xFFFF6FA0)
+                            : const Color(0xFF7C5CBF),
+                      ),
+                    ),
                   ),
                 const SizedBox(height: 8),
-                Text(title,
-                    style: const TextStyle(fontSize: 15, fontWeight: FontWeight.bold),
-                    maxLines: 2,
-                    overflow: TextOverflow.ellipsis),
+                Text(
+                  title,
+                  style: const TextStyle(
+                    fontSize: 15,
+                    fontWeight: FontWeight.bold,
+                  ),
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                ),
                 if (role.isNotEmpty || region.isNotEmpty) ...[
                   const SizedBox(height: 6),
-                  Text([role, region].where((s) => s.isNotEmpty).join(' · '),
-                      style: const TextStyle(fontSize: 12, color: Colors.black45),
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis),
+                  Text(
+                    [role, region].where((s) => s.isNotEmpty).join(' · '),
+                    style: const TextStyle(fontSize: 12, color: Colors.black45),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
                 ],
               ],
             ),
           ),
-          FavoriteStarButton(itemType: FavoriteType.crew, itemId: crewId, dense: true),
+          FavoriteStarButton(
+            itemType: FavoriteType.crew,
+            itemId: crewId,
+            dense: true,
+          ),
         ],
       ),
     );

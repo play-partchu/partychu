@@ -1,0 +1,24 @@
+[
+  {
+    "AllowedOrigins": [
+      "https://partychu.co.kr",
+      "https://partychu-30c24.web.app",
+      "https://partychu-30c24.firebaseapp.com",
+      "http://localhost:5000",
+      "http://127.0.0.1:5000",
+      "http://localhost:5555",
+      "http://127.0.0.1:5555"
+    ],
+    "AllowedMethods": ["GET", "PUT"],
+    "AllowedHeaders": ["content-type"],
+    "MaxAgeSeconds": 3600
+  },
+  {
+    "AllowedOrigins": [
+      "https://partychu-admin.web.app",
+      "https://partychu-admin.firebaseapp.com"
+    ],
+    "AllowedMethods": ["GET"],
+    "MaxAgeSeconds": 3600
+  }
+]

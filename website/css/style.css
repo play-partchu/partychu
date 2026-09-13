@@ -61,10 +61,12 @@ button { font-family: inherit; cursor: pointer; }
   display: flex;
   align-items: center;
   justify-content: space-between;
+  gap: 20px;
   height: 72px;
 }
 
 .logo {
+  flex: 0 0 auto;
   font-size: 22px;
   font-weight: 800;
   color: var(--text-dark);
@@ -75,10 +77,11 @@ button { font-family: inherit; cursor: pointer; }
 
 .main-nav {
   display: flex;
-  gap: 36px;
+  gap: 24px;
 }
 
 .main-nav a {
+  white-space: nowrap;
   font-size: 15px;
   font-weight: 600;
   color: var(--text-body);
@@ -92,6 +95,9 @@ button { font-family: inherit; cursor: pointer; }
   align-items: center;
   gap: 12px;
 }
+
+/* 접힌 메뉴에서만 보이는 항목 — 데스크톱에서는 헤더 오른쪽 버튼과 중복된다. */
+.nav-mobile-only { display: none; }
 
 .nav-toggle {
   display: none;
@@ -747,20 +753,17 @@ button { font-family: inherit; cursor: pointer; }
 
 /* ── 반응형 ────────────────────────────────────────────────────────── */
 
-@media (max-width: 960px) {
-  .hero-inner { grid-template-columns: 1fr; }
-  .hero-visual { order: -1; }
-  .phone-frame { width: 220px; height: 460px; }
-  .feature-grid { grid-template-columns: repeat(2, 1fr); }
-  .steps { grid-template-columns: repeat(2, 1fr); }
-  .support-grid { grid-template-columns: repeat(2, 1fr); }
-  .screenshot-gallery { grid-template-columns: repeat(2, 1fr); }
-  .split { grid-template-columns: 1fr; gap: 32px; }
-  .split.reverse .split-visual,
-  .split.reverse .split-copy { order: initial; }
+/* 헤더가 한 줄에 들어가지 않기 시작하는 폭. 여기서부터 "등록하기"를
+   접는다 — 히어로·바로가기 섹션·푸터에 같은 링크가 이미 있어서, 헤더에서
+   빠져도 등록으로 가는 길이 사라지지 않는다. */
+@media (max-width: 1120px) {
+  .header-cta .btn-secondary { display: none; }
 }
 
-@media (max-width: 720px) {
+/* 메뉴가 한 줄에 들어가지 않는 지점 — 여기서부터 햄버거로 접는다.
+   헤더에는 "파티 찾기"와 토글만 남기고, 밀려난 항목(파티 찾기·등록하기·
+   로그인·마이페이지)은 .nav-mobile-only로 접힌 메뉴 안에 그대로 있다. */
+@media (max-width: 900px) {
   .main-nav {
     position: absolute;
     top: 72px;
@@ -783,8 +786,25 @@ button { font-family: inherit; cursor: pointer; }
   }
 
   .nav-toggle { display: flex; }
-  .header-cta .btn-secondary { display: none; }
+  .nav-mobile-only { display: block; }
+  .header-cta .btn-secondary,
+  .header-cta .btn-outline { display: none; }
+}
 
+@media (max-width: 960px) {
+  .hero-inner { grid-template-columns: 1fr; }
+  .hero-visual { order: -1; }
+  .phone-frame { width: 220px; height: 460px; }
+  .feature-grid { grid-template-columns: repeat(2, 1fr); }
+  .steps { grid-template-columns: repeat(2, 1fr); }
+  .support-grid { grid-template-columns: repeat(2, 1fr); }
+  .screenshot-gallery { grid-template-columns: repeat(2, 1fr); }
+  .split { grid-template-columns: 1fr; gap: 32px; }
+  .split.reverse .split-visual,
+  .split.reverse .split-copy { order: initial; }
+}
+
+@media (max-width: 720px) {
   .hero { padding: 56px 0 56px; }
   .hero h1 { font-size: 32px; }
   .hero p.lead { max-width: none; }
@@ -807,551 +827,80 @@ button { font-family: inherit; cursor: pointer; }
   .footer-links { gap: 32px; }
 }
 
-/* ── 실시간 파티 목록 (find-party 섹션) ───────────────────────────────── */
+/* ── 서비스 바로가기 카드 (find-party 섹션) ─────────────────────────────
+   여기 있던 실시간 파티 목록·파티 상세 모달·로그인 모달·동영상 플레이어
+   스타일(약 550줄)은 전부 걷어냈다. 그 마크업이 홈페이지에서 사라졌기
+   때문이다 — 목록도 상세도 로그인도 이제 /app/(Flutter Web)이 그린다. */
 
-.party-toolbar {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 16px;
-  margin-bottom: 28px;
-  flex-wrap: wrap;
+.app-entry-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 20px;
 }
 
-.party-search input {
-  width: 280px;
-  max-width: 100%;
-  padding: 12px 18px;
-  border-radius: 999px;
-  border: 1px solid var(--border);
-  font-size: 14px;
-  background: var(--white);
-}
-
-.party-search input:focus {
-  outline: none;
-  border-color: var(--pink);
-}
-
-/* 날짜 필터: 복수 선택 그룹(안내 문구 + 칩 묶음) */
-.party-filter-group {
+.app-entry-card {
   display: flex;
   flex-direction: column;
-  align-items: flex-end;
-  gap: 8px;
-}
-
-.filter-hint {
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  font-size: 12px;
-  font-weight: 600;
-  color: var(--pink-dark);
-}
-
-.filter-hint::before {
-  content: "☑";
-  font-size: 12px;
-}
-
-.filter-hint b { font-weight: 800; }
-
-.party-filters {
-  display: flex;
-  gap: 8px;
-  flex-wrap: wrap;
-  justify-content: flex-end;
-}
-
-.chip {
-  display: inline-flex;
-  align-items: center;
-  gap: 7px;
-  padding: 9px 16px;
-  border-radius: 999px;
-  border: 1px solid var(--pink-border);
+  gap: 10px;
+  padding: 28px 24px;
+  border-radius: 18px;
+  border: 1px solid var(--border);
   background: var(--white);
-  color: var(--text-body);
-  font-size: 13px;
-  font-weight: 600;
-  transition: background 0.15s ease, color 0.15s ease, border-color 0.15s ease;
+  text-decoration: none;
+  color: inherit;
+  transition: transform 0.18s ease, border-color 0.18s ease, box-shadow 0.18s ease;
 }
 
-.chip:hover { border-color: var(--pink); }
-
-.chip.active {
-  background: var(--pink);
+.app-entry-card:hover {
+  transform: translateY(-4px);
   border-color: var(--pink);
-  color: var(--white);
+  box-shadow: 0 12px 28px rgba(0, 0, 0, 0.07);
 }
 
-/* 다중 선택 칩 안의 체크박스 표식 — 비어 있으면 빈 네모, 선택되면 체크 */
-.chip-box {
-  width: 15px;
-  height: 15px;
-  border-radius: 4px;
-  border: 1.5px solid var(--pink-border);
-  background: var(--white);
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  flex-shrink: 0;
-  transition: background 0.15s ease, border-color 0.15s ease;
-}
-
-.chip-check.active .chip-box {
-  background: var(--white);
-  border-color: var(--white);
-}
-
-.chip-check.active .chip-box::after {
-  content: "✓";
-  font-size: 11px;
-  font-weight: 900;
+.app-entry-icon {
+  font-size: 30px;
   line-height: 1;
+}
+
+.app-entry-card h3 {
+  font-size: 17px;
+  margin: 0;
+}
+
+.app-entry-card p {
+  font-size: 14px;
+  line-height: 1.6;
+  color: var(--text-body);
+  margin: 0;
+}
+
+.app-entry-go {
+  margin-top: auto;
+  padding-top: 8px;
+  font-size: 13.5px;
+  font-weight: 600;
   color: var(--pink);
 }
 
-.party-status {
-  text-align: center;
-  padding: 48px 16px;
-  color: var(--text-muted);
-  font-size: 15px;
-}
-
-.party-grid {
-  display: grid;
-  grid-template-columns: repeat(3, 1fr);
-  gap: 24px;
-}
-
-.party-card {
-  background: var(--white);
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  overflow: hidden;
-  cursor: pointer;
-  text-align: left;
-  transition: transform 0.2s ease, box-shadow 0.2s ease;
-}
-
-.party-card:hover,
-.party-card:focus-visible {
-  transform: translateY(-6px);
-  box-shadow: var(--shadow);
-  outline: none;
-}
-
-.party-card-closed { opacity: 0.62; }
-
-.party-card-img {
-  position: relative;
-  height: 168px;
-  background: var(--pink-softer) center/cover no-repeat;
+.app-entry-actions {
   display: flex;
-  align-items: center;
+  flex-wrap: wrap;
   justify-content: center;
-}
-
-.party-card-noimg { font-size: 40px; }
-
-.party-card-badge {
-  position: absolute;
-  top: 12px;
-  left: 12px;
-  background: rgba(26, 26, 26, 0.72);
-  color: var(--white);
-  font-size: 12px;
-  font-weight: 700;
-  padding: 5px 12px;
-  border-radius: 999px;
-}
-
-.party-favorite {
-  position: absolute;
-  top: 10px;
-  right: 10px;
-  width: 34px;
-  height: 34px;
-  border-radius: 50%;
-  border: none;
-  background: rgba(255, 255, 255, 0.9);
-  font-size: 16px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  box-shadow: var(--shadow-sm);
-}
-
-.party-favorite:hover { transform: scale(1.08); }
-
-.party-card-body { padding: 18px 20px 20px; }
-
-.party-card-body h3 {
-  font-size: 16.5px;
-  font-weight: 800;
-  color: var(--text-dark);
-  margin: 0 0 8px;
-  display: -webkit-box;
-  -webkit-line-clamp: 1;
-  -webkit-box-orient: vertical;
-  overflow: hidden;
-}
-
-.party-card-meta {
-  font-size: 13px;
-  color: var(--text-muted);
-  margin: 0 0 4px;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-.party-card-foot {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  margin-top: 12px;
-}
-
-.party-card-fee {
-  font-weight: 800;
-  color: var(--pink-dark);
-  font-size: 14.5px;
-}
-
-.party-card-cap {
-  font-size: 12.5px;
-  color: var(--text-muted);
-  background: var(--pink-light);
-  padding: 4px 10px;
-  border-radius: 999px;
-}
-
-/* ── 모달 공통 (파티 상세 / 로그인) ───────────────────────────────────── */
-
-.modal-overlay {
-  position: fixed;
-  inset: 0;
-  background: rgba(26, 26, 26, 0.5);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  z-index: 1000;
-  padding: 16px;
-}
-
-.modal-overlay[hidden] { display: none; }
-
-.modal-card {
-  position: relative;
-  width: 480px;
-  max-width: 100%;
-  max-height: 88vh;
-  overflow-y: auto;
-  background: var(--white);
-  border-radius: var(--radius-lg);
-  box-shadow: 0 24px 60px rgba(0, 0, 0, 0.2);
-}
-
-.modal-close {
-  position: absolute;
-  top: 14px;
-  right: 14px;
-  width: 34px;
-  height: 34px;
-  border-radius: 50%;
-  border: none;
-  background: var(--pink-light);
-  color: var(--text-dark);
-  font-size: 15px;
-  z-index: 2;
-}
-
-.party-detail-img {
-  width: 100%;
-  height: 220px;
-  object-fit: cover;
-  background: var(--pink-softer);
-}
-
-.party-detail-body { padding: 28px; }
-
-.party-detail-badge { display: inline-block; position: static; margin-bottom: 12px; }
-
-.party-detail-body h2 {
-  font-size: 21px;
-  font-weight: 800;
-  color: var(--text-dark);
-  margin: 0 0 18px;
-}
-
-.party-detail-row {
-  display: flex;
   gap: 12px;
-  font-size: 14.5px;
-  color: var(--text-body);
-  margin-bottom: 10px;
+  margin-top: 36px;
 }
 
-.party-detail-row .label {
-  color: var(--text-muted);
-  min-width: 56px;
-  flex-shrink: 0;
-}
-
-.party-detail-desc {
+.app-entry-note {
   margin-top: 16px;
-  font-size: 14px;
-  color: var(--text-body);
-  white-space: pre-wrap;
-}
-
-.party-detail-actions { margin-top: 24px; }
-.party-detail-actions .btn { width: 100%; }
-.party-detail-actions .btn:disabled {
-  background: var(--border);
-  color: var(--text-muted);
-  box-shadow: none;
-  cursor: not-allowed;
-  transform: none;
-}
-
-.login-card-body {
-  padding: 36px 28px;
   text-align: center;
-}
-
-.login-card-body .logo { font-size: 20px; margin-bottom: 6px; }
-
-.login-card-body p { font-size: 14.5px; color: var(--text-body); margin: 0 0 24px; }
-
-.login-btn {
-  width: 100%;
-  justify-content: center;
-  gap: 10px;
-}
-
-.login-error {
-  color: #D64545;
   font-size: 13px;
-  margin: -12px 0 16px;
+  color: var(--text-muted);
 }
 
-.login-note {
-  margin-top: 16px !important;
-  font-size: 12.5px !important;
-  color: var(--text-muted) !important;
+@media (max-width: 960px) {
+  .app-entry-grid { grid-template-columns: repeat(2, 1fr); }
 }
 
-@media (max-width: 960px) and (min-width: 721px) {
-  .party-grid { grid-template-columns: repeat(2, 1fr); }
-}
-
-@media (max-width: 720px) {
-  .party-toolbar { flex-direction: column; align-items: stretch; }
-  .party-filter-group { align-items: flex-start; }
-  .party-filters { justify-content: flex-start; }
-  .party-grid { grid-template-columns: 1fr; }
-  .modal-card { width: calc(100% - 32px); max-height: calc(100% - 32px); }
-}
-
-/* ── 동영상 플레이어 (js/video-player.js) ─────────────────────────── */
-/* 카드 대표 미디어가 동영상일 때 쓰는 박스. 썸네일(poster)이 항상 아래
-   깔려 있어서 재생 전·자동재생 차단·재생 실패 어느 경우에도 빈 화면이
-   보이지 않는다. */
-.party-card-media,
-.party-card-photo {
-  position: absolute;
-  inset: 0;
-  background: var(--pink-softer) center/cover no-repeat;
-}
-
-.pc-video {
-  position: relative;
-  overflow: hidden;
-  background: var(--pink-softer);
-}
-
-/* 카드/상세 안에서는 위에서 준 절대 배치를 그대로 유지해야 영역을 꽉
-   채운다(뒤에 오는 .pc-video의 position:relative에 덮이지 않도록 명시). */
-.party-card-media.pc-video,
-.party-detail-video.pc-video {
-  position: absolute;
-  inset: 0;
-}
-
-.pc-video-poster,
-.pc-video-el {
-  position: absolute;
-  inset: 0;
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
-  border: 0;
-  display: block;
-}
-
-.pc-video-el {
-  opacity: 0;
-  transition: opacity 0.25s ease;
-}
-
-/* 실제로 프레임이 나온 뒤에만 영상을 덮어씌워, 로딩 중 검은 화면이
-   깜빡이지 않게 한다. has-frame은 한 번 붙으면 떼지 않는다 — is-playing에
-   묶어두면 일시정지하는 순간 영상이 사라지고 썸네일이 튀어나온다. */
-.pc-video.has-frame .pc-video-el { opacity: 1; }
-.pc-video.has-error .pc-video-el { display: none; }
-
-.pc-video-btn {
-  position: absolute;
-  border: 0;
-  border-radius: 999px;
-  background: rgba(0, 0, 0, 0.45);
-  color: #fff;
-  cursor: pointer;
-  line-height: 1;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  transition: background 0.15s ease, transform 0.15s ease;
-}
-
-.pc-video-btn:hover { background: rgba(0, 0, 0, 0.62); }
-.pc-video-btn:active { transform: scale(0.94); }
-
-/* display:flex가 UA 스타일시트의 [hidden]{display:none}을 이겨버려서,
-   btn.hidden = true로 감춰도 계속 보였다(재생 중인 영상 위에 아무 일도
-   하지 않는 ▶가 떠 있던 원인). 명시적으로 다시 숨긴다. */
-.pc-video-btn[hidden] { display: none; }
-
-.pc-video-sound {
-  right: 10px;
-  bottom: 10px;
-  width: 32px;
-  height: 32px;
-  font-size: 14px;
-}
-
-/* 재생/일시정지 토글 — 네이티브 컨트롤이 없는 목록 카드에서 항상 보인다.
-   소리 버튼(우하단)과 겹치지 않게 좌하단에 둔다. */
-.pc-video-toggle {
-  left: 10px;
-  bottom: 10px;
-  width: 32px;
-  height: 32px;
-  font-size: 12px;
-  letter-spacing: -1px;
-}
-
-/* 멈춰 있을 때는 조금 더 또렷하게 — 누르면 재생된다는 걸 알린다. */
-.pc-video-toggle.is-paused { background: rgba(0, 0, 0, 0.62); }
-
-/* 사용자가 직접 멈췄거나 자동재생이 막혔을 때 나타나는 가운데 큰 재생 버튼 */
-.pc-video-play {
-  left: 50%;
-  top: 50%;
-  transform: translate(-50%, -50%);
-  width: 52px;
-  height: 52px;
-  font-size: 20px;
-  padding-left: 4px;
-}
-
-.pc-video-play:active { transform: translate(-50%, -50%) scale(0.94); }
-
-/* ── 상세 모달 미디어 슬라이드 ────────────────────────────────────── */
-.party-detail-media {
-  position: relative;
-  width: 100%;
-  height: 260px;
-  background: var(--pink-softer);
-}
-
-.party-detail-stage,
-.party-detail-video {
-  position: absolute;
-  inset: 0;
-}
-
-.party-detail-media .party-detail-img {
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
-}
-
-/* ── 상세 모달의 동영상 ─────────────────────────────────────────────
-   목록 카드는 카드 크기에 맞춰 잘라 쓰지만(object-fit: cover), 상세에서는
-   원본 비율 그대로 전부 보여야 한다. 세로 영상이 대부분이라 슬라이드도
-   동영상일 때만 더 높게 잡는다. */
-.party-detail-media.is-video {
-  height: 420px;
-  background: #000;
-}
-
-.party-detail-video .pc-video-el {
-  object-fit: contain;
-}
-
-/* 위아래(또는 좌우) 빈 공간은 같은 영상의 썸네일을 크게 확대·블러 처리해
-   채운다. 썸네일이 없으면 위의 검정 배경이 그대로 보인다. */
-.party-detail-video .pc-video-poster {
-  object-fit: cover;
-  filter: blur(22px) brightness(0.5);
-  transform: scale(1.15);
-}
-
-@media (max-width: 640px) {
-  .party-detail-media.is-video { height: 340px; }
-}
-
-.party-detail-arrow {
-  position: absolute;
-  top: 50%;
-  transform: translateY(-50%);
-  width: 34px;
-  height: 34px;
-  border: 0;
-  border-radius: 999px;
-  background: rgba(0, 0, 0, 0.4);
-  color: #fff;
-  font-size: 20px;
-  line-height: 1;
-  cursor: pointer;
-  z-index: 2;
-}
-
-.party-detail-arrow.prev { left: 10px; }
-.party-detail-arrow.next { right: 10px; }
-.party-detail-arrow:hover { background: rgba(0, 0, 0, 0.6); }
-
-.party-detail-dots {
-  position: absolute;
-  left: 0;
-  right: 0;
-  bottom: 10px;
-  display: flex;
-  justify-content: center;
-  gap: 6px;
-  z-index: 2;
-}
-
-.party-detail-dot {
-  width: 7px;
-  height: 7px;
-  padding: 0;
-  border: 0;
-  border-radius: 999px;
-  background: rgba(255, 255, 255, 0.55);
-  cursor: pointer;
-}
-
-.party-detail-dot.active {
-  background: #fff;
-  transform: scale(1.25);
-}
-
-@media (max-width: 720px) {
-  .party-detail-media { height: 220px; }
+@media (max-width: 560px) {
+  .app-entry-grid { grid-template-columns: 1fr; }
 }

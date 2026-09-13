@@ -126,18 +126,28 @@ class _ModeSheetBody extends StatelessWidget {
                       children: [
                         Text(
                           option.title,
-                          style: const TextStyle(fontSize: 15, fontWeight: FontWeight.bold),
+                          style: const TextStyle(
+                            fontSize: 15,
+                            fontWeight: FontWeight.bold,
+                          ),
                         ),
                         if (selected) ...[
                           const SizedBox(width: 6),
-                          const Icon(Icons.check_circle, size: 16, color: _kAccent),
+                          const Icon(
+                            Icons.check_circle,
+                            size: 16,
+                            color: _kAccent,
+                          ),
                         ],
                       ],
                     ),
                     const SizedBox(height: 4),
                     Text(
                       option.subtitle,
-                      style: const TextStyle(fontSize: 12, color: Colors.black54),
+                      style: const TextStyle(
+                        fontSize: 12,
+                        color: Colors.black54,
+                      ),
                     ),
                   ],
                 ),
@@ -153,14 +163,26 @@ class _ModeSheetBody extends StatelessWidget {
 /// "상세 설명 방식을 변경할까요?" 확인 다이얼로그 — 지금 활성 방식에 이미
 /// 작성한 내용이 있는데 다른 방식으로 바꾸려 할 때만 호출부가 띄운다.
 /// 데이터는 지우지 않고 표시만 바뀐다는 점을 안내한다. true면 변경 확정.
-Future<bool> confirmPartyDetailDescriptionModeSwitch(BuildContext context) async {
+Future<bool> confirmPartyDetailDescriptionModeSwitch(
+  BuildContext context,
+) async {
   final result = await showDialog<bool>(
     context: context,
     builder: (ctx) => AlertDialog(
-      title: const Text('상세 설명 방식을 변경할까요?', style: TextStyle(fontFamily: 'SeoulHangang', fontWeight: FontWeight.w500, shadows: [Shadow(color: Colors.black87, offset: Offset(0.3, 0)), Shadow(color: Colors.black87, offset: Offset(-0.3, 0)), Shadow(color: Colors.black87, offset: Offset(0, 0.3)), Shadow(color: Colors.black87, offset: Offset(0, -0.3))])),
-      content: const Text(
-        '현재 작성한 내용은 삭제되지 않지만,\n상세 화면에는 새로 선택한 방식만 표시됩니다.',
+      title: const Text(
+        '상세 설명 방식을 변경할까요?',
+        style: TextStyle(
+          fontFamily: 'SeoulHangang',
+          fontWeight: FontWeight.w500,
+          shadows: [
+            Shadow(color: Colors.black87, offset: Offset(0.3, 0)),
+            Shadow(color: Colors.black87, offset: Offset(-0.3, 0)),
+            Shadow(color: Colors.black87, offset: Offset(0, 0.3)),
+            Shadow(color: Colors.black87, offset: Offset(0, -0.3)),
+          ],
+        ),
       ),
+      content: const Text('현재 작성한 내용은 삭제되지 않지만,\n상세 화면에는 새로 선택한 방식만 표시됩니다.'),
       actions: [
         TextButton(
           onPressed: () => Navigator.pop(ctx, false),

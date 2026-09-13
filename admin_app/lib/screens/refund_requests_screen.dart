@@ -6,11 +6,14 @@ import 'package:intl/intl.dart';
 
 import '../theme/admin_theme.dart';
 
-/// 환불 요청 처리 — **운영 최소 기능**.
+/// 환불 요청 **감시·개입** 화면.
 ///
-/// 자동 송금(PG 환불 API)이 아직 없어서 실제 돈은 운영자가 계좌이체로 보낸다.
-/// 이 화면은 "누구에게 얼마를 어느 계좌로 보내야 하는가"를 보여주고, 보낸 뒤
-/// 상태를 넘기는 자리다.
+/// 참가비는 파티츄가 아니라 **호스트가 직접** 받으므로(users/{uid}.payoutAccount)
+/// 환불도 그 호스트가 자기 계좌에서 보낸다. 기본 처리자는 호스트이고, 이 화면은
+/// 전체 큐를 보면서 오래 방치된 건에 운영자가 끼어들기 위한 자리다.
+///
+/// 자동 송금(PG 환불 API)은 아직 없다. 그래서 '완료'는 누가 눌렀든 송금 증명이
+/// 아니라 **보냈다고 표시한 것**이다(completionMethod: marked_manually).
 ///
 /// ⚠ 문서를 직접 수정하지 않는다. 완료 처리는 반드시 서버 함수
 ///   completeRefundRequest를 부른다 — 규칙상 클라이언트는 refundRequests에
@@ -80,11 +83,18 @@ class _RefundRequestsScreenState extends State<RefundRequestsScreen> {
               mainAxisSize: MainAxisSize.min,
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
+                // ⚠ 환불금은 원래 **호스트가** 자기 계좌에서 보낸다(참가비를
+                //    호스트가 직접 받았으므로 — functions/payoutAccounts.js).
+                //    관리자 처리는 장기 미처리·연락두절 같은 **개입**이므로,
+                //    누르기 전에 실제 송금 주체를 분명히 확인시킨다.
                 Text(
                   reject
                       ? '이 환불 요청을 반려할까요?\n'
                             '신청자에게 사유가 그대로 전달되고, 계좌를 고쳐 다시 낼 수 있습니다.'
-                      : '아래 계좌로 송금을 마쳤나요?\n완료 처리하면 되돌릴 수 없습니다.',
+                      : '관리자 개입으로 완료 처리합니다.\n'
+                            '환불금은 호스트가 보내는 것이 원칙입니다 — '
+                            '실제 송금이 끝났는지 확인한 뒤에만 누르세요.\n'
+                            '완료 처리하면 되돌릴 수 없습니다.',
                   style: const TextStyle(height: 1.5),
                 ),
                 const SizedBox(height: 12),
@@ -174,7 +184,7 @@ class _RefundRequestsScreenState extends State<RefundRequestsScreen> {
             ),
             const SizedBox(width: 12),
             const Text(
-              '무통장입금 취소로 송금이 필요한 건 — 처리 대기(requested)만',
+              '무통장입금 취소 건 — 송금 주체는 호스트, 여기서는 감시·개입만 (처리 대기)',
               style: TextStyle(fontSize: 12.5, color: AdminTheme.textSecondary),
             ),
             const Spacer(),
@@ -306,11 +316,12 @@ class _RefundRequestsScreenState extends State<RefundRequestsScreen> {
                   await Clipboard.setData(ClipboardData(text: number));
                   if (!context.mounted) return;
                   ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(content: Text('계좌번호를 복사했습니다.')),
+                    const SnackBar(content: Text('환불받을 계좌번호를 복사했습니다.')),
                   );
                 },
                 icon: const Icon(Icons.copy, size: 15),
-                label: const Text('계좌 복사'),
+                // 세 계좌(입금받을·정산·환불받을)가 뒤섞이지 않게 용도를 적는다.
+                label: const Text('환불 계좌 복사'),
               ),
             ],
           ),

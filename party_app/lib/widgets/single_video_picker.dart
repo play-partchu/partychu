@@ -1,9 +1,8 @@
-import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:video_compress/video_compress.dart';
-import 'package:video_player/video_player.dart';
 import 'package:party_app/screens/video_trim_screen.dart';
+import 'package:party_app/utils/local_media.dart';
 import 'package:party_app/widgets/web_frame.dart';
 
 /// 이벤트/파티샵 등록처럼 "대표 이미지 1장 + 소개 이미지" 구조를 쓰는 단순한
@@ -65,7 +64,8 @@ class SingleVideoPickerState extends State<SingleVideoPicker> {
   void dispose() {
     // 압축이 진행 중인 채로 부모 화면을 벗어나면(뒤로가기 등) 취소한다 —
     // party_media_picker_screen.dart의 동일한 안전장치 참고.
-    VideoCompress.cancelCompression();
+    // (웹에는 플러그인이 없어 애초에 압축을 시작하지 않는다.)
+    if (LocalMedia.canCompressVideo) VideoCompress.cancelCompression();
     super.dispose();
   }
 
@@ -73,7 +73,7 @@ class SingleVideoPickerState extends State<SingleVideoPicker> {
     final file = await _picker.pickVideo(source: ImageSource.gallery);
     if (file == null) return;
 
-    final ctrl = VideoPlayerController.file(File(file.path));
+    final ctrl = LocalMedia.videoController(file);
     await ctrl.initialize();
     final secs = ctrl.value.duration.inSeconds;
     await ctrl.dispose();
@@ -83,9 +83,18 @@ class SingleVideoPickerState extends State<SingleVideoPicker> {
     var videoToUpload = file;
     if (secs > 30) {
       if (!mounted) return;
+      // 웹에는 video_trimmer 구현이 없다 — 자르기 대신 안내하고 받지 않는다
+      // (PartyMediaEditor.pickMedia()와 같은 정책).
+      if (!LocalMedia.canTrimVideo) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('30초 이내 동영상만 올릴 수 있어요. 영상을 먼저 편집해 주세요.')),
+        );
+        return;
+      }
       final trimmedPath = await Navigator.push<String>(
         context,
-        webFramedRoute((_) => VideoTrimScreen(sourceFile: File(file.path)),
+        webFramedRoute(
+          (_) => VideoTrimScreen(sourceFile: file),
           fullscreenDialog: true,
         ),
       );
@@ -112,7 +121,9 @@ class SingleVideoPickerState extends State<SingleVideoPicker> {
   }
 
   Future<XFile?> _compressVideo(XFile file) async {
-    if (!File(file.path).existsSync()) return null;
+    // 웹에는 video_compress 구현이 없다 — 압축만 건너뛰고 원본을 그대로 쓴다.
+    if (!LocalMedia.canCompressVideo) return null;
+    if (!(await LocalMedia.stat(file)).exists) return null;
     try {
       final info = await VideoCompress.compressVideo(
         file.path,
@@ -161,7 +172,10 @@ class SingleVideoPickerState extends State<SingleVideoPicker> {
                 ),
               ),
               SizedBox(height: 8),
-              Text('동영상 압축 중...', style: TextStyle(fontSize: 12, color: Colors.black45)),
+              Text(
+                '동영상 압축 중...',
+                style: TextStyle(fontSize: 12, color: Colors.black45),
+              ),
             ],
           ),
         ),
@@ -170,56 +184,68 @@ class SingleVideoPickerState extends State<SingleVideoPicker> {
 
     if (hasVideo) {
       final thumbnailUrl = _existingVideoThumbnailUrl;
-      return Stack(clipBehavior: Clip.none, children: [
-        Container(
-          width: double.infinity,
-          height: 140,
-          decoration: BoxDecoration(
-            color: Colors.black87,
-            borderRadius: BorderRadius.circular(12),
-          ),
-          child: thumbnailUrl != null && thumbnailUrl.isNotEmpty
-              ? ClipRRect(
-                  borderRadius: BorderRadius.circular(12),
-                  child: Image.network(
-                    thumbnailUrl,
-                    width: double.infinity,
-                    height: 140,
-                    fit: BoxFit.cover,
-                    errorBuilder: (_, _, _) => const _VideoPlaceholderIcon(),
-                  ),
-                )
-              : const _VideoPlaceholderIcon(),
-        ),
-        Positioned(
-          top: 8,
-          right: 8,
-          child: GestureDetector(
-            onTap: _remove,
-            child: Container(
-              width: 26,
-              height: 26,
-              decoration: const BoxDecoration(shape: BoxShape.circle, color: Colors.black54),
-              child: const Icon(Icons.close, size: 14, color: Colors.white),
+      return Stack(
+        clipBehavior: Clip.none,
+        children: [
+          Container(
+            width: double.infinity,
+            height: 140,
+            decoration: BoxDecoration(
+              color: Colors.black87,
+              borderRadius: BorderRadius.circular(12),
             ),
+            child: thumbnailUrl != null && thumbnailUrl.isNotEmpty
+                ? ClipRRect(
+                    borderRadius: BorderRadius.circular(12),
+                    child: Image.network(
+                      thumbnailUrl,
+                      width: double.infinity,
+                      height: 140,
+                      fit: BoxFit.cover,
+                      errorBuilder: (_, _, _) => const _VideoPlaceholderIcon(),
+                    ),
+                  )
+                : const _VideoPlaceholderIcon(),
           ),
-        ),
-        Positioned(
-          bottom: 8,
-          right: 8,
-          child: GestureDetector(
-            onTap: _pick,
-            child: Container(
-              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
-              decoration: BoxDecoration(
-                color: Colors.black54,
-                borderRadius: BorderRadius.circular(8),
+          Positioned(
+            top: 8,
+            right: 8,
+            child: GestureDetector(
+              onTap: _remove,
+              child: Container(
+                width: 26,
+                height: 26,
+                decoration: const BoxDecoration(
+                  shape: BoxShape.circle,
+                  color: Colors.black54,
+                ),
+                child: const Icon(Icons.close, size: 14, color: Colors.white),
               ),
-              child: const Text('변경', style: TextStyle(fontSize: 12, color: Colors.white)),
             ),
           ),
-        ),
-      ]);
+          Positioned(
+            bottom: 8,
+            right: 8,
+            child: GestureDetector(
+              onTap: _pick,
+              child: Container(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 10,
+                  vertical: 5,
+                ),
+                decoration: BoxDecoration(
+                  color: Colors.black54,
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: const Text(
+                  '변경',
+                  style: TextStyle(fontSize: 12, color: Colors.white),
+                ),
+              ),
+            ),
+          ),
+        ],
+      );
     }
 
     return GestureDetector(
@@ -237,7 +263,10 @@ class SingleVideoPickerState extends State<SingleVideoPicker> {
           children: [
             Icon(Icons.videocam_outlined, size: 32, color: Colors.black38),
             SizedBox(height: 6),
-            Text('동영상 추가', style: TextStyle(fontSize: 13, color: Colors.black38)),
+            Text(
+              '동영상 추가',
+              style: TextStyle(fontSize: 13, color: Colors.black38),
+            ),
           ],
         ),
       ),

@@ -19,6 +19,7 @@ import 'package:party_app/widgets/party_detail_theme.dart';
 class PartyDetailBlockTextView extends StatelessWidget {
   final List<PartyDetailBlock> blocks;
   final PartyDetailThemeKey theme;
+
   /// 에러 로그 식별용(선택).
   final String? partyId;
 
@@ -73,21 +74,35 @@ class PartyDetailBlockTextView extends StatelessWidget {
         if (text == null || text.isEmpty) return null;
         return SelectableText(
           text,
-          style: const TextStyle(fontSize: 21, fontWeight: FontWeight.bold, color: Colors.black87, height: 1.4),
+          style: const TextStyle(
+            fontSize: 21,
+            fontWeight: FontWeight.bold,
+            color: Colors.black87,
+            height: 1.4,
+          ),
         );
       case PartyDetailBlockType.subheading:
         final text = block.text?.trim();
         if (text == null || text.isEmpty) return null;
         return SelectableText(
           text,
-          style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700, color: accent, height: 1.5),
+          style: TextStyle(
+            fontSize: 16,
+            fontWeight: FontWeight.w700,
+            color: accent,
+            height: 1.5,
+          ),
         );
       case PartyDetailBlockType.paragraph:
         final text = block.text?.trim();
         if (text == null || text.isEmpty) return null;
         return SelectableText(
           text,
-          style: const TextStyle(fontSize: 15, height: 1.8, color: Colors.black87),
+          style: const TextStyle(
+            fontSize: 15,
+            height: 1.8,
+            color: Colors.black87,
+          ),
         );
       case PartyDetailBlockType.notice:
         final text = block.text?.trim();
@@ -101,7 +116,11 @@ class PartyDetailBlockTextView extends StatelessWidget {
           ),
           child: SelectableText(
             text,
-            style: const TextStyle(fontSize: 13.5, height: 1.7, color: Color(0xFFB23A63)),
+            style: const TextStyle(
+              fontSize: 13.5,
+              height: 1.7,
+              color: Color(0xFFB23A63),
+            ),
           ),
         );
       case PartyDetailBlockType.divider:
@@ -127,7 +146,11 @@ class PartyDetailBlockTextView extends StatelessWidget {
         if (caption == null || caption.isEmpty) return null;
         return SelectableText(
           caption,
-          style: const TextStyle(fontSize: 13, color: Colors.black45, fontStyle: FontStyle.italic),
+          style: const TextStyle(
+            fontSize: 13,
+            color: Colors.black45,
+            fontStyle: FontStyle.italic,
+          ),
         );
       case PartyDetailBlockType.unknown:
         return null;
@@ -144,7 +167,11 @@ class PartyDetailBlockTextView extends StatelessWidget {
         if (title != null && title.isNotEmpty) ...[
           SelectableText(
             title,
-            style: const TextStyle(fontSize: 17, fontWeight: FontWeight.bold, color: Colors.black87),
+            style: const TextStyle(
+              fontSize: 17,
+              fontWeight: FontWeight.bold,
+              color: Colors.black87,
+            ),
           ),
           const SizedBox(height: 8),
         ],
@@ -153,7 +180,11 @@ class PartyDetailBlockTextView extends StatelessWidget {
             padding: const EdgeInsets.only(bottom: 4),
             child: SelectableText(
               '✓ $item',
-              style: const TextStyle(fontSize: 15, height: 1.6, color: Colors.black87),
+              style: const TextStyle(
+                fontSize: 15,
+                height: 1.6,
+                color: Colors.black87,
+              ),
             ),
           ),
       ],
@@ -170,7 +201,11 @@ class PartyDetailBlockTextView extends StatelessWidget {
         if (title != null && title.isNotEmpty) ...[
           SelectableText(
             title,
-            style: const TextStyle(fontSize: 17, fontWeight: FontWeight.bold, color: Colors.black87),
+            style: const TextStyle(
+              fontSize: 17,
+              fontWeight: FontWeight.bold,
+              color: Colors.black87,
+            ),
           ),
           const SizedBox(height: 8),
         ],
@@ -183,12 +218,20 @@ class PartyDetailBlockTextView extends StatelessWidget {
               children: [
                 SelectableText(
                   'Q. ${item.question}',
-                  style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w700, color: Colors.black87),
+                  style: const TextStyle(
+                    fontSize: 15,
+                    fontWeight: FontWeight.w700,
+                    color: Colors.black87,
+                  ),
                 ),
                 const SizedBox(height: 4),
                 SelectableText(
                   'A. ${item.answer}',
-                  style: const TextStyle(fontSize: 14, height: 1.6, color: Colors.black54),
+                  style: const TextStyle(
+                    fontSize: 14,
+                    height: 1.6,
+                    color: Colors.black54,
+                  ),
                 ),
               ],
             ),
@@ -207,7 +250,11 @@ class PartyDetailBlockTextView extends StatelessWidget {
         if (title != null && title.isNotEmpty) ...[
           SelectableText(
             title,
-            style: const TextStyle(fontSize: 17, fontWeight: FontWeight.bold, color: Colors.black87),
+            style: const TextStyle(
+              fontSize: 17,
+              fontWeight: FontWeight.bold,
+              color: Colors.black87,
+            ),
           ),
           const SizedBox(height: 8),
         ],
@@ -219,16 +266,28 @@ class PartyDetailBlockTextView extends StatelessWidget {
                 children: [
                   TextSpan(
                     text: '${item.time}  ',
-                    style: TextStyle(fontSize: 14, fontWeight: FontWeight.w700, color: accent),
+                    style: TextStyle(
+                      fontSize: 14,
+                      fontWeight: FontWeight.w700,
+                      color: accent,
+                    ),
                   ),
                   TextSpan(
                     text: item.title,
-                    style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w600, color: Colors.black87),
+                    style: const TextStyle(
+                      fontSize: 15,
+                      fontWeight: FontWeight.w600,
+                      color: Colors.black87,
+                    ),
                   ),
                   if (item.description.isNotEmpty)
                     TextSpan(
                       text: '\n${item.description}',
-                      style: const TextStyle(fontSize: 13, height: 1.5, color: Colors.black54),
+                      style: const TextStyle(
+                        fontSize: 13,
+                        height: 1.5,
+                        color: Colors.black54,
+                      ),
                     ),
                 ],
               ),
@@ -241,20 +300,30 @@ class PartyDetailBlockTextView extends StatelessWidget {
   Widget? _buildInfoCard(PartyDetailBlock block) {
     final payload = block.infoCard;
     if (payload == null) return null;
-    if (payload.title.trim().isEmpty && payload.text.trim().isEmpty) return null;
+    if (payload.title.trim().isEmpty && payload.text.trim().isEmpty)
+      return null;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         if (payload.title.isNotEmpty)
           SelectableText(
             payload.title,
-            style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Colors.black87),
+            style: const TextStyle(
+              fontSize: 16,
+              fontWeight: FontWeight.bold,
+              color: Colors.black87,
+            ),
           ),
-        if (payload.title.isNotEmpty && payload.text.isNotEmpty) const SizedBox(height: 4),
+        if (payload.title.isNotEmpty && payload.text.isNotEmpty)
+          const SizedBox(height: 4),
         if (payload.text.isNotEmpty)
           SelectableText(
             payload.text,
-            style: const TextStyle(fontSize: 14, height: 1.6, color: Colors.black54),
+            style: const TextStyle(
+              fontSize: 14,
+              height: 1.6,
+              color: Colors.black54,
+            ),
           ),
       ],
     );

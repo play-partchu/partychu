@@ -1,13 +1,14 @@
 import 'dart:async';
-import 'dart:io';
 
 import 'package:flutter/material.dart';
+import 'package:image_picker/image_picker.dart' show XFile;
 import 'package:video_player/video_player.dart';
 import 'package:visibility_detector/visibility_detector.dart';
 import 'package:party_app/models/party_detail_block.dart';
 import 'package:party_app/models/party_detail_theme_key.dart';
 import 'package:party_app/models/party_detail_decoration_intensity.dart';
 import 'package:party_app/utils/feed_video_manager.dart';
+import 'package:party_app/utils/local_media.dart';
 import 'package:party_app/utils/video_crop.dart';
 import 'package:party_app/widgets/party_detail_decoration.dart';
 import 'package:party_app/widgets/party_detail_theme.dart';
@@ -78,8 +79,8 @@ enum _RichTextEmphasisVariant {
 class PartyDetailBlockPreview extends StatelessWidget {
   final List<PartyDetailBlock> blocks;
   final PartyDetailThemeKey theme;
-  final Map<String, File> localImageOverrides;
-  final Map<String, File> localVideoOverrides;
+  final Map<String, XFile> localImageOverrides;
+  final Map<String, XFile> localVideoOverrides;
   final void Function(PartyDetailBlock block)? onImageTap;
 
   /// "간편 자동 꾸미기" 미리보기에서 문단을 탭해 스타일/이모지를 바로
@@ -129,7 +130,8 @@ class PartyDetailBlockPreview extends StatelessWidget {
   /// 새로고침해도 항상 같은 배치를 낸다(완전 랜덤이 아님). 에디터
   /// 미리보기는 아직 문서 id가 없어 partyId가 null일 수 있어 고정
   /// 문자열로 대체한다.
-  int _seed(String salt) => Object.hash(partyId ?? 'preview', theme.name, variantSeed, salt);
+  int _seed(String salt) =>
+      Object.hash(partyId ?? 'preview', theme.name, variantSeed, salt);
 
   @override
   Widget build(BuildContext context) {
@@ -205,7 +207,11 @@ class PartyDetailBlockPreview extends StatelessWidget {
     return Column(
       children: [
         SizedBox(height: palette.contentGap / 2),
-        PartyDetailBlockSeparator(theme: theme, intensity: intensity, seed: _seed('sep-$i')),
+        PartyDetailBlockSeparator(
+          theme: theme,
+          intensity: intensity,
+          seed: _seed('sep-$i'),
+        ),
         SizedBox(height: palette.contentGap / 2),
       ],
     );
@@ -299,14 +305,23 @@ class PartyDetailBlockPreview extends StatelessWidget {
     final hasCrop = cropX != null && cropY != null && cropScale != null;
     final aspectRatio = hasCrop
         ? 4 / 5
-        : (block.imageWidth != null && block.imageHeight != null && block.imageHeight! > 0)
-            ? block.imageWidth! / block.imageHeight!
-            : 4 / 3;
-    final alignment = hasCrop ? videoCropAlignment(cropX, cropY) : Alignment.center;
+        : (block.imageWidth != null &&
+              block.imageHeight != null &&
+              block.imageHeight! > 0)
+        ? block.imageWidth! / block.imageHeight!
+        : 4 / 3;
+    final alignment = hasCrop
+        ? videoCropAlignment(cropX, cropY)
+        : Alignment.center;
 
     Widget image;
     if (localFile != null) {
-      image = Image.file(localFile, fit: BoxFit.cover, alignment: alignment, width: double.infinity);
+      image = LocalMedia.image(
+        localFile,
+        fit: BoxFit.cover,
+        alignment: alignment,
+        width: double.infinity,
+      );
     } else {
       // 화면 가로폭 기준으로 디코드 해상도를 제한해 큰 원본 사진의 메모리
       // 사용량을 줄인다 — 원본이 더 작으면 Flutter가 그 이상으로 확대
@@ -328,7 +343,10 @@ class PartyDetailBlockPreview extends StatelessWidget {
             child: SizedBox(
               width: 22,
               height: 22,
-              child: CircularProgressIndicator(strokeWidth: 2, color: palette.primary),
+              child: CircularProgressIndicator(
+                strokeWidth: 2,
+                color: palette.primary,
+              ),
             ),
           );
         },
@@ -348,9 +366,16 @@ class PartyDetailBlockPreview extends StatelessWidget {
             child: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
-                Icon(Icons.image_not_supported_outlined, color: palette.mutedColor, size: 26),
+                Icon(
+                  Icons.image_not_supported_outlined,
+                  color: palette.mutedColor,
+                  size: 26,
+                ),
                 const SizedBox(height: 4),
-                Text('이미지를 불러올 수 없어요', style: TextStyle(fontSize: 11, color: palette.mutedColor)),
+                Text(
+                  '이미지를 불러올 수 없어요',
+                  style: TextStyle(fontSize: 11, color: palette.mutedColor),
+                ),
               ],
             ),
           );
@@ -361,7 +386,12 @@ class PartyDetailBlockPreview extends StatelessWidget {
     final inner = AspectRatio(
       aspectRatio: aspectRatio,
       child: hasCrop
-          ? CroppedMedia(cropX: cropX, cropY: cropY, cropScale: cropScale, child: image)
+          ? CroppedMedia(
+              cropX: cropX,
+              cropY: cropY,
+              cropScale: cropScale,
+              child: image,
+            )
           : image,
     );
 
@@ -385,7 +415,10 @@ class PartyDetailBlockPreview extends StatelessWidget {
         framed,
         if ((block.caption ?? '').isNotEmpty) ...[
           const SizedBox(height: 6),
-          Text(block.caption!, style: TextStyle(fontSize: 12, color: palette.mutedColor)),
+          Text(
+            block.caption!,
+            style: TextStyle(fontSize: 12, color: palette.mutedColor),
+          ),
         ],
       ],
     );
@@ -398,7 +431,10 @@ class PartyDetailBlockPreview extends StatelessWidget {
   /// 그리드 전체를 기존 `PartyDetailPhotoFrame`로 한 번만 감싸 카드 테두리·
   /// 그림자·포인트 색 바를 그대로 재사용한다(콜라주 전용 프레임을 새로 만들지
   /// 않음). 유효 사진이 2장 미만이면 표시할 콜라주가 아니므로 null.
-  Widget? _buildImageGroup(PartyDetailThemeData palette, PartyDetailBlock block) {
+  Widget? _buildImageGroup(
+    PartyDetailThemeData palette,
+    PartyDetailBlock block,
+  ) {
     final payload = block.imageGroup;
     if (payload == null) return null;
     final valid = payload.items.where((item) {
@@ -417,10 +453,12 @@ class PartyDetailBlockPreview extends StatelessWidget {
       final cropY = item.cropY;
       final cropScale = item.cropScale;
       final hasCrop = cropX != null && cropY != null && cropScale != null;
-      final alignment = hasCrop ? videoCropAlignment(cropX, cropY) : Alignment.center;
+      final alignment = hasCrop
+          ? videoCropAlignment(cropX, cropY)
+          : Alignment.center;
 
       final image = localFile != null
-          ? Image.file(localFile, fit: BoxFit.cover, alignment: alignment)
+          ? LocalMedia.image(localFile, fit: BoxFit.cover, alignment: alignment)
           : Image.network(
               item.imageUrl,
               fit: BoxFit.cover,
@@ -428,11 +466,20 @@ class PartyDetailBlockPreview extends StatelessWidget {
               errorBuilder: (context, error, stackTrace) => Container(
                 color: palette.cardBackground,
                 alignment: Alignment.center,
-                child: Icon(Icons.image_not_supported_outlined, color: palette.mutedColor, size: 20),
+                child: Icon(
+                  Icons.image_not_supported_outlined,
+                  color: palette.mutedColor,
+                  size: 20,
+                ),
               ),
             );
       final cropped = hasCrop
-          ? CroppedMedia(cropX: cropX, cropY: cropY, cropScale: cropScale, child: image)
+          ? CroppedMedia(
+              cropX: cropX,
+              cropY: cropY,
+              cropScale: cropScale,
+              child: image,
+            )
           : image;
       return ClipRRect(
         borderRadius: BorderRadius.circular(6),
@@ -453,14 +500,15 @@ class PartyDetailBlockPreview extends StatelessWidget {
     final grid = items.length <= 3
         ? row(items)
         : Column(
-            children: [
-              row(items.sublist(0, 2)),
-              gap,
-              row(items.sublist(2, 4)),
-            ],
+            children: [row(items.sublist(0, 2)), gap, row(items.sublist(2, 4))],
           );
 
-    final framed = PartyDetailPhotoFrame(theme: theme, intensity: intensity, isHero: false, child: grid);
+    final framed = PartyDetailPhotoFrame(
+      theme: theme,
+      intensity: intensity,
+      isHero: false,
+      child: grid,
+    );
 
     final caption = payload.caption?.trim();
     return Column(
@@ -469,13 +517,19 @@ class PartyDetailBlockPreview extends StatelessWidget {
         framed,
         if (caption != null && caption.isNotEmpty) ...[
           const SizedBox(height: 6),
-          Text(caption, style: TextStyle(fontSize: 12, color: palette.mutedColor)),
+          Text(
+            caption,
+            style: TextStyle(fontSize: 12, color: palette.mutedColor),
+          ),
         ],
       ],
     );
   }
 
-  Widget? _buildChecklist(PartyDetailThemeData palette, PartyDetailBlock block) {
+  Widget? _buildChecklist(
+    PartyDetailThemeData palette,
+    PartyDetailBlock block,
+  ) {
     final payload = block.checklist;
     if (payload == null || payload.items.isEmpty) return null;
     final title = payload.title?.trim();
@@ -483,7 +537,14 @@ class PartyDetailBlockPreview extends StatelessWidget {
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         if (title != null && title.isNotEmpty) ...[
-          Text(title, style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: palette.headingColor)),
+          Text(
+            title,
+            style: TextStyle(
+              fontSize: 16,
+              fontWeight: FontWeight.bold,
+              color: palette.headingColor,
+            ),
+          ),
           const SizedBox(height: 10),
         ],
         for (final item in payload.items)
@@ -495,7 +556,14 @@ class PartyDetailBlockPreview extends StatelessWidget {
                 Icon(Icons.check_circle, size: 18, color: palette.iconColor),
                 const SizedBox(width: 8),
                 Expanded(
-                  child: Text(item, style: TextStyle(fontSize: 14, height: 1.5, color: palette.bodyColor)),
+                  child: Text(
+                    item,
+                    style: TextStyle(
+                      fontSize: 14,
+                      height: 1.5,
+                      color: palette.bodyColor,
+                    ),
+                  ),
                 ),
               ],
             ),
@@ -507,7 +575,11 @@ class PartyDetailBlockPreview extends StatelessWidget {
   Widget? _buildFaq(PartyDetailThemeData palette, PartyDetailBlock block) {
     final payload = block.faq;
     if (payload == null || payload.items.isEmpty) return null;
-    return _FaqAccordion(palette: palette, title: payload.title, items: payload.items);
+    return _FaqAccordion(
+      palette: palette,
+      title: payload.title,
+      items: payload.items,
+    );
   }
 
   Widget? _buildTimeline(PartyDetailThemeData palette, PartyDetailBlock block) {
@@ -518,16 +590,31 @@ class PartyDetailBlockPreview extends StatelessWidget {
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         if (title != null && title.isNotEmpty) ...[
-          Text(title, style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: palette.headingColor)),
+          Text(
+            title,
+            style: TextStyle(
+              fontSize: 16,
+              fontWeight: FontWeight.bold,
+              color: palette.headingColor,
+            ),
+          ),
           const SizedBox(height: 12),
         ],
         for (var i = 0; i < payload.items.length; i++)
-          _timelineRow(palette, payload.items[i], isLast: i == payload.items.length - 1),
+          _timelineRow(
+            palette,
+            payload.items[i],
+            isLast: i == payload.items.length - 1,
+          ),
       ],
     );
   }
 
-  Widget _timelineRow(PartyDetailThemeData palette, PartyDetailTimelineItem item, {required bool isLast}) {
+  Widget _timelineRow(
+    PartyDetailThemeData palette,
+    PartyDetailTimelineItem item, {
+    required bool isLast,
+  }) {
     return IntrinsicHeight(
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -536,7 +623,11 @@ class PartyDetailBlockPreview extends StatelessWidget {
             width: 52,
             child: Text(
               item.time,
-              style: TextStyle(fontSize: 12, fontWeight: FontWeight.w700, color: palette.primary),
+              style: TextStyle(
+                fontSize: 12,
+                fontWeight: FontWeight.w700,
+                color: palette.primary,
+              ),
             ),
           ),
           Column(
@@ -545,10 +636,18 @@ class PartyDetailBlockPreview extends StatelessWidget {
                 width: 8,
                 height: 8,
                 margin: const EdgeInsets.only(top: 4),
-                decoration: BoxDecoration(color: palette.timelineColor, shape: BoxShape.circle),
+                decoration: BoxDecoration(
+                  color: palette.timelineColor,
+                  shape: BoxShape.circle,
+                ),
               ),
               if (!isLast)
-                Expanded(child: Container(width: 1.5, color: palette.timelineColor.withValues(alpha: 0.3))),
+                Expanded(
+                  child: Container(
+                    width: 1.5,
+                    color: palette.timelineColor.withValues(alpha: 0.3),
+                  ),
+                ),
             ],
           ),
           const SizedBox(width: 10),
@@ -558,12 +657,23 @@ class PartyDetailBlockPreview extends StatelessWidget {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text(item.title, style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600, color: palette.headingColor)),
+                  Text(
+                    item.title,
+                    style: TextStyle(
+                      fontSize: 14,
+                      fontWeight: FontWeight.w600,
+                      color: palette.headingColor,
+                    ),
+                  ),
                   if (item.description.isNotEmpty) ...[
                     const SizedBox(height: 4),
                     Text(
                       item.description,
-                      style: TextStyle(fontSize: 13, height: 1.5, color: palette.mutedColor),
+                      style: TextStyle(
+                        fontSize: 13,
+                        height: 1.5,
+                        color: palette.mutedColor,
+                      ),
                     ),
                   ],
                 ],
@@ -578,7 +688,8 @@ class PartyDetailBlockPreview extends StatelessWidget {
   Widget? _buildInfoCard(PartyDetailThemeData palette, PartyDetailBlock block) {
     final payload = block.infoCard;
     if (payload == null) return null;
-    if (payload.title.trim().isEmpty && payload.text.trim().isEmpty) return null;
+    if (payload.title.trim().isEmpty && payload.text.trim().isEmpty)
+      return null;
 
     final variant = richAutoDecorations
         ? _richVariant(_RichCardVariant.values, 'card-${block.id}')
@@ -603,7 +714,10 @@ class PartyDetailBlockPreview extends StatelessWidget {
           Container(
             width: iconSize,
             height: iconSize,
-            decoration: BoxDecoration(color: palette.iconBackground, borderRadius: BorderRadius.circular(10)),
+            decoration: BoxDecoration(
+              color: palette.iconBackground,
+              borderRadius: BorderRadius.circular(10),
+            ),
             child: Icon(
               partyDetailInfoCardIconData(payload.icon),
               size: isHeroCard ? 22 : 18,
@@ -619,17 +733,24 @@ class PartyDetailBlockPreview extends StatelessWidget {
                   Text(
                     payload.title,
                     style: TextStyle(
-                      fontSize: richAutoDecorations ? (isHeroCard ? 16 : 15) : 14,
+                      fontSize: richAutoDecorations
+                          ? (isHeroCard ? 16 : 15)
+                          : 14,
                       fontWeight: FontWeight.bold,
                       letterSpacing: richAutoDecorations ? 0.1 : null,
                       color: palette.headingColor,
                     ),
                   ),
-                if (payload.title.isNotEmpty && payload.text.isNotEmpty) const SizedBox(height: 4),
+                if (payload.title.isNotEmpty && payload.text.isNotEmpty)
+                  const SizedBox(height: 4),
                 if (payload.text.isNotEmpty)
                   Text(
                     payload.text,
-                    style: TextStyle(fontSize: 13, height: 1.5, color: palette.mutedColor),
+                    style: TextStyle(
+                      fontSize: 13,
+                      height: 1.5,
+                      color: palette.mutedColor,
+                    ),
                   ),
               ],
             ),
@@ -637,7 +758,11 @@ class PartyDetailBlockPreview extends StatelessWidget {
         ],
       ),
     );
-    return _withSparkle(card, show: variant == _RichCardVariant.sparkleCorner, color: palette.primary);
+    return _withSparkle(
+      card,
+      show: variant == _RichCardVariant.sparkleCorner,
+      color: palette.primary,
+    );
   }
 
   Widget? _buildNotice(PartyDetailThemeData palette, PartyDetailBlock block) {
@@ -666,13 +791,21 @@ class PartyDetailBlockPreview extends StatelessWidget {
         ),
       ),
     );
-    return _withSparkle(card, show: variant == _RichCardVariant.sparkleCorner, color: palette.primary);
+    return _withSparkle(
+      card,
+      show: variant == _RichCardVariant.sparkleCorner,
+      color: palette.primary,
+    );
   }
 
   /// "화려하게"일 때 subheading(배너 줄)에 [_RichTextEmphasisVariant] 중
   /// 하나를 블록 id 기반으로 결정적으로 골라 적용한다. false면 기존 렌더링과
   /// 동일하다.
-  Widget _buildSubheading(PartyDetailThemeData palette, PartyDetailBlock block, String text) {
+  Widget _buildSubheading(
+    PartyDetailThemeData palette,
+    PartyDetailBlock block,
+    String text,
+  ) {
     final baseStyle = TextStyle(
       fontSize: richAutoDecorations ? 17 : 16,
       fontWeight: FontWeight.w700,
@@ -682,7 +815,10 @@ class PartyDetailBlockPreview extends StatelessWidget {
     );
     if (!richAutoDecorations) return Text(text, style: baseStyle);
 
-    final variant = _richVariant(_RichTextEmphasisVariant.values, 'emphasis-${block.id}');
+    final variant = _richVariant(
+      _RichTextEmphasisVariant.values,
+      'emphasis-${block.id}',
+    );
     switch (variant) {
       case _RichTextEmphasisVariant.boldColorAccent:
         return Text(
@@ -731,9 +867,18 @@ class PartyDetailBlockPreview extends StatelessWidget {
               margin: const EdgeInsets.only(top: 3, right: 8),
               color: palette.primary.withValues(alpha: 0.5),
             ),
-            Icon(Icons.format_quote, size: 18, color: palette.primary.withValues(alpha: 0.35)),
+            Icon(
+              Icons.format_quote,
+              size: 18,
+              color: palette.primary.withValues(alpha: 0.35),
+            ),
             const SizedBox(width: 4),
-            Expanded(child: Text(text, style: baseStyle.copyWith(fontStyle: FontStyle.italic))),
+            Expanded(
+              child: Text(
+                text,
+                style: baseStyle.copyWith(fontStyle: FontStyle.italic),
+              ),
+            ),
           ],
         );
     }
@@ -742,7 +887,8 @@ class PartyDetailBlockPreview extends StatelessWidget {
   /// [salt]로 시드를 계산해(기존 [_seed] 재사용 — variantSeed가 이미
   /// 포함돼 있어 "다시 꾸미기"마다 선택이 함께 바뀐다) [values] 중 하나를
   /// 결정적으로 고른다.
-  T _richVariant<T>(List<T> values, String salt) => values[_seed(salt).abs() % values.length];
+  T _richVariant<T>(List<T> values, String salt) =>
+      values[_seed(salt).abs() % values.length];
 
   BoxDecoration _richCardDecoration({
     required _RichCardVariant variant,
@@ -773,7 +919,13 @@ class PartyDetailBlockPreview extends StatelessWidget {
           gradient: LinearGradient(
             begin: Alignment.topLeft,
             end: Alignment.bottomRight,
-            colors: [background, Color.alphaBlend(palette.primary.withValues(alpha: 0.06), background)],
+            colors: [
+              background,
+              Color.alphaBlend(
+                palette.primary.withValues(alpha: 0.06),
+                background,
+              ),
+            ],
           ),
           borderRadius: BorderRadius.circular(radius),
           border: border,
@@ -793,7 +945,11 @@ class PartyDetailBlockPreview extends StatelessWidget {
           right: 10,
           top: 10,
           child: IgnorePointer(
-            child: Icon(Icons.auto_awesome, size: 14, color: color.withValues(alpha: 0.5)),
+            child: Icon(
+              Icons.auto_awesome,
+              size: 14,
+              color: color.withValues(alpha: 0.5),
+            ),
           ),
         ),
       ],
@@ -819,7 +975,10 @@ class PartyDetailBlockPreview extends StatelessWidget {
         ),
         if (caption != null && caption.isNotEmpty) ...[
           const SizedBox(height: 6),
-          Text(caption, style: TextStyle(fontSize: 12, color: palette.mutedColor)),
+          Text(
+            caption,
+            style: TextStyle(fontSize: 12, color: palette.mutedColor),
+          ),
         ],
       ],
     );
@@ -854,7 +1013,14 @@ class _FaqAccordionState extends State<_FaqAccordion> {
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         if (title != null && title.isNotEmpty) ...[
-          Text(title, style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: palette.headingColor)),
+          Text(
+            title,
+            style: TextStyle(
+              fontSize: 16,
+              fontWeight: FontWeight.bold,
+              color: palette.headingColor,
+            ),
+          ),
           const SizedBox(height: 10),
         ],
         for (final item in widget.items) _faqTile(palette, item),
@@ -888,12 +1054,23 @@ class _FaqAccordionState extends State<_FaqAccordion> {
               padding: const EdgeInsets.all(12),
               child: Row(
                 children: [
-                  Text('Q', style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: palette.primary)),
+                  Text(
+                    'Q',
+                    style: TextStyle(
+                      fontSize: 13,
+                      fontWeight: FontWeight.bold,
+                      color: palette.primary,
+                    ),
+                  ),
                   const SizedBox(width: 8),
                   Expanded(
                     child: Text(
                       item.question,
-                      style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600, color: palette.headingColor),
+                      style: TextStyle(
+                        fontSize: 14,
+                        fontWeight: FontWeight.w600,
+                        color: palette.headingColor,
+                      ),
                     ),
                   ),
                   Icon(
@@ -911,12 +1088,23 @@ class _FaqAccordionState extends State<_FaqAccordion> {
               child: Row(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text('A', style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: palette.mutedColor)),
+                  Text(
+                    'A',
+                    style: TextStyle(
+                      fontSize: 13,
+                      fontWeight: FontWeight.bold,
+                      color: palette.mutedColor,
+                    ),
+                  ),
                   const SizedBox(width: 8),
                   Expanded(
                     child: Text(
                       item.answer,
-                      style: TextStyle(fontSize: 13, height: 1.6, color: palette.bodyColor),
+                      style: TextStyle(
+                        fontSize: 13,
+                        height: 1.6,
+                        color: palette.bodyColor,
+                      ),
                     ),
                   ),
                 ],
@@ -941,7 +1129,7 @@ class _DetailVideoPlayer extends StatefulWidget {
   final PartyDetailBlock block;
 
   /// 아직 업로드되지 않은 경우의 로컬 미리보기 파일(에디터 전용).
-  final File? localFile;
+  final XFile? localFile;
 
   final Color accentColor;
   final String? partyId;
@@ -1002,7 +1190,7 @@ class _DetailVideoPlayerState extends State<_DetailVideoPlayer> {
 
     try {
       final ctrl = _isLocal
-          ? VideoPlayerController.file(File(src))
+          ? LocalMedia.videoControllerForPath(src)
           : VideoPlayerController.networkUrl(Uri.parse(src));
       await ctrl.initialize();
       if (!mounted) {
@@ -1065,7 +1253,9 @@ class _DetailVideoPlayerState extends State<_DetailVideoPlayer> {
 
   @override
   void dispose() {
-    FeedVideoManager.instance.mutedNotifier.removeListener(_onGlobalMuteChanged);
+    FeedVideoManager.instance.mutedNotifier.removeListener(
+      _onGlobalMuteChanged,
+    );
     FeedVideoManager.instance.release(_playToken);
     _ctrl?.dispose();
     super.dispose();
@@ -1117,7 +1307,8 @@ class _DetailVideoPlayerState extends State<_DetailVideoPlayer> {
           Image.network(
             thumbnailUrl,
             fit: BoxFit.cover,
-            errorBuilder: (context, error, stackTrace) => const SizedBox.shrink(),
+            errorBuilder: (context, error, stackTrace) =>
+                const SizedBox.shrink(),
           ),
         if (_loading)
           const CircularProgressIndicator(color: Colors.white70)
@@ -1127,7 +1318,10 @@ class _DetailVideoPlayerState extends State<_DetailVideoPlayer> {
           Container(
             width: 52,
             height: 52,
-            decoration: BoxDecoration(color: widget.accentColor.withValues(alpha: 0.55), shape: BoxShape.circle),
+            decoration: BoxDecoration(
+              color: widget.accentColor.withValues(alpha: 0.55),
+              shape: BoxShape.circle,
+            ),
             child: const Icon(Icons.play_arrow, color: Colors.white, size: 30),
           ),
       ],

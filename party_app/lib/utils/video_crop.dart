@@ -155,6 +155,31 @@ CropValue cropFromMatrix({
   );
 }
 
+/// Firestore·임시저장에 담긴 `basicCardPhotoCrops`(사진 식별자 → {x,y,scale})를
+/// 편집기가 쓰는 모양으로 되돌린다.
+///
+/// 값이 없거나 타입이 어긋나면 그 항목만 기본값(중앙·확대 없음)으로 채운다 —
+/// 크롭 하나가 깨졌다고 복원 전체가 죽으면, 사용자는 멀쩡한 사진까지 다시
+/// 골라야 한다. `null`이면 빈 맵이다.
+Map<String, Map<String, double>> photoCropsFromRaw(Object? raw) {
+  if (raw is! Map) return {};
+  final out = <String, Map<String, double>>{};
+  // 숫자가 아닌 값이 들어와도 던지지 않는다 — `as num?`은 문자열을 만나면
+  // 예외라, 크롭 하나가 깨진 문서에서 복원 전체가 죽는다.
+  double num0(Object? v, double fallback) =>
+      v is num ? v.toDouble() : fallback;
+
+  raw.forEach((key, value) {
+    if (key is! String || value is! Map) return;
+    out[key] = {
+      'x': num0(value['x'], 0.5),
+      'y': num0(value['y'], 0.5),
+      'scale': num0(value['scale'], 1.0),
+    };
+  });
+  return out;
+}
+
 /// [matrixForCrop]/[cropFromMatrix]가 주고받는 정규화된 크롭 값 — 저장 필드와
 /// 1:1로 대응한다(cropX/cropY: 0.0~1.0 초점 위치, cropScale: 1.0 이상 추가 확대).
 class CropValue {

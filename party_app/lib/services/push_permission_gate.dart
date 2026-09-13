@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -25,21 +26,15 @@ extension _ReasonCopy on PushPromptReason {
   };
 
   String get message => switch (this) {
-    PushPromptReason.chat =>
-      '채팅 메시지와 예약 알림을 놓치지 않도록\n알림을 허용해주세요.',
-    PushPromptReason.booking =>
-      '승인·입금 확인·일정 시작 같은 중요한 소식을\n제때 알려드릴게요.',
-    PushPromptReason.settings =>
-      '채팅 메시지와 예약 알림을 놓치지 않도록\n알림을 허용해주세요.',
+    PushPromptReason.chat => '채팅 메시지와 예약 알림을 놓치지 않도록\n알림을 허용해주세요.',
+    PushPromptReason.booking => '승인·입금 확인·일정 시작 같은 중요한 소식을\n제때 알려드릴게요.',
+    PushPromptReason.settings => '채팅 메시지와 예약 알림을 놓치지 않도록\n알림을 허용해주세요.',
   };
 
   String get blockedMessage => switch (this) {
-    PushPromptReason.chat =>
-      '기기 설정에서 파티츄 알림이 꺼져 있어\n새 메시지를 알려드릴 수 없어요.',
-    PushPromptReason.booking =>
-      '기기 설정에서 파티츄 알림이 꺼져 있어\n예약 소식을 알려드릴 수 없어요.',
-    PushPromptReason.settings =>
-      '앱 안에서 알림을 켜도 기기 설정이 꺼져 있으면\n알림이 오지 않아요.',
+    PushPromptReason.chat => '기기 설정에서 파티츄 알림이 꺼져 있어\n새 메시지를 알려드릴 수 없어요.',
+    PushPromptReason.booking => '기기 설정에서 파티츄 알림이 꺼져 있어\n예약 소식을 알려드릴 수 없어요.',
+    PushPromptReason.settings => '앱 안에서 알림을 켜도 기기 설정이 꺼져 있으면\n알림이 오지 않아요.',
   };
 
   /// 사용자가 '나중에'를 눌렀을 때 다시 묻기까지 기다리는 기간.
@@ -113,10 +108,7 @@ class PushPermissionGate {
 
     // 공통 유예는 설정 화면에서 물러난 경우에도 건다. 사용자가 방금 거절했다는
     // 사실 자체는 진입점과 무관하기 때문이다.
-    await prefs.setInt(
-      _quietKey,
-      now.add(_quietPeriod).millisecondsSinceEpoch,
-    );
+    await prefs.setInt(_quietKey, now.add(_quietPeriod).millisecondsSinceEpoch);
 
     final snooze = reason.snooze;
     if (snooze == null) return;
@@ -153,6 +145,11 @@ class PushPermissionGate {
   }) async {
     // 로그인하지 않았으면 등록할 계정이 없다 — 물어봐야 의미가 없다.
     if (UserSession.userId.isEmpty) return false;
+
+    // 웹에서는 푸시를 등록하지 않는다([PushNotificationService]의 진입점들이
+    // 전부 kIsWeb에서 곧장 빠져나온다). 안내만 띄우면 브라우저 알림 권한을
+    // 받아도 갈 곳이 없으므로 여기서 끝낸다.
+    if (kIsWeb) return false;
 
     // 상태는 **언제나 OS에 직접 묻는다.** 앱이 들고 있는 값으로 판단하면,
     // 설정앱에서 방금 알림을 켜고 돌아온 사람에게 "알림을 켤까요?"를 다시

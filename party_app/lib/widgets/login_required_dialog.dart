@@ -25,7 +25,10 @@ Future<bool> showLoginRequiredDialog(
           ],
         ),
       ),
-      content: Text(message, style: const TextStyle(fontSize: 14, color: Colors.black87)),
+      content: Text(
+        message,
+        style: const TextStyle(fontSize: 14, color: Colors.black87),
+      ),
       actions: [
         TextButton(
           onPressed: () => Navigator.pop(context, false),

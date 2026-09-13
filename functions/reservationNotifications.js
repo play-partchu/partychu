@@ -1,7 +1,8 @@
 const admin = require('firebase-admin');
 
 /**
- * 예약 계열(플레이스 방문예약 · 장소대여 예약)이 함께 쓰는 **인앱 알림 한 건**.
+ * 예약 계열(플레이스 방문예약 · 장소대여 예약)과 **파티 신청**이 함께 쓰는
+ * 인앱 알림 한 건.
  *
  * 원래 placeVisitReservations.js 안에만 있던 함수를 그대로 꺼낸 것이다 —
  * 장소대여에도 승인/입금 알림이 필요해지면서 같은 문서를 두 곳에서 만들게
@@ -16,6 +17,10 @@ const admin = require('firebase-admin');
  * @param {string} refCollection  알림을 눌렀을 때 열어야 할 예약 문서의 컬렉션.
  * @param {string} placeCollection  플레이스가 어느 컬렉션인지
  *   ('events' = 술집·바·카페 / 'places' = 공간대여·숙박).
+ * @param {string} partyId  파티 계열 알림이 가리키는 파티. 예약 3종은 placeId로
+ *   갈 곳을 정하므로 이 값이 없다. 파티 신청 알림이 생기면서 필요해졌는데,
+ *   알림 문서 모양이 종류마다 갈리면 알림함과 라우팅이 각각 예외를 갖게 되므로
+ *   문서를 만드는 자리는 계속 여기 하나로 둔다.
  */
 function pushNotification(
   batchOrTx,
@@ -26,6 +31,7 @@ function pushNotification(
     title,
     body,
     role = 'guest',
+    partyId = null,
     placeId = null,
     placeCollection = 'events',
     refCollection = null,
@@ -44,6 +50,7 @@ function pushNotification(
     role,
     // 파티 알림은 partyId를 쓰지만 예약 알림은 어디로 보낼지가 다르다 —
     // 알림함이 종류에 따라 이동할 수 있도록 참조를 함께 남긴다.
+    partyId: partyId || null,
     placeId: placeId || null,
     placeCollection,
     refCollection,

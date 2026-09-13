@@ -45,6 +45,24 @@ async function isTestAccountUid(db, uid) {
   return snap.exists && snap.data().isTestAccount === true;
 }
 
+/**
+ * userStats 카운터 갱신 — 모든 회원 통계가 여기 한 곳을 거친다.
+ *
+ * ── 매출·정산 집계 규칙 (반드시 지킬 것) ────────────────────────────────────
+ * **금액 계열(cumulativePaymentAmount 등)은 예약/신청/주문의 진행 상태가 아니라
+ * `payment.status === 'paid'`로 넘어가는 전이에만 반영한다.**
+ *
+ * 무통장입금이 붙으면서 진행 상태와 결제 상태는 완전히 다른 축이 됐다 —
+ * 예약이 '확정'(confirmed)이어도 입금대기·입금확인중·현장결제 예정이면 아직
+ * 받은 돈이 없다. 확정 시점에 금액을 세면 입금 없이 만료될 건까지 매출로
+ * 잡히고, 그 숫자로 정산하면 실제로 들어오지 않은 돈을 지급하게 된다.
+ *
+ * 건수 계열(totalPlaceReservationsAsHost 등)은 지금처럼 확정 시점에 세도 된다 —
+ * "몇 건이 잡혔나"는 돈과 다른 질문이기 때문이다.
+ *
+ * 판정은 [becamePaid](memberManagement.js)를 쓴다. payment 맵이 없는 옛 문서
+ * (포트원 흐름)는 그때 confirmed가 곧 결제완료였으므로 예전 규칙을 유지한다.
+ */
 async function bumpUserStats(db, uid, patch) {
   if (!uid) return;
   await db.collection('userStats').doc(uid).set(

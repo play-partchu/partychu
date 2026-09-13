@@ -96,7 +96,10 @@ class _PortoneCheckoutScreenState extends State<PortoneCheckoutScreen> {
     _ctrl = WebViewController()
       ..setJavaScriptMode(JavaScriptMode.unrestricted)
       ..setBackgroundColor(Colors.white)
-      ..addJavaScriptChannel('PortOneResult', onMessageReceived: _onWebViewResult)
+      ..addJavaScriptChannel(
+        'PortOneResult',
+        onMessageReceived: _onWebViewResult,
+      )
       ..setNavigationDelegate(
         NavigationDelegate(
           onPageFinished: (_) {
@@ -191,7 +194,17 @@ class _PortoneCheckoutScreenState extends State<PortoneCheckoutScreen> {
       appBar: AppBar(
         title: const Text(
           '결제하기',
-          style: TextStyle(color: Colors.black87, fontFamily: 'SeoulHangang', fontWeight: FontWeight.w500, shadows: [Shadow(color: Colors.black87, offset: Offset(0.3, 0)), Shadow(color: Colors.black87, offset: Offset(-0.3, 0)), Shadow(color: Colors.black87, offset: Offset(0, 0.3)), Shadow(color: Colors.black87, offset: Offset(0, -0.3))]),
+          style: TextStyle(
+            color: Colors.black87,
+            fontFamily: 'SeoulHangang',
+            fontWeight: FontWeight.w500,
+            shadows: [
+              Shadow(color: Colors.black87, offset: Offset(0.3, 0)),
+              Shadow(color: Colors.black87, offset: Offset(-0.3, 0)),
+              Shadow(color: Colors.black87, offset: Offset(0, 0.3)),
+              Shadow(color: Colors.black87, offset: Offset(0, -0.3)),
+            ],
+          ),
         ),
         backgroundColor: Colors.white,
         foregroundColor: Colors.black87,

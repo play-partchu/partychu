@@ -3,6 +3,7 @@ import 'package:cloud_functions/cloud_functions.dart';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 
+import '../models/business_info.dart';
 import '../services/admin_firestore_service.dart';
 import '../theme/admin_theme.dart';
 import '../utils/masking.dart';
@@ -42,6 +43,9 @@ const _activityTypeLabels = {
   'party_rejected': '참가 신청 거절',
   'party_application_cancelled': '참가 신청 취소',
   'party_attended': '파티 참가 완료',
+  // 호스트가 잘못 찍은 체크인을 되돌린 기록 — 지운 흔적이 없으면 분쟁이
+  // 났을 때 무슨 일이 있었는지 아무도 모른다.
+  'party_check_in_revoked': '파티 체크인 취소',
   'party_no_show': '노쇼',
   'place_registered': '플레이스 등록',
   'place_reservation_confirmed': '플레이스 예약 확정',
@@ -60,6 +64,10 @@ const _activityTypeLabels = {
   'report_received': '신고 받음',
   'admin_status_changed': '관리자 계정상태 변경',
   'admin_memo_updated': '관리자 메모 수정',
+  // 관리자가 이 회원이 참여한 채팅방의 대화를 열어본 기록(adminChatViewer.js).
+  // 열람도 개인정보 접근이라 상태 변경과 같은 자리에 남긴다 — 대화 양쪽
+  // 참여자의 타임라인에 각각 한 줄씩 찍힌다.
+  'admin_chat_viewed': '관리자 채팅 열람',
 };
 
 class MemberDetailScreen extends StatefulWidget {
@@ -134,12 +142,21 @@ class _MemberDetailScreenState extends State<MemberDetailScreen> {
     final favorites = await AdminFirestoreService.favoritesForUser(widget.uid);
     final userStats = await AdminFirestoreService.userStatsForUser(widget.uid);
     final activityLogs = await AdminFirestoreService.activityLogsForUser(widget.uid);
+    // 계정 연결 조회는 실패해도 나머지 상세를 막지 않는다 — 이력이 없는 것과
+    // 조회가 실패한 것을 화면에서 구분해 보여준다.
+    Map<String, dynamic> linkHistory;
+    try {
+      linkHistory = await AdminFirestoreService.accountLinkHistory(widget.uid);
+    } catch (e) {
+      linkHistory = {'error': '$e'};
+    }
     return _MemberDetailData(
       user: userDoc.data() ?? {},
       applications: applications,
       favorites: favorites,
       userStats: userStats,
       activityLogs: activityLogs,
+      linkHistory: linkHistory,
     );
   }
 
@@ -182,9 +199,13 @@ class _MemberDetailScreenState extends State<MemberDetailScreen> {
         children: [
           _section('기본 프로필', _profileGrid(d)),
           const SizedBox(height: 20),
+          _section('계정 연결 이력', _accountLinkSection(data.linkHistory)),
+          const SizedBox(height: 20),
           _section('계정 상태 · 관리자 메모', _accountStatusForm()),
           const SizedBox(height: 20),
           _section('본인확인 정보', _verificationGrid(d)),
+          const SizedBox(height: 20),
+          _section('사업자 정보', _businessGrid(d)),
           const SizedBox(height: 20),
           _section('호스트로서의 활동', _hostActivitySummary(data.userStats)),
           const SizedBox(height: 20),
@@ -411,6 +432,174 @@ class _MemberDetailScreenState extends State<MemberDetailScreen> {
     );
   }
 
+  /// 사업자 정보 — 전부 users/{uid}.businessVerification 맵에 이미 저장돼 있는
+  /// 값이다. 이 화면이 회원 문서를 이미 읽고 있으므로 추가 조회가 없고,
+  /// 가입일·UID·이메일 같은 계정정보는 위 "기본 프로필"의 값을 그대로 쓴다
+  /// (사업자 쪽에 중복 저장하지 않는다).
+  ///
+  /// 이 맵을 만드는 곳은 국세청 진위확인을 실제로 호출하는
+  /// verifyBusinessRegistration 하나뿐이라, 그 함수가 배포되기 전이거나 회원이
+  /// 인증을 시도한 적이 없으면 맵 자체가 없다 — 그 경우를 "일반회원"으로 본다.
+  // ── 계정 연결 이력(탈퇴 → 재가입) ────────────────────────────────────────
+  //
+  // 같은 본인확인(CI)을 쓰던 계정들을 이어 보여준다. 탈퇴하면 users의 CI는
+  // 지워지지만 identityLinks 문서에 이전 uid가 남아, 새 uid로 재가입해도
+  // 관리자가 이전 계정을 되짚을 수 있다(functions/identityLink.js).
+  //
+  // 본인확인을 마치지 않은 회원은 CI가 없어 연결 자체가 없다 — 추적 불가가
+  // 정상이며, 그 사실을 숨기지 않고 그대로 적는다.
+  Widget _accountLinkSection(Map<String, dynamic> h) {
+    if (h['error'] != null) {
+      return Text('연결 이력을 불러오지 못했습니다 — ${h['error']}',
+          style: const TextStyle(fontSize: 12.5, color: AdminTheme.textSecondary));
+    }
+    if (h['linked'] != true) {
+      return const Text(
+        '본인확인 기록이 없어 계정 연결을 추적할 수 없습니다.',
+        style: TextStyle(fontSize: 12.5, color: AdminTheme.textSecondary),
+      );
+    }
+
+    final previous = ((h['previous'] as List?) ?? const [])
+        .map((e) => Map<String, dynamic>.from(e as Map))
+        .toList();
+    final isRejoined = h['isRejoined'] == true;
+
+    String day(dynamic iso) {
+      if (iso is! String) return '-';
+      final t = DateTime.tryParse(iso);
+      return t == null ? '-' : DateFormat('yyyy.MM.dd').format(t.toLocal());
+    }
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        if (isRejoined)
+          Container(
+            width: double.infinity,
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+            decoration: BoxDecoration(
+              color: const Color(0xFFFFF3E0),
+              borderRadius: BorderRadius.circular(8),
+              border: Border.all(color: const Color(0xFFFFCC80)),
+            ),
+            child: Text(
+              '재가입 계정 — 같은 본인확인으로 이전에 ${previous.length}개 계정을 쓴 적이 있습니다.',
+              style: const TextStyle(
+                fontSize: 12.5, fontWeight: FontWeight.bold, color: Color(0xFFB56A00)),
+            ),
+          )
+        else
+          const Text('이전에 사용한 계정이 없습니다.',
+              style: TextStyle(fontSize: 12.5, color: AdminTheme.textSecondary)),
+        if (previous.isNotEmpty) ...[
+          const SizedBox(height: 12),
+          SingleChildScrollView(
+            scrollDirection: Axis.horizontal,
+            child: DataTable(
+              columnSpacing: 24,
+              headingRowHeight: 34,
+              dataRowMinHeight: 34,
+              dataRowMaxHeight: 42,
+              columns: const [
+                DataColumn(label: Text('이전 UID')),
+                DataColumn(label: Text('가입일')),
+                DataColumn(label: Text('탈퇴 신청일')),
+                DataColumn(label: Text('최종 탈퇴일')),
+                DataColumn(label: Text('유형')),
+                DataColumn(label: Text('탈퇴 직전 상태')),
+              ],
+              rows: [
+                for (final p in previous)
+                  DataRow(cells: [
+                    DataCell(SelectableText(
+                      p['uid'] as String? ?? '-',
+                      style: const TextStyle(fontFamily: 'monospace', fontSize: 12),
+                    )),
+                    DataCell(Text(day(p['createdAt']))),
+                    DataCell(Text(day(p['withdrawalRequestedAt']))),
+                    DataCell(Text(day(p['withdrawnAt']))),
+                    DataCell(Text(p['withdrawnMemberType'] == 'business'
+                        ? '사업자'
+                        : p['withdrawnMemberType'] == 'individual'
+                            ? '일반'
+                            : '-')),
+                    // 제재 중에 나간 계정인지 — 재가입 심사에서 가장 먼저 볼 값이다.
+                    DataCell(Text(
+                      (p['withdrawnFromStatus'] as String?) == null ||
+                              p['withdrawnFromStatus'] == 'active'
+                          ? '-'
+                          : '${p['withdrawnFromStatus']}',
+                      style: TextStyle(
+                        color: (p['withdrawnFromStatus'] as String?) == 'restricted'
+                            ? const Color(0xFFC62828)
+                            : null,
+                        fontWeight: (p['withdrawnFromStatus'] as String?) == 'restricted'
+                            ? FontWeight.bold
+                            : null,
+                      ),
+                    )),
+                  ]),
+              ],
+            ),
+          ),
+        ],
+      ],
+    );
+  }
+
+  Widget _businessGrid(Map<String, dynamic> d) {
+    final biz = BusinessInfo.fromUserDoc(d);
+    if (!biz.isBusiness) {
+      return const Text(
+        '일반회원 — 사업자 인증을 시도한 기록이 없습니다.',
+        style: TextStyle(color: AdminTheme.textSecondary, fontSize: 13),
+      );
+    }
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        _kv('사업자 여부', '사업자'),
+        _kv('인증 상태', biz.status.label
+            + (biz.failReason != null ? ' (${biz.failReason})' : '')),
+        // 진위(위 '인증 상태')와 권한은 별개다 — 국세청 확인이 끝나도
+        // 본인 명의가 아니면 파티·플레이스 등록 권한은 열리지 않는다.
+        if (biz.delegationId.isNotEmpty)
+          _kv('위임 문서', biz.delegationId),
+        _kv('사용 권한', biz.authorization.label
+            + (biz.authorizationReasonLabel.isNotEmpty
+                ? ' — ${biz.authorizationReasonLabel}'
+                : '')),
+        _kv('사업자등록번호', biz.formattedBusinessNumber),
+        _kv('상호명', biz.businessName.isNotEmpty ? biz.businessName : '-'),
+        _kv('대표자명', biz.representativeName.isNotEmpty ? biz.representativeName : '-'),
+        _kv('사업장 주소', biz.businessAddress.isNotEmpty ? biz.businessAddress : '-'),
+        _kv('개업일자', biz.formattedOpeningDate),
+        // 국세청 납세자 상태 — '계속사업자'/'휴업자'/'폐업자'.
+        _kv('휴·폐업 상태', biz.ntsStatusLabel.isNotEmpty ? biz.ntsStatusLabel : '-'),
+        _kv('과세유형', biz.taxType.isNotEmpty ? biz.taxType : '-'),
+        _kv('인증완료일', biz.verifiedAt == null
+            ? '-'
+            : DateFormat('yyyy.MM.dd HH:mm').format(biz.verifiedAt!)),
+        // 사업자번호 교체 이력 — 있을 때만 보여준다(대부분의 회원에게는 없다).
+        if (biz.previousBusinessNumber.isNotEmpty)
+          _kv('이전 사업자등록번호',
+              '${BusinessInfo.formatBusinessNumber(biz.previousBusinessNumber)}'
+              ' (교체 ${biz.changeCount}회)'),
+        // 바꾸려다 아직 통과하지 못한 시도. 위 인증 상태는 **기존 사업자**의
+        // 것이고 그대로 유효하다 — 변경은 성공한 순간에만 반영된다.
+        if (biz.hasPendingChange)
+          _kv('변경 시도 중',
+              '${BusinessInfo.formatBusinessNumber(biz.pendingChangeBusinessNumber)}'
+              ' — ${biz.pendingChangeStatusLabel}'
+              '${biz.pendingChangeFailReason != null ? ' (${biz.pendingChangeFailReason})' : ''}'),
+        _kv('최근 확인일', biz.lastCheckedAt == null
+            ? '-'
+            : DateFormat('yyyy.MM.dd HH:mm').format(biz.lastCheckedAt!)),
+      ],
+    );
+  }
+
   // userStats(원본 신청 기록과 분리된 요약 통계 컬렉션)에서 온 값 — 활동이
   // 없는 회원은 문서 자체가 없을 수 있어 전부 기본값 0/'-'으로 표시한다.
   Widget _usageStatsSummary(Map<String, dynamic>? stats) {
@@ -595,12 +784,17 @@ class _MemberDetailData {
   final List<QueryDocumentSnapshot<Map<String, dynamic>>> favorites;
   final Map<String, dynamic>? userStats;
   final List<QueryDocumentSnapshot<Map<String, dynamic>>> activityLogs;
+
+  /// adminGetAccountLinkHistory 결과 — 탈퇴 후 재가입으로 이어진 계정들.
+  final Map<String, dynamic> linkHistory;
+
   _MemberDetailData({
     required this.user,
     required this.applications,
     required this.favorites,
     required this.userStats,
     required this.activityLogs,
+    required this.linkHistory,
   });
 }
 
@@ -611,7 +805,8 @@ class _StatusChip extends StatelessWidget {
   static const _labels = {
     'applied': '신청',
     'approved': '승인',
-    'attended': '실제참여',
+    // 'attended'는 옛 문서에만 남아 있는 상태다 — 새로 쓰는 경로는 없다.
+    'attended': '실제참여(옛 기록)',
     'cancelled': '취소',
     'rejected': '거절',
     'no_show': '노쇼',

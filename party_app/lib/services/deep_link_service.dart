@@ -4,6 +4,8 @@ import 'package:app_links/app_links.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:party_app/screens/party_detail_screen.dart';
+import 'package:party_app/utils/root_gate.dart';
+import 'package:party_app/utils/web_launch_url.dart';
 import 'package:party_app/widgets/web_frame.dart';
 
 /// Android App Links(https://partychu.co.kr/party/{id})와 iOS Universal
@@ -31,8 +33,10 @@ class DeepLinkService {
     if (kIsWeb) {
       // 이 시점(initState 안)엔 아직 navigatorKey가 어떤 Navigator에도
       // 붙어있지 않을 수 있어(첫 프레임 전) 한 프레임 뒤로 미룬다.
+      // 지금의 Uri.base는 Flutter가 첫 라우트를 세우며 이미 base href로
+      // 덮어쓴 뒤다 — 앱이 **처음 열린** 주소를 봐야 /party/{id} 가 남아 있다.
       WidgetsBinding.instance.addPostFrameCallback(
-        (_) => _handle(Uri.base, navigatorKey),
+        (_) => _handle(WebLaunchUrl.value, navigatorKey),
       );
       return;
     }
@@ -56,7 +60,9 @@ class DeepLinkService {
     // 처리한다 — 전자는 host가 도메인이고 첫 경로가 "party", 후자는 커스텀
     // 스킴 자체의 host가 "party"다.
     final segments = uri.pathSegments.where((s) => s.isNotEmpty).toList();
-    if (uri.scheme == 'partychu' && uri.host == 'party' && segments.isNotEmpty) {
+    if (uri.scheme == 'partychu' &&
+        uri.host == 'party' &&
+        segments.isNotEmpty) {
       return segments.first;
     }
     if (segments.length >= 2 && segments[0] == 'party') {
@@ -68,6 +74,18 @@ class DeepLinkService {
   static void _handle(Uri uri, GlobalKey<NavigatorState> navigatorKey) {
     final partyId = _extractPartyId(uri);
     if (partyId == null || partyId.isEmpty) return;
+
+    // 루트 게이트가 서비스 화면을 막고 있으면 그 위에 상세를 쌓지 않는다.
+    // 딥링크는 게이트를 거치지 않고 전역 네비게이터에 **직접** push하므로,
+    // 이걸 보지 않으면 본인확인 화면 위로 파티 상세가 올라가 게이트가 그대로
+    // 무력화된다(탈퇴 대기 화면도 마찬가지다).
+    //
+    // 링크를 소비 처리(_lastHandledPartyId)하지 않고 그냥 돌아간다 — 게이트를
+    // 통과한 뒤 같은 링크를 다시 탭하면 그때는 정상적으로 열린다.
+    if (rootGateBlocksService) {
+      debugPrint('[DeepLinkService] 루트 게이트가 막고 있어 이동하지 않음: $partyId');
+      return;
+    }
     // 같은 링크가 스트림에서 중복 전달되는 경우(드묾) 연속으로 두 번 push하지
     // 않도록 방어한다.
     if (partyId == _lastHandledPartyId) return;

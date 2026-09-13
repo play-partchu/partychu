@@ -84,7 +84,10 @@ class ShareService {
   static String _formatDateTime(dynamic timestamp) {
     try {
       final date = (timestamp as dynamic).toDate();
-      return DateFormat('yyyy.MM.dd (E) a h:mm', 'ko_KR').format(date as DateTime);
+      return DateFormat(
+        'yyyy.MM.dd (E) a h:mm',
+        'ko_KR',
+      ).format(date as DateTime);
     } catch (_) {
       return '';
     }

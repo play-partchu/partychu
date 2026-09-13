@@ -6,6 +6,7 @@ import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'package:party_app/models/draft_type.dart';
+import 'package:party_app/utils/auto_delete_retention.dart';
 import 'package:party_app/utils/user_session.dart';
 
 /// 로드된 임시저장 1건.
@@ -112,20 +113,62 @@ class DraftService {
     }
   }
 
+  /// 로컬 미러를 읽되 **보관기간이 지난 것은 없는 것으로 본다.**
+  ///
+  /// 만료 임시저장은 서버가 지운다(functions/index.js deleteExpiredDrafts).
+  /// 그런데 로컬 미러는 그 손이 닿지 않는 기기 안의 사본이라, 걸러 주지
+  /// 않으면 서버에서 사라진 초안이 이 기기에서만 되살아난다("이어서
+  /// 작성하시겠어요?"가 뜨고, 저장하는 순간 Firestore에 다시 생긴다).
+  /// 그래서 만료를 확인하면 미러도 함께 지운다 — 기준은 앱과 서버가 같은
+  /// [AutoDeleteRetention.window]다.
+  static Future<Map<String, dynamic>?> _readLocal(DraftType type) async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final raw = prefs.getString(_prefsKey(type));
+      if (raw == null) return null;
+      final map = jsonDecode(raw) as Map<String, dynamic>;
+      final ms = map['updatedAtMs'];
+      // 시각을 못 읽는 미러는 만료를 판단할 수 없다 — 지우지 않고 그대로 쓴다
+      // (모른다는 이유로 작성 내용을 버리면 안 된다).
+      if (ms is int) {
+        final deleteAt = AutoDeleteRetention.deleteAt(
+          DateTime.fromMillisecondsSinceEpoch(ms),
+        );
+        if (deleteAt != null && DateTime.now().isAfter(deleteAt)) {
+          await prefs.remove(_prefsKey(type));
+          return null;
+        }
+      }
+      return map;
+    } catch (e) {
+      debugPrint('[DraftService] 로컬 미러 읽기 실패: $e');
+      return null;
+    }
+  }
+
   /// 해당 유형의 임시저장이 있는지 — 복구 프롬프트 판단용.
   /// 로컬 미러를 먼저 보고(즉시), 없으면 Firestore를 확인한다.
   static Future<bool> hasDraft(DraftType type) async {
     if (UserSession.userId.isEmpty) return false;
-    try {
-      final prefs = await SharedPreferences.getInstance();
-      if (prefs.getString(_prefsKey(type)) != null) return true;
-    } catch (_) {}
+    if (await _readLocal(type) != null) return true;
     try {
       final snap = await _fs.collection('drafts').doc(_docId(type)).get();
       return snap.exists;
     } catch (_) {
       return false;
     }
+  }
+
+  /// 임시저장의 마지막 저장 시각 — **로컬 미러만** 본다(네트워크를 타지 않는
+  /// 빠른 경로). 없거나 읽지 못하면 null.
+  ///
+  /// "어느 유형의 임시저장이 더 최근인가"처럼 화면을 열기 전에 즉시 판단해야
+  /// 하는 곳에서 쓴다(통합 플레이스+파티 등록이 처음 열 유형을 고를 때).
+  static Future<DateTime?> localUpdatedAt(DraftType type) async {
+    if (UserSession.userId.isEmpty) return null;
+    final map = await _readLocal(type);
+    final ms = map?['updatedAtMs'];
+    return ms is int ? DateTime.fromMillisecondsSinceEpoch(ms) : null;
   }
 
   /// 임시저장 로드 — Firestore를 우선하고, 실패하면 로컬 미러로 폴백한다.
@@ -141,7 +184,8 @@ class DraftService {
           title: (data['title'] as String?) ?? '',
           coverImageUrl: data['coverImageUrl'] as String?,
           payload: Map<String, dynamic>.from(
-              (data['payload'] as Map?) ?? const {}),
+            (data['payload'] as Map?) ?? const {},
+          ),
           updatedAt: (data['updatedAt'] as Timestamp?)?.toDate(),
         );
       }
@@ -149,25 +193,20 @@ class DraftService {
       debugPrint('[DraftService] Firestore 로드 실패, 로컬 폴백: $e');
     }
 
-    // 로컬 미러 폴백
-    try {
-      final prefs = await SharedPreferences.getInstance();
-      final raw = prefs.getString(_prefsKey(type));
-      if (raw != null) {
-        final map = jsonDecode(raw) as Map<String, dynamic>;
-        return DraftRecord(
-          type: type,
-          title: (map['title'] as String?) ?? '',
-          coverImageUrl: map['coverImageUrl'] as String?,
-          payload: Map<String, dynamic>.from(
-              (map['payload'] as Map?) ?? const {}),
-          updatedAt: map['updatedAtMs'] is int
-              ? DateTime.fromMillisecondsSinceEpoch(map['updatedAtMs'] as int)
-              : null,
-        );
-      }
-    } catch (e) {
-      debugPrint('[DraftService] 로컬 미러 로드 실패: $e');
+    // 로컬 미러 폴백 — 보관기간이 지난 미러는 [_readLocal]이 걸러 준다.
+    final map = await _readLocal(type);
+    if (map != null) {
+      return DraftRecord(
+        type: type,
+        title: (map['title'] as String?) ?? '',
+        coverImageUrl: map['coverImageUrl'] as String?,
+        payload: Map<String, dynamic>.from(
+          (map['payload'] as Map?) ?? const {},
+        ),
+        updatedAt: map['updatedAtMs'] is int
+            ? DateTime.fromMillisecondsSinceEpoch(map['updatedAtMs'] as int)
+            : null,
+      );
     }
     return null;
   }
@@ -195,22 +234,25 @@ class DraftService {
         .where('userId', isEqualTo: userId)
         .orderBy('updatedAt', descending: true)
         .snapshots()
-        .map((snap) => snap.docs
-            .map((d) {
-              final data = d.data();
-              final type = DraftType.fromKey(data['type'] as String?);
-              if (type == null) return null;
-              return DraftRecord(
-                type: type,
-                title: (data['title'] as String?) ?? '',
-                coverImageUrl: data['coverImageUrl'] as String?,
-                payload: Map<String, dynamic>.from(
-                    (data['payload'] as Map?) ?? const {}),
-                updatedAt: (data['updatedAt'] as Timestamp?)?.toDate(),
-              );
-            })
-            .whereType<DraftRecord>()
-            .toList());
+        .map(
+          (snap) => snap.docs
+              .map((d) {
+                final data = d.data();
+                final type = DraftType.fromKey(data['type'] as String?);
+                if (type == null) return null;
+                return DraftRecord(
+                  type: type,
+                  title: (data['title'] as String?) ?? '',
+                  coverImageUrl: data['coverImageUrl'] as String?,
+                  payload: Map<String, dynamic>.from(
+                    (data['payload'] as Map?) ?? const {},
+                  ),
+                  updatedAt: (data['updatedAt'] as Timestamp?)?.toDate(),
+                );
+              })
+              .whereType<DraftRecord>()
+              .toList(),
+        );
   }
 }
 

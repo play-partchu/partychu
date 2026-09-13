@@ -3,8 +3,8 @@ import 'package:party_app/utils/feed_video_manager.dart';
 import 'package:party_app/widgets/partychu_icon_button.dart';
 
 // ─────────────────────────────────────────────────────────────────────────────
-// 재생 중인 모든 동영상(기본·작은·큰 카드/지도/상세페이지 동영상/Spotify
-// 미리듣기)의 소리를 한 번에 켜고 끄는 전역 음소거 상태를 보여주고 전환하는
+// 재생 중인 모든 동영상(기본·작은·큰 카드/지도/상세페이지 동영상)의 소리를
+// 한 번에 켜고 끄는 전역 음소거 상태를 보여주고 전환하는
 // 버튼 두 종류. 둘 다 FeedVideoManager.instance.mutedNotifier 하나만 보고
 // 그리므로, 어느 쪽을 누르든 현재 재생 중인 모든 동영상의 볼륨이 동시에
 // 바뀌고, 다음에 재생되는 영상에도 그대로 이어진다(SharedPreferences에

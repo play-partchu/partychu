@@ -15,10 +15,10 @@ class CrewFilter {
     Set<String>? recruitCounts,
     this.beginnerFriendly = false,
     this.experiencedPreferred = false,
-  })  : regions = regions ?? {},
-        roles = roles ?? {},
-        payTypes = payTypes ?? {},
-        recruitCounts = recruitCounts ?? {};
+  }) : regions = regions ?? {},
+       roles = roles ?? {},
+       payTypes = payTypes ?? {},
+       recruitCounts = recruitCounts ?? {};
 
   bool get isActive =>
       regions.isNotEmpty ||
@@ -29,23 +29,22 @@ class CrewFilter {
       experiencedPreferred;
 
   CrewFilter copy() => CrewFilter(
-        regions: {...regions},
-        roles: {...roles},
-        payTypes: {...payTypes},
-        recruitCounts: {...recruitCounts},
-        beginnerFriendly: beginnerFriendly,
-        experiencedPreferred: experiencedPreferred,
-      );
+    regions: {...regions},
+    roles: {...roles},
+    payTypes: {...payTypes},
+    recruitCounts: {...recruitCounts},
+    beginnerFriendly: beginnerFriendly,
+    experiencedPreferred: experiencedPreferred,
+  );
 
   List<MapEntry<String, String>> get selectedEntries => [
-        ...regions.map((v) => MapEntry('regions', v)),
-        ...roles.map((v) => MapEntry('roles', v)),
-        ...payTypes.map((v) => MapEntry('payTypes', v)),
-        ...recruitCounts.map((v) => MapEntry('recruitCounts', v)),
-        if (beginnerFriendly) const MapEntry('beginnerFriendly', '초보 가능'),
-        if (experiencedPreferred)
-          const MapEntry('experiencedPreferred', '경력 우대'),
-      ];
+    ...regions.map((v) => MapEntry('regions', v)),
+    ...roles.map((v) => MapEntry('roles', v)),
+    ...payTypes.map((v) => MapEntry('payTypes', v)),
+    ...recruitCounts.map((v) => MapEntry('recruitCounts', v)),
+    if (beginnerFriendly) const MapEntry('beginnerFriendly', '초보 가능'),
+    if (experiencedPreferred) const MapEntry('experiencedPreferred', '경력 우대'),
+  ];
 
   void removeValue(String category, String value) {
     switch (category) {

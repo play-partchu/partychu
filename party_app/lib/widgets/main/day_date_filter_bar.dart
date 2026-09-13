@@ -2,6 +2,8 @@ import 'dart:ui' as ui;
 
 import 'package:flutter/material.dart';
 
+import 'package:party_app/widgets/main/sort_entry_button.dart';
+
 // ─────────────────────────────────────────────────────────────────────────────
 // 낮 모드 전용 날짜 필터 바 — 밤 모드의 검정 네온 바(_buildNeonCategorySection)
 // 와 분위기를 가르는 미니멀 + 귀여운 iOS 감성의 파스텔 알약(Pill) UI.
@@ -39,7 +41,7 @@ class DayFilterPalette {
   static const Color label = Color(0xFF4A4A4A);
 }
 
-/// 날짜 퀵필터(전체/오늘/내일/이번 주/이번 주말) + 상세검색 진입 버튼 한 줄.
+/// 날짜 퀵필터(전체/오늘/내일/이번 주/이번 주말) + 정렬 버튼 한 줄.
 class DayDateFilterBar extends StatelessWidget {
   /// 표시 순서 그대로의 탭 라벨.
   final List<String> tabs;
@@ -50,19 +52,27 @@ class DayDateFilterBar extends StatelessWidget {
   /// 라벨 탭 콜백.
   final ValueChanged<String> onTapTab;
 
-  /// 오른쪽 상세검색(튠) 버튼.
-  final VoidCallback onOpenDetailSearch;
+  /// 오른쪽 끝의 정렬 버튼 — null이면 버튼 자체를 두지 않는다
+  /// (정렬이 없는 탭에서 자리만 차지하지 않도록).
+  ///
+  /// 상세검색(튠) 버튼은 더 이상 이 바에 없다 — 목록 헤더의 돋보기로 열리는
+  /// 검색 시트(SearchEntrySheet) 안으로 옮겨져 세 탭이 같은 입구를 쓴다.
+  final VoidCallback? onOpenSort;
 
-  /// 상세검색 조건이 하나라도 걸려 있으면 버튼도 선택 상태로 보여준다.
-  final bool detailFilterActive;
+  /// 기본순이 아닌 정렬이 걸려 있는지 — 버튼에 분홍 점이 찍힌다.
+  final bool sortActive;
+
+  /// 정렬 버튼 툴팁('정렬 · 거리순'). 장소대여 쪽과 같은 규칙이다.
+  final String sortTooltip;
 
   const DayDateFilterBar({
     super.key,
     required this.tabs,
     required this.isSelected,
     required this.onTapTab,
-    required this.onOpenDetailSearch,
-    this.detailFilterActive = false,
+    this.onOpenSort,
+    this.sortActive = false,
+    this.sortTooltip = '정렬',
   });
 
   /// 검정 네온 바(42)와 같은 높이 — 두 모드에서 상단 레이아웃이 흔들리지 않는다.
@@ -92,21 +102,21 @@ class DayDateFilterBar extends StatelessWidget {
                 ),
               ),
             ),
-          const SizedBox(width: 3),
-          Padding(
-            padding: const EdgeInsets.symmetric(vertical: _pillInsetV),
-            child: SizedBox(
-              width: 36,
-              child: DayFilterChip(
-                selected: detailFilterActive,
-                onTap: onOpenDetailSearch,
-                // 돋보기가 아니라 튠(필터) 아이콘 — 검정 바와 동일한 아이콘
-                // 언어를 유지하고 색만 파스텔 톤으로 바꾼다.
-                icon: Icons.tune_rounded,
-                tooltip: '상세검색',
-              ),
+          if (onOpenSort != null) ...[
+            const SizedBox(width: 3),
+            // 정렬 버튼은 이 바가 직접 그리지 않는다 — 장소대여 목록과
+            // **같은 위젯**([SortEntryIconButton])을 쓴다. 예전에는 여기만
+            // 알약(DayFilterChip)이라 같은 버튼이 탭마다 달라 보였다.
+            //
+            // 알약 여백(_pillInsetV)을 주지 않는 이유: 버튼이 40×40 터치
+            // 영역을 그대로 확보해야 장소대여 쪽과 같은 크기가 된다
+            // (바 높이가 42라 그대로 들어간다).
+            SortEntryIconButton(
+              onTap: onOpenSort!,
+              active: sortActive,
+              tooltip: sortTooltip,
             ),
-          ),
+          ],
         ],
       ),
     );
@@ -120,6 +130,10 @@ class DayDateFilterBar extends StatelessWidget {
 class DayFilterChip extends StatefulWidget {
   final String? label;
   final IconData? icon;
+
+  /// 아이콘 지름. 글리프가 상자를 채우는 정도는 아이콘마다 달라서, 같은 값을
+  /// 줘도 어떤 것은 크고 어떤 것은 작아 보인다 — 호출부가 눈으로 맞춘다.
+  final double iconSize;
   final String? tooltip;
   final bool selected;
   final VoidCallback onTap;
@@ -128,6 +142,7 @@ class DayFilterChip extends StatefulWidget {
     super.key,
     this.label,
     this.icon,
+    this.iconSize = 17,
     this.tooltip,
     required this.selected,
     required this.onTap,
@@ -148,11 +163,17 @@ class _DayFilterChipState extends State<DayFilterChip>
   // 1.0 → 1.05 → 1.0. 커질 때보다 돌아올 때를 조금 길게 잡아 말랑한 느낌.
   late final Animation<double> _scale = TweenSequence<double>([
     TweenSequenceItem(
-      tween: Tween(begin: 1.0, end: 1.05).chain(CurveTween(curve: Curves.easeOut)),
+      tween: Tween(
+        begin: 1.0,
+        end: 1.05,
+      ).chain(CurveTween(curve: Curves.easeOut)),
       weight: 40,
     ),
     TweenSequenceItem(
-      tween: Tween(begin: 1.05, end: 1.0).chain(CurveTween(curve: Curves.easeOutBack)),
+      tween: Tween(
+        begin: 1.05,
+        end: 1.0,
+      ).chain(CurveTween(curve: Curves.easeOutBack)),
       weight: 60,
     ),
   ]).animate(_popCtrl);
@@ -179,10 +200,7 @@ class _DayFilterChipState extends State<DayFilterChip>
         curve: Curves.easeOut,
         builder: (context, t, child) => ScaleTransition(
           scale: _scale,
-          child: CustomPaint(
-            painter: _PillPainter(t),
-            child: _buildContent(t),
-          ),
+          child: CustomPaint(painter: _PillPainter(t), child: _buildContent(t)),
         ),
       ),
     );
@@ -198,8 +216,12 @@ class _DayFilterChipState extends State<DayFilterChip>
         child: widget.icon != null
             ? Icon(
                 widget.icon,
-                size: 17,
-                color: Color.lerp(DayFilterPalette.selectedFrom, Colors.white, t),
+                size: widget.iconSize,
+                color: Color.lerp(
+                  DayFilterPalette.selectedFrom,
+                  Colors.white,
+                  t,
+                ),
               )
             : FittedBox(
                 fit: BoxFit.scaleDown,
@@ -236,17 +258,15 @@ class _PillPainter extends CustomPainter {
     final radius = Radius.circular(size.height / 2);
     final pill = RRect.fromRectAndRadius(rect, radius);
 
-    // 1) 그림자 — 비선택은 존재만 느껴질 만큼 아주 옅게(6%), 선택은 핑크가
-    //    살짝 번지도록 강해진다(22%).
+    // 1) 그림자 — 흩어지는 blur 없이 아주 얕은 입체감만 남긴다.
     canvas.drawRRect(
-      pill.shift(Offset(0, 1.5 + 1.5 * t)),
+      pill.shift(Offset(0, 0.5 + 0.5 * t)),
       Paint()
-        ..color = DayFilterPalette.shadow.withValues(alpha: 0.06 + 0.16 * t)
-        ..maskFilter = ui.MaskFilter.blur(ui.BlurStyle.normal, 3 + 4 * t),
+        ..color = DayFilterPalette.shadow.withValues(alpha: 0.04 + 0.08 * t),
     );
 
-    // 2) 본체 — 위가 밝고 아래가 어두운 세로 그라데이션이라 평면이 아니라
-    //    도톰한 알약으로 보인다. 흰색 ↔ 핑크는 위/아래 색을 각각 보간한다.
+    // 2) 본체 — 평평하고 깔끔한 알약 형태만 유지한다. 선택 시와 비선택 시의
+    //    색 변화는 있지만, 흐릿한 번짐 효과는 제거한다.
     canvas.drawRRect(
       pill,
       Paint()
@@ -255,33 +275,22 @@ class _PillPainter extends CustomPainter {
           Offset(rect.width * 0.15, 0),
           Offset(rect.width * 0.85, rect.height),
           [
-            Color.lerp(DayFilterPalette.pillTop, DayFilterPalette.selectedFrom, t)!,
-            Color.lerp(DayFilterPalette.pillBottom, DayFilterPalette.selectedTo, t)!,
+            Color.lerp(
+              DayFilterPalette.pillTop,
+              DayFilterPalette.selectedFrom,
+              t,
+            )!,
+            Color.lerp(
+              DayFilterPalette.pillBottom,
+              DayFilterPalette.selectedTo,
+              t,
+            )!,
           ],
         ),
     );
 
-    // 3) 광택 — 윗면 절반에만 걸치는 흰 하이라이트. 유리구슬처럼 과하지 않게
-    //    위쪽에서만 살짝 빛나고 중간에서 완전히 사라진다.
-    canvas.save();
-    canvas.clipRRect(pill);
-    final glossRect = Rect.fromLTWH(0, 0, rect.width, rect.height * 0.55);
-    canvas.drawRect(
-      glossRect,
-      Paint()
-        ..shader = ui.Gradient.linear(
-          glossRect.topCenter,
-          glossRect.bottomCenter,
-          [
-            Colors.white.withValues(alpha: 0.10 + 0.32 * t),
-            Colors.white.withValues(alpha: 0),
-          ],
-        ),
-    );
-    canvas.restore();
-
-    // 4) 외곽선 — 비선택은 연핑크 라인 그대로, 선택 시엔 흰 림라이트로 바뀌어
-    //    핑크 위에서도 테두리가 남는다.
+    // 3) 외곽선 — 비선택은 연핑크 라인 그대로, 선택 시엔 흰 림라이트로 바뀌어
+    //    핑크 위에서도 테두리가 남는다. 번지는 광택은 제거한다.
     canvas.drawRRect(
       pill.deflate(0.55),
       Paint()

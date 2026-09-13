@@ -38,18 +38,65 @@ const popbillSdk = require('popbill');
 
 const LOG = 'PopbillAccountCheck';
 
+// ── 어느 팝빌 서버에 물을 것인가 ──────────────────────────────────────────
+//
+// 팝빌은 테스트/운영이 **같은 LinkID·SecretKey**를 쓰고 이 값 하나로 갈린다
+// (test → popbill-test.linkhub.co.kr, production → popbill.linkhub.co.kr).
+//
+// 예전에는 `const IS_TEST = true` 한 줄이었다. 그 구조의 문제는 값이 아니라
+// **틀리는 방향**이었다 — 운영에 그대로 올라가도 아무 신호가 없고 조회는
+// 테스트 서버로 조용히 나간다. 인증에 "성공"해도 운영 계좌 기준으로는 아무것도
+// 보증하지 못한 채 무통장입금이 열린다.
+//
+// 그래서 환경을 **명시적으로 정하게** 하고, 정해지지 않았으면 조회를 하지 않는다.
+
+const POPBILL_ENV = {
+  production: 'production',
+  test: 'test',
+};
+
 /**
- * 테스트 환경 고정.
+ * 이 저장소에서 **운영으로 취급하는 GCP 프로젝트 id**.
  *
- * 팝빌은 테스트/운영이 **같은 LinkID·SecretKey**를 쓰고 이 값 하나로 갈린다
- * (true → popbill-test.linkhub.co.kr, false → popbill.linkhub.co.kr).
- *
- * ⚠️ 이 상수를 false로 바꾸는 것이 곧 **운영 전환**이다. 바꾸기 전에 수취계좌
- *    인증 검증을 끝내야 하고, 그 뒤에야 applyToParty·createPendingPackageBooking
- *    배포로 넘어간다. 순서를 건너뛰면 조회 건당 과금이 먼저 시작되고, 무통장입금
- *    안내 계좌가 인증 계좌로 넘어가면서 기존 신청 흐름이 막힌다.
+ * 배포 대상이 곧 답이 되도록 소스에 적어 둔다 — `.env`류는 gitignore라
+ * 새로 클론한 곳에서 조용히 비어 버릴 수 있고, 그 빈 값이 테스트 서버로
+ * 이어지면 위에서 말한 사고가 그대로 재현된다.
  */
-const IS_TEST = true;
+const PRODUCTION_PROJECT_IDS = new Set(['partychu-30c24']);
+
+/**
+ * 쓸 팝빌 환경을 정한다. 정할 수 없으면 **null**(= 조회 금지).
+ *
+ * 순서가 규칙이다.
+ *   ① `POPBILL_ENV`가 있으면 그대로 따른다 — 에뮬레이터·self-check가 테스트
+ *      환경을 **명시적으로 주입**하는 통로다. 오타는 받아 주지 않는다.
+ *   ② 없으면 배포된 GCP 프로젝트로 정한다. 운영 프로젝트면 production이다.
+ *   ③ 둘 다 아니면 null — 여기서 절대 test로 떨어지지 않는다.
+ *
+ * ⚠️ null을 "기본값 test"로 바꾸지 말 것. 그 한 줄이 이 함수를 만든 이유를
+ *    통째로 없앤다(운영에서 설정이 빠지면 조용히 테스트 서버로 나간다).
+ *    null은 [checkAccountName]에서 NOT_CONFIGURED가 되어 **인증이 실패한다** —
+ *    시끄럽게 막히는 쪽이 조용히 통과하는 쪽보다 안전하다.
+ */
+function resolvePopbillEnv(env = process.env) {
+  const raw = String((env && env.POPBILL_ENV) || '').trim().toLowerCase();
+  if (raw === POPBILL_ENV.production) return POPBILL_ENV.production;
+  if (raw === POPBILL_ENV.test) return POPBILL_ENV.test;
+  if (raw) return null; // 오타는 추측하지 않는다.
+
+  const projectId = String(
+    (env && (env.GCLOUD_PROJECT || env.GOOGLE_CLOUD_PROJECT)) || '',
+  ).trim();
+  if (projectId && PRODUCTION_PROJECT_IDS.has(projectId)) {
+    return POPBILL_ENV.production;
+  }
+  return null;
+}
+
+/** SDK에 넘길 `IsTest` — 운영이면 false다. */
+function isTestEnv(envName) {
+  return envName === POPBILL_ENV.test;
+}
 
 /** 키가 없어 조회 자체를 못 한 경우. 인증은 실패로 남는다. */
 const NOT_CONFIGURED = 'popbill/not-configured';
@@ -203,10 +250,37 @@ function resultKindOf(response) {
 const SDK_VALIDATION_CODE = -99999999;
 const ACCOUNT_ERROR_CODES = new Set([]);
 
+// ── 링크허브 인증·연동 오류(-990100xx)는 '일시 장애'가 아니다 ─────────────
+//
+// 2026-08-30 운영에서 실제로 받은 값: `-99010016`.
+// 그때 상황은 이랬다 — 시크릿에 들어 있는 링크아이디는 팝빌 **테스트베드**
+// 계정인데, POPBILL_ENV가 비어 있어 조회가 **운영 서버**로 나갔다. 링크허브는
+// 그 요청을 인증 단계에서 거절한다.
+//
+// 이 계열을 UNAVAILABLE로 두면 앱이 "잠시 후 다시 시도해주세요"를 띄운다.
+// 그런데 이건 **재시도로 절대 풀리지 않는 설정 문제**라, 사용자는 멀쩡한 자기
+// 계좌를 몇 번이고 다시 치게 되고 진짜 원인은 아무 데도 드러나지 않는다.
+// (앱이 `not-found`를 계좌 오류처럼 보여주던 것과 정확히 같은 실수다.)
+//
+// 그래서 NOT_CONFIGURED로 가른다 — 사용자에게는 "계좌 문제가 아니다"라고
+// 말하고, 운영에는 코드를 로그로 남긴다. 인증되지 않는다는 결과 자체는
+// 어느 쪽이든 같다(fail-closed).
+const LINKHUB_AUTH_CODE_MIN = -99010999;
+const LINKHUB_AUTH_CODE_MAX = -99010000;
+
+function isLinkhubAuthCode(code) {
+  return (
+    code !== null &&
+    code >= LINKHUB_AUTH_CODE_MIN &&
+    code <= LINKHUB_AUTH_CODE_MAX
+  );
+}
+
 function classify(error) {
   const code = error && typeof error.code === 'number' ? error.code : null;
   if (code === SDK_VALIDATION_CODE) return ACCOUNT_NOT_FOUND;
   if (code !== null && ACCOUNT_ERROR_CODES.has(code)) return ACCOUNT_NOT_FOUND;
+  if (isLinkhubAuthCode(code)) return NOT_CONFIGURED;
   return UNAVAILABLE;
 }
 
@@ -217,19 +291,23 @@ function classify(error) {
 // 함수 인스턴스 안에서 시크릿은 바뀌지 않으므로 한 번만 만들고 재사용한다.
 let cachedService = null;
 
-function serviceOf(linkId, secretKey) {
+/**
+ * @param {string} envName [resolvePopbillEnv] 결과 — 호출부가 이미 null을
+ *   걸러 낸 뒤에만 들어온다(여기서 기본값을 만들지 않는다).
+ */
+function serviceOf(linkId, secretKey, envName) {
   if (cachedService) return cachedService;
   popbillSdk.config({
     LinkID: linkId,
     SecretKey: secretKey,
-    IsTest: IS_TEST,
+    IsTest: isTestEnv(envName),
     // IP 제한은 팝빌 콘솔에서 관리한다(SDK 기본값을 그대로 명시).
     IPRestrictOnOff: true,
     UseStaticIP: false,
     UseLocalTimeYN: true,
   });
   cachedService = popbillSdk.AccountCheckService();
-  console.log(`[${LOG}] 초기화. env=${IS_TEST ? 'test' : 'production'}`);
+  console.log(`[${LOG}] 초기화. env=${envName}`);
   return cachedService;
 }
 
@@ -287,6 +365,23 @@ async function checkAccountName({
     );
   }
 
+  // 어느 서버에 물을지 정해지지 않았으면 **묻지 않는다.**
+  //
+  // 여기서 test로 기본값을 주면, 운영에 설정이 빠진 채로 올라갔을 때 조회가
+  // 테스트 서버로 조용히 나가고 그 결과가 '인증 완료'가 된다. 그 계좌로
+  // 참가자 돈이 들어가므로, 막히는 쪽을 택한다(fail-closed).
+  const envName = resolvePopbillEnv();
+  if (!envName) {
+    console.error(
+      `[${LOG}] 팝빌 환경이 정해지지 않았습니다. POPBILL_ENV를 'production' 또는 `
+        + `'test'로 설정하거나 운영 프로젝트에서 실행하세요.`,
+    );
+    throw new PopbillError(
+      NOT_CONFIGURED,
+      '예금주조회 서비스 설정이 올바르지 않습니다.',
+    );
+  }
+
   const popbillBankCode = toPopbillBankCode(bankCode);
   if (!popbillBankCode) {
     // 팝빌에 물어볼 수도 없는 값이다 — 왕복 없이 '조회 불가'로 끝낸다.
@@ -302,7 +397,11 @@ async function checkAccountName({
     throw new PopbillError(ACCOUNT_NOT_FOUND, '계좌번호가 올바르지 않습니다.');
   }
 
-  const service = serviceOf(secretValue(linkId), secretValue(secretKey));
+  const service = serviceOf(
+    secretValue(linkId),
+    secretValue(secretKey),
+    envName,
+  );
 
   let response;
   try {
@@ -318,7 +417,7 @@ async function checkAccountName({
     // 팝빌이 준 message는 남기지 않는다 — 조회 대상(계좌번호)이 섞여 들어올 수
     // 있다. 코드만으로 충분히 추적된다.
     console.warn(
-      `[${LOG}] 조회 실패. env=${IS_TEST ? 'test' : 'production'} `
+      `[${LOG}] 조회 실패. env=${envName} `
         + `bank=${popbillBankCode} popbillCode=${e && e.code} kind=${kind}`,
     );
     throw new PopbillError(kind, '예금주조회에 실패했습니다.');
@@ -374,7 +473,12 @@ module.exports = {
   NOT_CONFIGURED,
   UNAVAILABLE,
   ACCOUNT_NOT_FOUND,
-  IS_TEST,
+  // `IS_TEST` 상수는 없앴다 — 환경은 [resolvePopbillEnv]가 정하고, 정해지지
+  // 않으면 조회 자체를 하지 않는다. 테스트는 env를 **명시적으로 주입**한다.
+  POPBILL_ENV,
+  PRODUCTION_PROJECT_IDS,
+  resolvePopbillEnv,
+  isTestEnv,
   PopbillError,
   isConfigured,
   checkAccountName,

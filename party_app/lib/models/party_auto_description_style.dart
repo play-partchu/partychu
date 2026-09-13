@@ -26,18 +26,22 @@ class PartyAutoDescriptionStyle {
     if (m == null) return const PartyAutoDescriptionStyle();
     return PartyAutoDescriptionStyle(
       theme: partyDetailThemeKeyFromString(m['theme'] as String?),
-      intensity: partyDetailDecorationIntensityFromString(m['intensity'] as String?),
+      intensity: partyDetailDecorationIntensityFromString(
+        m['intensity'] as String?,
+      ),
       variantSeed: (m['variantSeed'] as num?)?.toInt() ?? 0,
-      paragraphStyles: (m['paragraphStyles'] as List?)?.cast<Map<String, dynamic>>() ?? const [],
+      paragraphStyles:
+          (m['paragraphStyles'] as List?)?.cast<Map<String, dynamic>>() ??
+          const [],
     );
   }
 
   Map<String, dynamic> toMap() => {
-        'theme': theme.name,
-        'intensity': intensity.name,
-        'variantSeed': variantSeed,
-        'paragraphStyles': paragraphStyles,
-      };
+    'theme': theme.name,
+    'intensity': intensity.name,
+    'variantSeed': variantSeed,
+    'paragraphStyles': paragraphStyles,
+  };
 
   PartyAutoDescriptionStyle copyWith({
     PartyDetailThemeKey? theme,

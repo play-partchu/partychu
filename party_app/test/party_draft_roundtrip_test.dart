@@ -7,6 +7,8 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:party_app/screens/party_register_screen.dart';
 import 'package:party_app/utils/user_session.dart';
 
+import 'support/field_finders.dart';
+
 // 파티 등록 임시저장 라운드트립 검증.
 //
 // 테스트 환경에는 Firebase 앱이 없어 DraftService의 Firestore 접근은 모두
@@ -25,15 +27,22 @@ void main() {
     UserSession.userId = '';
   });
 
-  testWidgets('입력 → 임시저장 버튼 → 로컬 미러에 payload가 기록된다',
-      (tester) async {
-    await tester.pumpWidget(
-      const MaterialApp(home: PartyRegisterScreen()),
-    );
+  /// 파티 등록 폼은 길다 — 기본 테스트 화면(800×600)에서는 파티명 칸이
+  /// 화면 밖이라 **아예 만들어지지 않는다**(ListView는 보이는 만큼만 만든다).
+  /// 폼 전체를 한 화면에 펼쳐 둔다(combo_draft_restore_test.dart와 같은 방식).
+  void useTallScreen(WidgetTester tester) {
+    tester.view.physicalSize = const Size(420, 4800);
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(tester.view.reset);
+  }
+
+  testWidgets('입력 → 임시저장 버튼 → 로컬 미러에 payload가 기록된다', (tester) async {
+    useTallScreen(tester);
+    await tester.pumpWidget(const MaterialApp(home: PartyRegisterScreen()));
     await tester.pumpAndSettle();
 
-    // 파티명 입력(첫 TextField가 파티명 필드).
-    await tester.enterText(find.byType(TextField).first, '테스트 번개 파티');
+    // 파티명 입력 — 자리가 아니라 힌트로 찾는다(support/field_finders.dart).
+    await tester.enterText(fieldWithHint(kPartyTitleHint), '테스트 번개 파티');
     await tester.pump();
 
     // AppBar의 '임시저장' 버튼 탭.
@@ -51,8 +60,7 @@ void main() {
     expect(payload['titleText'], '테스트 번개 파티');
   });
 
-  testWidgets('임시저장이 있으면 재진입 시 "이어서 작성"으로 복구된다',
-      (tester) async {
+  testWidgets('임시저장이 있으면 재진입 시 "이어서 작성"으로 복구된다', (tester) async {
     // 로컬 미러에 파티 임시저장을 심어둔다(DraftService._encodeLocal 형태).
     final draft = jsonEncode({
       'type': 'party',
@@ -69,9 +77,8 @@ void main() {
     });
     SharedPreferences.setMockInitialValues({'draft_party': draft});
 
-    await tester.pumpWidget(
-      const MaterialApp(home: PartyRegisterScreen()),
-    );
+    useTallScreen(tester);
+    await tester.pumpWidget(const MaterialApp(home: PartyRegisterScreen()));
     await tester.pumpAndSettle();
 
     // 복구 다이얼로그가 뜨고, "이어서 작성"을 누른다.
@@ -80,7 +87,7 @@ void main() {
     await tester.pumpAndSettle();
 
     // 파티명 필드가 복구된 값으로 채워졌는지 확인.
-    final titleField = tester.widget<TextField>(find.byType(TextField).first);
-    expect(titleField.controller?.text, '복구된 파티');
+    // 자리가 아니라 힌트로 찾는다(support/field_finders.dart).
+    expect(textInField(tester, kPartyTitleHint), '복구된 파티');
   });
 }

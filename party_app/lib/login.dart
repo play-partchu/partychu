@@ -16,6 +16,7 @@ import 'package:url_launcher/url_launcher.dart';
 import 'package:party_app/utils/user_session.dart';
 import 'package:party_app/utils/last_login_method.dart';
 import 'package:party_app/utils/social_session.dart';
+import 'package:party_app/utils/root_gate.dart' show socialLoginTestMode;
 import 'package:party_app/services/push_notification_service.dart';
 
 // Firebase Functions 리전 (functions/index.js의 region과 일치해야 함)
@@ -187,6 +188,24 @@ class _LoginPageState extends State<LoginPage> {
       await LastLoginMethod.google.save();
 
       if (context.mounted) await _onLoginSuccess(context, provider: 'google');
+    } on FirebaseAuthException catch (error, st) {
+      // 같은 이메일이 이미 다른 로그인 수단의 계정에 묶여 있으면 Firebase가
+      // account-exists-with-different-credential로 거부한다. 여기서 계정을
+      // **자동으로 합치거나 지우지 않는다** — 그러면 기존 계정의 제공자 연결이
+      // 바뀌어 운영 계정이 망가질 수 있다. 원인만 드러낸다.
+      debugPrint(
+        '[Login] Google FirebaseAuth 실패 code=${error.code} '
+        'email=${error.email} provider=${error.credential?.providerId} '
+        'message=${error.message}\n$st',
+      );
+      if (context.mounted) {
+        _showError(
+          context,
+          socialLoginTestMode
+              ? '구글 로그인에 실패했습니다. (${error.code})'
+              : '구글 로그인에 실패했습니다.',
+        );
+      }
     } catch (error, st) {
       debugPrint('[Login] Google error: $error\n$st');
       if (context.mounted) _showError(context, '구글 로그인에 실패했습니다.');

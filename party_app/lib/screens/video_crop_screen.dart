@@ -1,7 +1,7 @@
-import 'dart:io';
-
 import 'package:flutter/material.dart';
+import 'package:image_picker/image_picker.dart' show XFile;
 import 'package:video_player/video_player.dart';
+import 'package:party_app/utils/local_media.dart';
 import 'package:party_app/utils/video_crop.dart';
 
 /// 동영상이 기본 카드에 노출될 위치(초점)와 확대 배율을 고르는 편집 화면.
@@ -30,7 +30,10 @@ import 'package:party_app/utils/video_crop.dart';
 /// 무의미해진다.
 class VideoCropScreen extends StatefulWidget {
   final String? videoUrl;
-  final File? videoFile;
+
+  /// 아직 업로드되지 않은, 방금 고른 동영상. 앱은 파일 경로, 웹은 blob
+  /// 오브젝트 URL을 들고 있으므로 [LocalMedia]를 통해서만 연다.
+  final XFile? videoFile;
   // 미리보기 프레임 크기(논리 픽셀) — 기본카드와 같은 비율로 화면에 크게
   // 보여주는 크기를 그대로 받는다.
   final double frameWidth;
@@ -73,7 +76,7 @@ class _VideoCropScreenState extends State<VideoCropScreen> {
   void initState() {
     super.initState();
     final ctrl = widget.videoFile != null
-        ? VideoPlayerController.file(widget.videoFile!)
+        ? LocalMedia.videoController(widget.videoFile!)
         : VideoPlayerController.networkUrl(Uri.parse(widget.videoUrl!));
     _ctrl = ctrl;
     ctrl
@@ -153,7 +156,16 @@ class _VideoCropScreenState extends State<VideoCropScreen> {
         elevation: 0,
         title: const Text(
           '카드 노출 위치 조정',
-          style: TextStyle(fontFamily: 'SeoulHangang', fontWeight: FontWeight.w500, shadows: [Shadow(color: Colors.black87, offset: Offset(0.3, 0)), Shadow(color: Colors.black87, offset: Offset(-0.3, 0)), Shadow(color: Colors.black87, offset: Offset(0, 0.3)), Shadow(color: Colors.black87, offset: Offset(0, -0.3))]),
+          style: TextStyle(
+            fontFamily: 'SeoulHangang',
+            fontWeight: FontWeight.w500,
+            shadows: [
+              Shadow(color: Colors.black87, offset: Offset(0.3, 0)),
+              Shadow(color: Colors.black87, offset: Offset(-0.3, 0)),
+              Shadow(color: Colors.black87, offset: Offset(0, 0.3)),
+              Shadow(color: Colors.black87, offset: Offset(0, -0.3)),
+            ],
+          ),
         ),
         actions: [
           TextButton(

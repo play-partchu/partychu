@@ -10,9 +10,92 @@ const {
   computeAppliedFee,
   computeAppliedFeeForRounds,
   computeRefund,
+  snapshotRefundPolicy,
+  effectiveRefundPolicy,
   reserveApplicantSlot,
   releaseApplicantSlot,
+  applicationDocId,
 } = require('./partyCapacity');
+// "이 취소 요청은 어느 신청 문서를 말하는가" — 회차별 신청이 생기면서
+// 세 갈래(회차 지정 / 옛 uid 문서 / 회차를 못 보내는 구버전 앱)로 갈린
+// 판정이다. 규칙과 그 이유는 partyApplicationTargets.js 상단 주석에 있다.
+const {
+  needsCandidateLookup,
+  resolveCancelTarget,
+} = require('./partyApplicationTargets');
+// 호스트 결제 정책(전액 선결제 / 예약금 / 현장결제)과 실결제액 계산.
+// 여기의 'upfront'는 예약금이고, depositFlow의 'deposit'은 무통장입금이다 —
+// 두 단어를 섞지 말 것(paymentPolicy.js 상단 주석 참고).
+const paymentPolicy = require('./paymentPolicy');
+// 정기 파티(scheduleType: 'recurring')의 "지금 기준 다음 회차" 계산 —
+// 취소 가능 여부/환불처럼 시각에 걸린 판정에서는 저장된 partyDateTime(등록
+// 시점의 첫 회차 캐시)이 아니라 이 값을 써야 한다. 규칙은 partySchedule.js 참고.
+const {
+  effectivePartyStartAt,
+  isRecurringParty,
+  occurrenceForId,
+  // 만료 자동 삭제의 기준점 — "이 파티가 다시는 열리지 않는 때".
+  finalPartyEndAt,
+} = require('./partySchedule');
+// 최소 모집 인원 미달 자동 취소 — 판정 규칙과 알림 문서 모양은
+// partyMinCapacity.js 한 곳에 있다(클라이언트 PartyCapacityStatus와 동일 규칙).
+const {
+  isAutoCancelCandidate,
+  partyMinCapacityOf,
+  confirmedCountOf,
+  autoCancelFields,
+  dueOccurrencesOf,
+  occurrenceCancelFields,
+  notificationDoc,
+  MIN_CAPACITY_NOT_MET,
+} = require('./partyMinCapacity');
+// "1명의 실사용자 = 파티츄 계정 1개" 정책 — NICE CI를 계정과 1:1로 묶는다.
+// 구/신 인증 경로(niceIntcResult / niceAuthResult)가 같은 헬퍼를 쓰도록 해서
+// 한쪽만 열려 있는 우회 경로가 생기지 않게 한다.
+const { linkIdentityAndSaveVerification } = require('./identityLink');
+// 휴대폰번호 표기 정규화 — 신 경로(niceAuth.js)와 **같은 함수**를 쓴다.
+// 두 경로가 저장하는 모양이 갈라지면 관리자 화면이 계정마다 다른 형식을
+// 그리게 되고, 나중에 번호로 조회하는 기능을 붙일 때 한쪽이 통째로 빠진다.
+const { normalizeKoreanMobile } = require('./phoneNumber');
+// 결제수단·결제상태는 네 도메인(파티 신청·방문예약·장소대여·파티샵)이 같은
+// 규칙을 쓴다 — 수단은 클라이언트가 고르고 **상태는 서버가 정한다**.
+const { buildPaymentInfo } = require('./paymentInfo');
+// 호스트 수취계좌 — 무통장입금 안내 계좌는 이 값 하나에서만 나온다.
+const { loadPayoutSnapshot } = require('./payoutAccounts');
+// 게스트 환불계좌 — 무통장입금으로 신청하려면 **돌려받을 계좌**가 인증돼
+// 있어야 한다. 위 수취계좌(호스트가 받을 계좌)와는 주인도 용도도 다르다.
+// 신청자 문서는 applyToParty가 본인확인 게이트를 위해 이미 읽으므로
+// loadRefundAccountOwner를 다시 부르지 않는다 — 판정 함수만 가져온다.
+// 취소 흐름은 환불 요청에 박을 **인증된 계좌 스냅샷**을 여기서 뜬다.
+const {
+  assertRefundAccountVerified,
+  loadVerifiedRefundSnapshot,
+} = require('./refundAccountVerify');
+// 승인제 파티의 사전질문 정의·답변 검증. 금지 개인정보 질문을 **실제로 막는**
+// 판정도 여기 있다 — 파티 문서의 질문 필드는 규칙상 클라이언트가 못 쓰고
+// setPartyApplicationForm만 쓸 수 있으므로 이 모듈이 유일한 관문이다.
+const applicationQuestions = require('./applicationQuestions');
+// 호스트에게 보여줄 신청자 신원(닉네임·실명·성별·생년월일) 조립 — 파티별
+// 신청자 화면(getApplicants)과 통합 신청자 관리(getHostApplicationInbox)가
+// 같은 규칙을 쓴다.
+const { buildApplicantIdentity } = require('./applicantIdentity');
+// 통합 신청자·예약자 관리의 판정들(미처리 여부·회차 날짜·건수 상한).
+// Firestore를 모르는 순수 함수라 selfcheck로 그대로 확인된다.
+const hostInbox = require('./hostInbox');
+// 본인확인 게이트 — 거래성 요청은 앱 UI와 무관하게 서버가 직접 확인한다.
+const { assertIdentityVerifiedData } = require('./identityGuard');
+// 무통장입금 상태 머신 — 승인제는 승인이 나야 입금을 요구한다
+// (awaiting_approval → 호스트 승인 → awaiting_deposit).
+const depositFlow = require('./depositFlow');
+// 참가자 환불계좌 — 호스트 수취계좌(users/{uid}.payoutAccount)·정산계좌
+// (users/{uid}.settlementInfo) 어느 쪽과도 주인도 용도도 다른 별개 정보다.
+// 세 계좌의 구분은 payoutAccounts.js / refundAccounts.js 상단 주석 참고.
+// 계좌 값 자체는 **인증된 것 하나뿐**이라 클라이언트가 보낸 값을 정규화하던
+// normalizeRefundAccount는 더 이상 쓰지 않는다(refundAccountVerify가 정본).
+const {
+  requiresRefundAccount,
+  buildRefundRequest,
+} = require('./refundAccounts');
 
 admin.initializeApp();
 
@@ -43,6 +126,11 @@ function kstParts(date) {
 // NICE 통합인증 — 공식 REST API 가이드 기준 재구현 (기존 niceIntc* 로직과 분리)
 Object.assign(exports, require('./niceAuth'));
 
+// 카카오·네이버 로그인용 Firebase 커스텀 토큰 발급 — Firebase Auth가 두 제공자를
+// 기본 지원하지 않아 서버가 소셜 액세스 토큰을 검증한 뒤 토큰을 만들어준다.
+// 자세한 보안 원칙은 socialAuth.js 상단 주석 참고.
+Object.assign(exports, require('./socialAuth'));
+
 // 공유 링크(partychu.co.kr/party/{id}) 서버 렌더 랜딩 페이지 — OG 태그 등
 // 자세한 설계 이유는 partyLandingPage.js 상단 주석 참고.
 Object.assign(exports, require('./partyLandingPage'));
@@ -55,12 +143,154 @@ Object.assign(exports, require('./placeReservations'));
 // 쓰인다. 자세한 설계 이유는 packageBookings.js 상단 주석 참고.
 Object.assign(exports, require('./packageBookings'));
 
+// 플레이스(events) 무료 방문 예약 — 결제 없이 "몇 시에 몇 명 갈게요"를 신청하고
+// 업주가 승인한다. 장소대여의 공간 예약(placeReservations)과는 별개 컬렉션·별개
+// 기능이다. 자세한 설계 이유는 placeVisitReservations.js 상단 주석 참고.
+Object.assign(exports, require('./placeVisitReservations'));
+
+// 파티 신청의 무통장입금 흐름 — 참가자 '입금했어요' → 호스트 '입금 확인' →
+// 확정, 기한이 지난 입금대기는 자동 정리. 결제 상태(payment.status)와 신청
+// 상태(status)를 끝까지 분리해서 다룬다(자세한 설계는 partyDeposits.js 주석).
+Object.assign(exports, require('./partyDeposits'));
+
+// 플레이스 상품·이용권 주문(결제 검증 + QR 사용 처리) — 술집·바·카페와
+// 공간대여·숙박이 같은 상품 구조를 공유한다. placeReservations와 동일한
+// 4단 구조를 따르며, 자세한 설계 이유는 placeProductOrders.js 상단 주석 참고.
+Object.assign(exports, require('./placeProductOrders'));
+
+// 통합 QR 체크인 — 호스트에게 스캐너는 하나뿐이고, QR 종류(파티/예약/이용권)
+// 판별과 권한 검증, 정보 조합을 전부 서버가 한다. 조회와 사용 처리를 분리해
+// "스캔 = 소진"이 되지 않게 한다(자세한 설계는 checkInTokens.js 상단 주석).
+Object.assign(exports, require('./checkInTokens'));
+
+// QR 발급·무효화 트리거 — 파티는 신청이 확정될 때, 예약은 예약이 확정될 때
+// 토큰이 생기고 취소·거절·만료되면 그 자리에서 죽는다. 콜러블마다 발급을
+// 붙이지 않고 문서의 최종 상태만 보는 이유는 각 파일 상단 주석 참고.
+// (파티 트리거는 현장 출석 통계도 함께 옮겨 왔다 — checkedInAt이 정본이다.)
+Object.assign(exports, require('./partyCheckIn'));
+Object.assign(exports, require('./reservationCheckIn'));
+
+// 파티 참여 후기 — 작성 자격(checkedInAt)·작성 기간(그 게스트가 참여한 회차
+// 종료 + 14일)을 전부 서버가 판정한다. 후기는 파티 하위가 아니라 독립 루트
+// 컬렉션이라 파티 자동삭제(14일)에도 남는다 — 자세한 이유는 partyReviews.js
+// 상단 주석 참고.
+Object.assign(exports, require('./partyReviews'));
+// 상품은 현장결제 주문만 결제 전에 QR을 갖는다 — checkInToken(조회용 식별자)과
+// voucherCode(결제 후 이용권)의 역할이 어떻게 갈리는지는 productCheckIn.js 참고.
+Object.assign(exports, require('./productCheckIn'));
+
+// 파티샵 상품 주문 — 예전의 더미 결제 + 클라이언트 직접 'paid' 쓰기를
+// 대체한다. 자세한 배경은 shopOrders.js 상단 주석 참고.
+Object.assign(exports, require('./shopOrders'));
+
+// 환불 요청 큐의 운영자 처리(송금 완료/반려) — 자동 송금이 없어 사람이 넘긴다.
+// 접수는 cancelApplication이 하고, 상태 변경은 이 함수만 한다.
+Object.assign(exports, require('./refundRequests'));
+
+// 채팅 자동 안내 문구 발송 — 예전에는 게스트 기기가 호스트 uid를 senderId로
+// 박아 직접 썼다. 그 구조 때문에 규칙이 senderId를 uid()로 못 박지 못했다.
+// 이제 Admin SDK로만 만들어진다. 자세한 배경은 chatAutoMessages.js 상단 주석 참고.
+Object.assign(exports, require('./chatAutoMessages'));
+
+// 채팅방 **생성** — 문의 권한(inquiryEnabled)이나 실제 예약 관계를 서버가
+// 직접 확인한 뒤에만 만든다. 규칙은 쿼리를 할 수 없어 예약 여부를 볼 수
+// 없으므로 이 판정은 여기서만 가능하다(chatRooms.js 상단 주석 참고).
+// __helpers는 셀프체크용이라 통째로 붙이지 않는다.
+exports.createChatRoom = require('./chatRooms').createChatRoom;
+
+// 닉네임 설정/변경 — 중복 방지가 트랜잭션으로만 성립하므로 서버 전용이다.
+// (firestore.rules가 users.nickname과 nicknames 컬렉션을 클라이언트로부터
+//  잠근다 — 앱에서만 검사하면 REST로 직접 써서 우회할 수 있다.)
+exports.setNickname = require('./nicknames').setNickname;
+exports.checkNicknameAvailable = require('./nicknames').checkNicknameAvailable;
+
+// 사업자 인증(국세청 진위확인·상태조회)과 파티 오픈예정→모집중 전환.
+// 두 모듈 모두 콜러블 외에 순수 헬퍼도 export하므로 Object.assign으로
+// 통째로 붙이지 않는다(위 memberActivityHelpers 주석과 같은 이유).
+exports.verifyBusinessRegistration =
+  require('./businessVerification').verifyBusinessRegistration;
+
+// 대표자 위임 — 본인 명의가 아닌 사업자를 대표자 승인으로 여는 경로.
+//
+// ⚠️ businessApprovalPage는 **로그인 없이** 열리는 웹 엔드포인트다(대표자는
+//    파티츄 회원이 아닐 수 있다). 권한은 링크가 아니라 NICE 본인확인 결과가
+//    준다 — businessDelegation.js의 evaluateApproval 12개 검사 참고.
+//    NICE IP 화이트리스트를 통과해야 하므로 VPC 커넥터를 타고 나간다.
+const businessDelegation = require('./businessDelegation');
+exports.requestBusinessDelegation = businessDelegation.requestBusinessDelegation;
+exports.getBusinessDelegationStatus = businessDelegation.getBusinessDelegationStatus;
+exports.businessApprovalPage = businessDelegation.businessApprovalPage;
+
+// 호스트 수취계좌 인증(팝빌 예금주조회) — 참가자가 무통장입금할 계좌가
+// 실제 그 호스트의 계좌인지 확인한다. 인증 상태는 서버만 기록한다
+// (클라이언트 쓰기는 firestore.rules가 막는다). payoutAccounts.js 참고.
+exports.verifyPayoutAccount = require('./payoutAccounts').verifyPayoutAccount;
+exports.getPayoutAccountStatus =
+  require('./payoutAccounts').getPayoutAccountStatus;
+// 게스트 환불계좌 인증 — 위 수취계좌와 **같은 엔진, 다른 필드**다
+// (refundAccountVerify.js). 무통장입금으로 낸 돈을 돌려받을 본인 계좌라
+// 사업자 명의 갈래 없이 언제나 본인 명의로만 인증된다.
+exports.verifyRefundAccount =
+  require('./refundAccountVerify').verifyRefundAccount;
+exports.openPartyRecruiting =
+  require('./partyOpenState').openPartyRecruiting;
+
+// 파티 등록(웹) — 웹 홈페이지의 유일한 파티 쓰기 경로.
+//
+// 앱은 지금도 Firestore에 직접 쓰지만, 조립·검증 규칙 자체는
+// partyRegistration.js 한 곳에 있고 골든 픽스처로 앱과 묶여 있다
+// (docs/party-registration-parity.md). 그래서 앱과 웹이 각자 계산해 결과가
+// 달라지는 일이 생기지 않는다.
+exports.createParty = require('./createParty').createParty;
+
+// 매장 이벤트 신청 — **서버가 정본**이다. firestore.rules가 신청 문서의
+// 클라이언트 쓰기를 전부 막고(parties/{id}/applications와 같은 보호 패턴),
+// 신청·취소는 이 콜러블만 한다. 종료된 이벤트 차단처럼 시간이 걸린 판정을
+// rules로 흉내 내면 앱과 어긋나기 때문이다(placeEventApplications.js 상단 주석).
+//
+// onPlacePromotionDeleted는 이벤트가 지워질 때 남은 신청서를 치우는 트리거다 —
+// 아무도 신청 문서를 지울 수 없으므로 이게 없으면 영영 고아로 남는다.
+// 순수 헬퍼도 함께 내보내는 모듈이라 Object.assign으로 붙이지 않는다.
+const placeEventApplications = require('./placeEventApplications');
+exports.applyToPlaceEvent = placeEventApplications.applyToPlaceEvent;
+exports.cancelPlaceEventApplication =
+  placeEventApplications.cancelPlaceEventApplication;
+exports.getPlaceEventApplicants =
+  placeEventApplications.getPlaceEventApplicants;
+exports.onPlacePromotionDeleted =
+  placeEventApplications.onPlacePromotionDeleted;
+
+// 파티 신청이 생기면 호스트에게 알림 한 건 — 예약 3종에는 원래 있고 파티에만
+// 없던 알림이다. **applyToParty 트랜잭션이 아니라 문서 생성 트리거**로 받는
+// 이유(재시도 중복 발송)는 partyApplicationNotifications.js 상단 주석 참고.
+// 같은 모듈이 순수 헬퍼(notifyHostDepositSent)도 내보내므로 Object.assign으로
+// 통째로 붙이지 않는다.
+exports.onPartyApplicationCreated =
+  require('./partyApplicationNotifications').onPartyApplicationCreated;
+
+// 콘텐츠 삭제(파티·장소·플레이스·파티샵·파트너) — 앱의 모든 삭제 버튼이
+// 거치는 단 하나의 경로다. 클라이언트는 규칙상 신청·예약·주문 컬렉션을 지울
+// 수 없으므로 삭제는 반드시 여기를 통해야 한다. 자세한 배경은
+// contentDelete.js 상단 주석 참고.
+Object.assign(exports, require('./contentDelete'));
+
 // 통합 회원 관리(활동 배지·userStats 확장·통합 활동 타임라인) — 자세한 설계
 // 이유는 memberManagement.js 상단 주석 참고. 공용 헬퍼는 memberActivityHelpers.js
 // 에서 직접 가져온다(partyCapacity.js와 동일하게 순수 헬퍼 모듈은 항상
 // 구조분해로만 참조 — Object.assign(exports,...) 대상은 Cloud Functions만).
 Object.assign(exports, require('./memberManagement'));
 Object.assign(exports, require('./crmExportFunction'));
+
+// 관리자 채팅 열람 — chatRooms/messages는 개인 간 대화라 규칙을 관리자에게
+// 열지 않는다. 이 두 onCall(Admin SDK)만이 유일한 열람 통로이고, 열람할 때마다
+// userActivityLogs에 감사 로그를 남긴다. 자세한 배경은 adminChatViewer.js 상단 주석.
+Object.assign(exports, require('./adminChatViewer'));
+
+// 관리자 판매 통계 — 신청/예약 문서를 **읽어 넘기기만** 하는 콜러블이다.
+// 합계는 서버에서 내지 않는다: 매출 계산이 JS와 Dart 두 벌이 되면 한쪽만
+// 고쳐졌을 때 호스트 화면과 관리자 화면의 금액이 갈리기 때문이다. 계산은
+// packages/partychu_sales(Dart) 한 곳이 정본이다. adminSalesStats.js 상단 주석 참고.
+Object.assign(exports, require('./adminSalesStats'));
 
 // 푸시 토큰(기기) 등록/해제 — users/{uid}/devices 서브컬렉션은 규칙이
 // 클라이언트 쓰기를 막아두었고, 계정 전환 시 "다른 사용자 밑에 남은 같은 토큰"을
@@ -72,6 +302,29 @@ Object.assign(exports, require('./pushTokens'));
 // pushDispatch.js 상단 주석 참고.
 Object.assign(exports, require('./pushDispatch'));
 
+// 회원 탈퇴 — 신청(7일 대기) · 취소 · 상태 조회 · 만료분 자동 완전탈퇴.
+// 완전 탈퇴는 순서가 고정이고(CI 링크 해제 → 개인정보 삭제 → … → Auth 삭제),
+// 앱을 켜지 않아도 진행되도록 스케줄러가 돈다. 자세한 배경은 accountWithdrawal.js.
+Object.assign(exports, require('./accountWithdrawal'));
+
+// 안전한 미디어 업로드 경로 — 앱에 Cloudflare 자격증명을 두지 않기 위한 새
+// 경로다. 서버가 "이 키 하나에, 이 크기·형식으로, 5분 안에"만 쓸 수 있는
+// presigned PUT을 발급하고, 경로의 uid는 request.auth.uid를 정본으로 쓴다.
+// 동영상은 Stream direct creator upload라 30초 제한이 서버 강제가 된다.
+// 자세한 배경은 mediaUploads.js 상단 주석 참고.
+//
+// 이 모듈의 자격증명(버킷 스코프 R2 액세스 키 · Stream 전용 토큰)은 삭제·정리
+// 경로도 **그대로 나눠 쓴다**([cloudflareCleanup.js]). 유출로 간주해 폐기된
+// CLOUDFLARE_API_TOKEN을 읽는 코드는 이제 서버 어디에도 없다.
+//
+// ⚠️ 이 모듈은 Cloud Function이 아닌 순수 헬퍼도 내보내므로
+//    Object.assign(exports, ...)으로 붙이면 안 된다 — 헬퍼까지 함수로
+//    배포하려다 실패한다(contentCleanup.js와 같은 규칙).
+const mediaUploads = require('./mediaUploads');
+exports.createUploadUrl = mediaUploads.createUploadUrl;
+exports.createVideoUploadUrl = mediaUploads.createVideoUploadUrl;
+exports.deleteOwnUpload = mediaUploads.deleteOwnUpload;
+
 const {
   logUserActivity,
   addActivityRole,
@@ -82,119 +335,128 @@ const {
 } = require('./memberActivityHelpers');
 
 // ── Cloudflare 미디어 삭제 헬퍼 ──────────────────────────────────────────────
+// 사용자가 직접 누르는 삭제(contentDelete.js)와 아래 예약 삭제가 **같은 정리
+// 코드**를 쓰도록 cloudflareCleanup.js로 뽑아냈다.
+const {
+  readCloudflareCreds,
+  // 미디어 정리에 쓰는 시크릿 목록의 정본 — 여섯 개를 손으로 적지 않는다.
+  // (CLOUDFLARE_API_TOKEN은 폐기됐다. 그 파일 상단 주석 참고.)
+  MEDIA_CLEANUP_SECRETS,
+} = require('./cloudflareCleanup');
+// 콘텐츠 정리 규칙 — 사용자가 누르는 삭제(contentDelete.js)와 아래 만료
+// 자동 삭제가 같은 함수를 쓴다. 순수 헬퍼 모듈이라 구조분해로만 참조한다.
+const { cleanupContentDoc } = require('./contentCleanup');
+// 이벤트가 "보이지 않게 된 시각" — 만료 판정의 기준점(앱의 goneAt과 같은 규칙).
+const { promotionGoneAt } = require('./registrationLimits');
 
-function httpsDelete(hostname, path, token) {
-  return new Promise((resolve, reject) => {
-    const req = https.request(
-      { hostname, path, method: 'DELETE',
-        headers: { Authorization: `Bearer ${token}` } },
-      (res) => {
-        let body = '';
-        res.on('data', (c) => { body += c; });
-        res.on('end', () => {
-          if (res.statusCode === 200 || res.statusCode === 204) resolve();
-          else reject(new Error(`HTTP ${res.statusCode}: ${body.slice(0, 200)}`));
-        });
-      },
-    );
-    req.on('error', reject);
-    req.end();
-  });
-}
-
-async function deleteStreamVideo(accountId, token, uid) {
-  await httpsDelete(
-    'api.cloudflare.com',
-    `/client/v4/accounts/${accountId}/stream/${uid}`,
-    token,
-  );
-}
-
-async function deleteR2Object(accountId, token, bucket, key) {
-  await httpsDelete(
-    'api.cloudflare.com',
-    `/client/v4/accounts/${accountId}/r2/buckets/${bucket}/objects/${encodeURIComponent(key)}`,
-    token,
-  );
-}
-
-// ── Cloudflare Secrets ────────────────────────────────────────────────────────
-
-const cfAccountId = defineSecret('CLOUDFLARE_ACCOUNT_ID');
-const cfApiToken  = defineSecret('CLOUDFLARE_API_TOKEN');
-const cfR2Bucket  = defineSecret('CLOUDFLARE_R2_BUCKET');
+// ── 보관기간 ────────────────────────────────────────────────────────────────
+//
+// **등록물 네 종류와 임시저장이 전부 14일**이다. 값이 여러 곳에 흩어지면
+// 한쪽만 바뀌어 화면 안내와 실제 삭제일이 어긋나므로 여기 하나로 둔다.
+// 클라이언트 쪽 정본은 lib/utils/auto_delete_retention.dart의
+// AutoDeleteRetention.window — 두 값은 **같아야 한다**(앱이 'D-3'이라고 써
+// 놓고 서버가 이미 지운 상태가 되면 안 된다).
+//
+// 세는 **기준점**만 유형마다 다르다. 날짜가 있는 것은 실제 종료 시각, 날짜가
+// 없는 상시 등록물은 호스트가 숨긴 시각이다.
+//
+//   파티(parties)             최종 종료 시각      deleteExpiredParties
+//   이벤트(placePromotions)   종료일 / 숨긴 시각  deleteExpiredPromotions
+//   플레이스(events)          숨긴 시각(hiddenAt) deleteExpiredEvents
+//   장소대여(places)          숨긴 시각(hiddenAt) deleteExpiredPlaces
+//   임시저장(drafts)          마지막 저장 시각    deleteExpiredDrafts
+//
+// 장소대여는 예전에 30일이었다 — 같은 성격의 등록물끼리 보관기간이 다르면
+// 호스트가 어느 화면의 안내를 믿어야 할지 알 수 없어서 14일로 맞췄다.
+const RETENTION_DAYS = 14;
+const RETENTION_MS = RETENTION_DAYS * 24 * 60 * 60 * 1000;
 
 // ── 만료 파티 자동 삭제 (매일 03:00 KST) ─────────────────────────────────────
 //
-// 기준: partyDateTime + 30일 경과 & status != 'active'
-// 처리: Cloudflare Stream 동영상 삭제 → R2 이미지 삭제 → Firestore 문서 삭제
+// 기준: **최종 종료 시각**(finalPartyEndAt) + 14일 경과 & status != 'active'
+//       · 일회성 — singleSchedule의 종료 시각(없으면 시작 시각 = partyDateTime)
+//       · 정기   — 마지막 회차가 끝난 시각(운영 종료일 기준). 종료일이 없는
+//                  무기한 정기 파티는 끝나는 때가 없어 대상이 아니다.
+//
+//       예전에는 partyDateTime(정기 파티에서는 **첫 회차 캐시**)에 30일을
+//       더해 판정했다. 그래서 반년을 운영한 정기 파티는 마지막 회차가 끝나기도
+//       전에 이미 "30일 경과" 조건을 만족해, 남은 회차가 없어지는 순간 사실상
+//       곧바로 삭제 대상이 됐다. 이제 기준점이 마지막 회차 종료라 어떤 파티든
+//       끝난 뒤 꼬박 14일이 보장된다.
+//
+// 처리: cleanupContentDoc(contentCleanup.js) — 사용자가 삭제 버튼을 눌렀을
+//       때와 **완전히 같은 정리 로직**을 쓴다. 예전에는 여기서 파티 문서와
+//       미디어만 지워서 applications 같은 연결 데이터가 고아로 남았다.
+//       거래기록(결제된 신청서·패키지 예약)은 지우지 않고 삭제 표시와
+//       스냅샷만 붙는다 — 매출·정산 집계는 그 신청 문서를 읽으므로(호스트
+//       판매 통계 host_sales_service.dart) 파티가 사라져도 금액은 남는다.
 
 exports.deleteExpiredParties = onSchedule(
   {
     schedule:  '0 3 * * *',
     timeZone:  'Asia/Seoul',
     region:    'asia-northeast3',
-    secrets:   [cfAccountId, cfApiToken, cfR2Bucket],
+    secrets:   MEDIA_CLEANUP_SECRETS,
   },
   async () => {
     const db = admin.firestore();
     try {
-      const cutoff = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
+      const cutoff = new Date(Date.now() - RETENTION_MS);
       const cutoffTs = admin.firestore.Timestamp.fromDate(cutoff);
 
+      // 후보를 좁히는 쿼리는 그대로 partyDateTime을 본다 — 정기 파티에서
+      // partyDateTime은 첫 회차 캐시라 **언제나 최종 종료보다 이르다.** 즉
+      // "최종 종료 < 컷오프"이면 "partyDateTime < 컷오프"도 반드시 참이라,
+      // 이 쿼리는 대상을 놓치지 않으면서 색인을 늘리지 않는다. 정확한 판정은
+      // 아래 filter에서 finalPartyEndAt으로 한 번 더 한다.
       const snapshot = await db.collection('parties')
         .where('partyDateTime', '<', cutoffTs)
         .get();
 
-      let accountId, apiToken, r2Bucket;
-      try {
-        accountId = cfAccountId.value().trim();
-        apiToken  = cfApiToken.value().trim();
-        r2Bucket  = cfR2Bucket.value().trim();
-      } catch (_) {
-        console.warn('[cleanup] Cloudflare 시크릿 미설정 — Firestore만 삭제합니다.');
-      }
+      const creds = readCloudflareCreds('cleanup');
 
       const toDelete = snapshot.docs.filter((doc) => {
         const d = doc.data();
         // 재등록(status='active')이거나 이미 삭제된 문서는 건너뜀
-        return d.status !== 'active' && d.isDeleted !== true && d.status !== 'deleted';
+        if (d.status === 'active' || d.isDeleted === true || d.status === 'deleted') {
+          return false;
+        }
+        // 정기 파티는 저장된 partyDateTime이 "첫 회차" 캐시라 위 쿼리에
+        // 걸리지만, 아직 열릴 회차가 남아 있으면 운영 중인 파티다 —
+        // 지우면 안 된다(운영 종료일이 지난 정기 파티만 삭제 대상).
+        if (isRecurringParty(d) && effectivePartyStartAt(d, new Date()) != null) {
+          return false;
+        }
+        // 진짜 기준점 — 최종 종료 + 14일. 종료일 없는 무기한 정기 파티는
+        // null이 나오고(끝나는 때가 없다), 그런 문서는 지우지 않는다.
+        const finalEnd = finalPartyEndAt(d);
+        if (finalEnd == null) return false;
+        return finalEnd.getTime() < cutoff.getTime();
       });
 
       console.log(`[cleanup] 만료 후보 ${toDelete.length}개 / 전체 쿼리 ${snapshot.size}개`);
 
+      // 파티 하나씩 공용 정리 로직으로 처리한다 — 연결 데이터 삭제 +
+      // 거래기록 보존 + 미디어 삭제 + 본체 삭제가 여기 한 번에 들어 있다.
+      // 한 건이 실패해도 나머지는 계속 진행한다(예약 작업이라 다음 실행에서
+      // 다시 시도된다).
+      let done = 0;
+      let preserved = 0;
       for (const doc of toDelete) {
-        const d = doc.data();
-
-        // ① Cloudflare Stream 동영상 삭제
-        if (accountId && apiToken && d.videoUid) {
-          try { await deleteStreamVideo(accountId, apiToken, d.videoUid); }
-          catch (e) { console.error(`[cleanup] Stream 삭제 실패 (${d.videoUid}):`, e.message); }
+        try {
+          const result = await cleanupContentDoc(
+            db, 'party', doc.ref, doc.data(), creds, 'cleanup',
+          );
+          preserved += result.preserved;
+          done++;
+        } catch (e) {
+          console.error(`[cleanup] 파티 정리 실패 (${doc.id}):`, e.message);
         }
-
-        // ② Cloudflare R2 이미지 삭제
-        if (accountId && apiToken && r2Bucket) {
-          const images = [...(d.images || []), ...(d.imageUrls || [])];
-          for (const url of images) {
-            try {
-              const key = new URL(url).pathname.replace(/^\//, '');
-              if (key) await deleteR2Object(accountId, apiToken, r2Bucket, key);
-            } catch (e) { console.error(`[cleanup] R2 삭제 실패 (${url}):`, e.message); }
-          }
-        }
-
-        // ③ Firestore 문서 삭제 (400건씩 batch)
       }
 
-      // Batch delete (Firestore 최대 500건/batch)
-      const CHUNK = 400;
-      for (let i = 0; i < toDelete.length; i += CHUNK) {
-        const batch = db.batch();
-        toDelete.slice(i, i + CHUNK).forEach((doc) => batch.delete(doc.reference));
-        await batch.commit();
-      }
-
-      console.log(`[cleanup] 완료 — ${toDelete.length}개 삭제됨`);
+      console.log(
+        `[cleanup] 완료 — ${done}/${toDelete.length}개 삭제, 거래기록 ${preserved}건 보존`,
+      );
     } catch (e) {
       await logScheduledFunctionError(db, 'deleteExpiredParties', e);
       throw e; // Cloud Scheduler 재시도/실패 기록은 기존과 동일하게 유지
@@ -202,26 +464,332 @@ exports.deleteExpiredParties = onSchedule(
   },
 );
 
+// ── 만료 임시저장 자동 삭제 (매일 03:20 KST) ─────────────────────────────────
+//
+// 기준: drafts.updatedAt + 14일 경과.
+//
+// `drafts/{uid}__{type}` 문서는 저장할 때마다 통째로 덮어써지고 updatedAt이
+// 서버 시각으로 갱신된다(DraftService.saveDraft) — 그래서 "마지막 수정 기준
+// 14일"이 별도 필드 없이 그대로 성립한다. 이어서 작성하다 다시 저장하면
+// 기한도 함께 밀린다.
+//
+// **미디어는 지우지 않는다.** 임시저장 payload가 들고 있는 이미지 URL은
+// `existingImageUrls` — 이미 등록된 파티/플레이스의 사진을 가리키는 값이라
+// 여기서 지우면 **살아 있는 콘텐츠의 사진이 사라진다.** 새로 고른 사진은
+// 업로드 전 로컬 경로(newFilePaths)로만 들어 있어 지울 원격 파일이 없다.
+// 탈퇴 정리(accountWithdrawal.js의 PERSONAL_COLLECTIONS)도 drafts를 문서만
+// 지운다 — 같은 규칙이다.
+//
+// 한 번에 지우는 양은 [SWEEP_LIMIT]로 묶는다. 이 정책이 생기기 전 문서에는
+// 만료 개념이 없어 오래된 초안이 통째로 쌓여 있고, 첫 실행이 그걸 한 번에
+// 쓸면 실패 시 어디까지 지웠는지도 모르는 큰 작업이 된다. 남은 건 다음 날
+// 실행이 이어서 지운다(매일 도는 작업이라 며칠이면 정리된다).
+
+const SWEEP_LIMIT = 500;
+
+exports.deleteExpiredDrafts = onSchedule(
+  {
+    schedule: '20 3 * * *',
+    timeZone: 'Asia/Seoul',
+    region:   'asia-northeast3',
+  },
+  async () => {
+    const db = admin.firestore();
+    try {
+      const cutoff = admin.firestore.Timestamp.fromDate(
+        new Date(Date.now() - RETENTION_MS),
+      );
+
+      const snapshot = await db.collection('drafts')
+        .where('updatedAt', '<', cutoff)
+        .orderBy('updatedAt')
+        .limit(SWEEP_LIMIT)
+        .get();
+
+      if (snapshot.empty) {
+        console.log('[draftCleanup] 만료된 임시저장 없음');
+        return;
+      }
+
+      let done = 0;
+      for (let i = 0; i < snapshot.docs.length; i += 400) {
+        const batch = db.batch();
+        const slice = snapshot.docs.slice(i, i + 400);
+        for (const doc of slice) batch.delete(doc.ref);
+        await batch.commit();
+        done += slice.length;
+      }
+
+      console.log(
+        `[draftCleanup] 완료 — ${done}개 삭제`
+        + (snapshot.size === SWEEP_LIMIT ? ' (상한에 걸림, 다음 실행에서 계속)' : ''),
+      );
+    } catch (e) {
+      await logScheduledFunctionError(db, 'deleteExpiredDrafts', e);
+      throw e;
+    }
+  },
+);
+
+// ── 최소 모집 인원 미달 자동 취소 (10분마다) ─────────────────────────────────
+//
+// 호스트가 "최소 인원 미달 시 자동 취소"를 골라 둔 파티만 대상이다. 모집
+// 마감 시각을 지났는데도 **확정 인원**이 최소 모집 인원에 못 미치면 취소한다.
+//
+// 취소 단위가 두 가지다.
+//
+//  A. 일회성 파티 → 파티 문서 전체
+//     1. recruitStatus:'취소' + cancelReason:'minCapacityNotMet'으로 바꾸고
+//     2. 그 쓰기가 기존 onPartyCancelledByHost 트리거를 깨워 **신청 전원 취소 +
+//        전액 환불(refundStatus:'pending')**로 돌린다 — 환불 경로를 새로 만들지
+//        않고 호스트 취소와 똑같이 처리한다
+//     3. 신청자와 호스트에게 보낼 알림을 notifications에 남긴다
+//
+//  B. 정기 파티 → **미달된 그 회차 하나만**
+//     파티 문서의 recruitStatus는 건드리지 않는다(다른 날짜 회차는 그대로
+//     열려 있어야 한다). 대신 occurrenceCancellations.{회차}에 취소를 기록하고,
+//     그 회차 신청만 골라 A와 **같은 모양**으로 취소·환불 대상 처리한다.
+//     신청을 막는 것은 이 기록을 보는 applyToParty 쪽이다(partyCapacity.js).
+//
+// "확정 인원"은 신청 문서를 직접 세어 구한다(status가 applied/approved인 것).
+// 문서에 캐시된 currentParticipants는 승인 대기(pending)까지 포함한 **자리
+// 예약 수**라, 승인제 파티에서 아무도 승인되지 않았는데 "다 모였다"로 보인다.
+//
+// 10분 주기라 마감 직후 최대 10분까지 취소가 늦어질 수 있다. 그 사이 신청이
+// 들어와 최소 인원을 채우면 취소하지 않는다(조건을 실행 시점에 다시 본다).
+//
+// 주의: recruitStatus 등호 + recruitDeadlineAt 범위 조합이라 Firestore 복합
+// 인덱스가 필요하다 — 첫 실행 로그의 링크로 만들면 된다.
+
+/**
+ * 살아 있는 신청(취소/거절이 아닌 것) 목록. 회차 취소는 이 중 그 회차 것만
+ * 골라 처리하므로 status로만 좁혀 한 번에 읽는다.
+ */
+async function loadLiveApplications(partyRef) {
+  const snap = await partyRef
+    .collection('applications')
+    .where('status', 'in', ['applied', 'approved'])
+    .get();
+  return snap.docs;
+}
+
+/**
+ * 신청 한 건을 "시스템 취소 + 전액 환불 대상"으로 바꾸는 필드.
+ *
+ * onPartyCancelledByHost가 파티 전체 취소에서 쓰는 것과 **같은 모양**이다 —
+ * 회차 취소만 다른 규칙을 쓰면 환불 화면·정산이 두 갈래가 된다. 환불률은
+ * 100%지만 금액은 실제로 받은 돈을 넘지 않는다(현장결제 예정은 0원).
+ */
+function systemCancelApplicationFields(appData) {
+  const paidAmount = paymentPolicy.paidAmountOf(appData.payment, appData.amounts);
+  return {
+    status: 'cancelled',
+    cancelledBy: 'system',
+    cancelReason: MIN_CAPACITY_NOT_MET,
+    refundPercent: paidAmount > 0 ? 100 : 0,
+    refundAmount: paidAmount,
+    refundStatus: paidAmount > 0 ? 'pending' : 'not_applicable',
+    appliedRefundTier: null,
+    statusUpdatedAt: admin.firestore.FieldValue.serverTimestamp(),
+  };
+}
+
+/** 알림 수신자 모으기 — 신청자(문서 안 uid 필드) + 호스트. */
+function autoCancelRecipients(applicationDocs, partyData) {
+  const recipients = new Map();
+  // 신청 문서 ID는 회차 신청이면 uid가 아니다(`{uid}_{회차}`) — 수신자는
+  // 반드시 문서 안의 uid 필드로 잡는다(같은 사람이 여러 회차를 신청했어도
+  // Map이라 알림은 한 번만 간다).
+  applicationDocs.forEach((a) => recipients.set(a.data().uid || a.id, 'applicant'));
+  const hostUid = partyData.hostUid || partyData.hostId || partyData.userId || partyData.createdBy;
+  if (hostUid) recipients.set(hostUid, 'host');
+  return recipients;
+}
+
+exports.autoCancelUnderfilledParties = onSchedule(
+  {
+    schedule: '*/10 * * * *',
+    timeZone: 'Asia/Seoul',
+    region: 'asia-northeast3',
+  },
+  async () => {
+    const db = admin.firestore();
+    let oneShotDone = 0;
+    let occurrenceDone = 0;
+    try {
+      const now = new Date();
+
+      // ── A. 일회성 파티 — 파티 문서 전체 취소 ───────────────────────────
+      //
+      // 마감이 지난 '모집중' 파티만 좁혀 읽는다. 자동 취소 여부·최소 인원은
+      // 문서를 보고 판정한다(복합 인덱스를 더 늘리지 않기 위해).
+      const snapshot = await db
+        .collection('parties')
+        .where('recruitStatus', '==', '모집중')
+        .where('recruitDeadlineAt', '<=', admin.firestore.Timestamp.fromDate(now))
+        .get();
+
+      const candidates = snapshot.docs.filter((doc) =>
+        isAutoCancelCandidate(doc.data(), now)
+      );
+      console.log(
+        `[minCapacity] 일회성 후보 ${candidates.length}개 / 마감 지난 모집중 ${snapshot.size}개`
+      );
+
+      for (const doc of candidates) {
+        try {
+          const data = doc.data();
+          const partyTitle = data.title || '파티';
+          const min = partyMinCapacityOf(data);
+
+          // 신청 문서를 먼저 읽는다 — 확정 인원이 최소를 채웠으면 취소하지
+          // 않는다(마감 뒤 승인으로 채워진 경우가 여기서 걸린다).
+          const applicationDocs = await loadLiveApplications(doc.ref);
+          const confirmed = confirmedCountOf(applicationDocs.map((a) => a.data()));
+          if (confirmed >= min) continue;
+
+          // 파티 상태를 먼저 바꾼다 — 이 쓰기가 환불 트리거를 깨운다.
+          await doc.ref.update(autoCancelFields(data, confirmed));
+
+          const batch = db.batch();
+          for (const [uid, role] of autoCancelRecipients(applicationDocs, data)) {
+            batch.set(
+              db.collection('notifications').doc(),
+              notificationDoc({
+                uid,
+                partyId: doc.id,
+                partyTitle,
+                role,
+                data,
+                participants: confirmed,
+              })
+            );
+          }
+          await batch.commit();
+          oneShotDone++;
+        } catch (e) {
+          console.error(`[minCapacity] 자동 취소 실패 (${doc.id}):`, e.message);
+        }
+      }
+
+      // ── B. 정기 파티 — 미달된 회차만 취소 ──────────────────────────────
+      //
+      // 정기 파티는 recruitDeadlineAt을 저장하지 않는다(회차마다 마감이 새로
+      // 열려서 고정 값을 둘 수 없다) — 위 A의 쿼리에 걸리지 않으므로 자동
+      // 취소로 설정된 정기 파티만 따로 읽는다. minCapacityPolicy 등호 하나라
+      // 단일 필드 인덱스로 충분하다.
+      const recurringSnap = await db
+        .collection('parties')
+        .where('minCapacityPolicy', '==', 'autoCancel')
+        .where('scheduleType', '==', 'recurring')
+        .get();
+
+      let dueTotal = 0;
+      for (const doc of recurringSnap.docs) {
+        const data = doc.data();
+        const due = dueOccurrencesOf(data, now);
+        if (due.length === 0) continue;
+        dueTotal += due.length;
+
+        const partyTitle = data.title || '파티';
+        const min = partyMinCapacityOf(data);
+        let applicationDocs;
+        try {
+          applicationDocs = await loadLiveApplications(doc.ref);
+        } catch (e) {
+          console.error(`[minCapacity] 신청 조회 실패 (${doc.id}):`, e.message);
+          continue;
+        }
+
+        for (const { occurrenceId } of due) {
+          try {
+            const ofOccurrence = applicationDocs.filter(
+              (a) => (a.data().occurrenceId || null) === occurrenceId
+            );
+            const confirmed = confirmedCountOf(
+              ofOccurrence.map((a) => a.data()),
+              occurrenceId
+            );
+            if (confirmed >= min) continue;
+
+            const batch = db.batch();
+            // 1) 회차 취소 기록 — 이 기록 하나가 "신청 불가"의 근거이자
+            //    다음 실행에서 두 번 처리하지 않게 하는 표시다.
+            batch.update(
+              doc.ref,
+              occurrenceCancelFields(data, occurrenceId, confirmed)
+            );
+            // 2) 그 회차 신청만 취소 + 환불 대상 — 파티 문서 전체 취소가
+            //    아니라 onPartyCancelledByHost가 깨어나지 않으므로 여기서
+            //    직접 한다(필드 모양은 그 트리거와 같다).
+            for (const appDoc of ofOccurrence) {
+              batch.update(appDoc.ref, systemCancelApplicationFields(appDoc.data()));
+            }
+            // 3) 알림 — 이 회차 신청자 + 호스트.
+            for (const [uid, role] of autoCancelRecipients(ofOccurrence, data)) {
+              batch.set(
+                db.collection('notifications').doc(),
+                notificationDoc({
+                  uid,
+                  partyId: doc.id,
+                  partyTitle,
+                  role,
+                  data,
+                  occurrenceId,
+                  participants: confirmed,
+                })
+              );
+            }
+            await batch.commit();
+            occurrenceDone++;
+          } catch (e) {
+            console.error(
+              `[minCapacity] 회차 취소 실패 (${doc.id} / ${occurrenceId}):`,
+              e.message
+            );
+          }
+        }
+      }
+
+      console.log(
+        `[minCapacity] 완료 — 일회성 ${oneShotDone}개, 회차 ${occurrenceDone}/${dueTotal}개 취소`
+      );
+    } catch (e) {
+      await logScheduledFunctionError(db, 'autoCancelUnderfilledParties', e);
+      throw e;
+    }
+  },
+);
+
 // ── 만료 장소 자동 삭제 (매일 03:00 KST) ─────────────────────────────────────
 //
-// 기준: isActive == false(숨김) & hiddenAt + 30일 경과
-// 처리: 장소 Stream 동영상 삭제 → 장소 R2 이미지 삭제 → 하위 placeRooms
-//       문서마다 룸 R2 이미지 삭제 → placeRooms 문서 삭제 → 장소 문서 삭제
-// 주의: isActive==false + hiddenAt 범위 비교 조합이라 Firestore 복합 인덱스가
-// 필요할 수 있다 — 처음 실행 시 오류 로그에 인덱스 생성 링크가 뜨면 그 링크로
-// 인덱스를 만들어야 한다.
+// 기준: isActive == false(숨김) & hiddenAt + 14일 경과([RETENTION_DAYS])
+//       예전에는 30일이었다. 네 유형의 보관기간을 하나로 맞추면서 바뀌었고,
+//       그때부터 앱 안내도 같은 상수를 읽는다(AutoDeleteRetention.window).
+//       숨긴 뒤 14일 안에 다시 노출하면 hiddenAt이 지워져 대상에서 빠진다
+//       (place_register_screen.dart의 수정 저장이 항상 그렇게 나간다).
+// 처리: cleanupContentDoc(contentCleanup.js) — 파티와 마찬가지로 사용자가
+//       삭제 버튼을 눌렀을 때와 같은 정리 로직을 쓴다. 예전에는 장소 문서와
+//       하위 placeRooms만 지워서 예약 슬롯·상품·프로모션·채팅방·찜이 고아로
+//       남았다. 예약·이용권 같은 거래기록은 지우지 않고 삭제 표시와 스냅샷만
+//       붙는다.
+// 색인: isActive==false + hiddenAt 범위 비교 조합에는 복합 색인
+// `places (isActive ASC, hiddenAt ASC)`이 **반드시** 있어야 한다. 이게 없으면
+// 쿼리가 FAILED_PRECONDITION으로 죽어서 만료 장소가 한 건도 정리되지 않는다
+// (실제로 매일 03:00에 34일 연속 실패했다). 정의는 firestore.indexes.json에
+// 있고, `firebase deploy --only firestore:indexes`로 배포해야 적용된다.
 
 exports.deleteExpiredPlaces = onSchedule(
   {
     schedule:  '0 3 * * *',
     timeZone:  'Asia/Seoul',
     region:    'asia-northeast3',
-    secrets:   [cfAccountId, cfApiToken, cfR2Bucket],
+    secrets:   MEDIA_CLEANUP_SECRETS,
   },
   async () => {
     const db = admin.firestore();
     try {
-      const cutoff = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
+      const cutoff = new Date(Date.now() - RETENTION_MS);
       const cutoffTs = admin.firestore.Timestamp.fromDate(cutoff);
 
       const snapshot = await db.collection('places')
@@ -229,76 +797,225 @@ exports.deleteExpiredPlaces = onSchedule(
         .where('hiddenAt', '<', cutoffTs)
         .get();
 
-      let accountId, apiToken, r2Bucket;
-      try {
-        accountId = cfAccountId.value().trim();
-        apiToken  = cfApiToken.value().trim();
-        r2Bucket  = cfR2Bucket.value().trim();
-      } catch (_) {
-        console.warn('[cleanup-place] Cloudflare 시크릿 미설정 — Firestore만 삭제합니다.');
-      }
+      const creds = readCloudflareCreds('cleanup-place');
 
       console.log(`[cleanup-place] 만료 후보 ${snapshot.size}개`);
 
-      // 삭제할 Firestore 문서 레퍼런스를 모아뒀다가 마지막에 한 번에 batch 삭제
-      const refsToDelete = [];
-
+      // 한 건이 실패해도 나머지는 계속 진행한다(예약 작업이라 다음 실행에서
+      // 다시 시도된다).
+      let done = 0;
+      let preserved = 0;
+      const failed = [];
       for (const doc of snapshot.docs) {
-        const d = doc.data();
-
-        // ① 장소 대표 동영상(Cloudflare Stream) 삭제
-        if (accountId && apiToken && d.videoUid) {
-          try { await deleteStreamVideo(accountId, apiToken, d.videoUid); }
-          catch (e) { console.error(`[cleanup-place] Stream 삭제 실패 (${d.videoUid}):`, e.message); }
+        try {
+          const result = await cleanupContentDoc(
+            db, 'place', doc.ref, doc.data(), creds, 'cleanup-place',
+          );
+          preserved += result.preserved;
+          done++;
+        } catch (e) {
+          console.error(`[cleanup-place] 장소 정리 실패 (${doc.id}):`, e.message);
+          failed.push({ id: doc.id, message: e && e.message ? String(e.message) : String(e) });
         }
-
-        // ② 장소 사진(R2) 삭제
-        if (accountId && apiToken && r2Bucket) {
-          const images = [...(d.imageUrls || [])];
-          for (const url of images) {
-            try {
-              const key = new URL(url).pathname.replace(/^\//, '');
-              if (key) await deleteR2Object(accountId, apiToken, r2Bucket, key);
-            } catch (e) { console.error(`[cleanup-place] R2 삭제 실패 (${url}):`, e.message); }
-          }
-        }
-
-        // ③ 하위 룸(placeRooms) — 룸 사진 삭제 + 룸 문서도 함께 삭제 목록에 추가
-        const roomsSnap = await db.collection('placeRooms')
-          .where('placeId', '==', doc.id)
-          .get();
-        for (const roomDoc of roomsSnap.docs) {
-          const roomData = roomDoc.data();
-          if (accountId && apiToken && r2Bucket) {
-            const roomImages = roomData.roomImages || [];
-            for (const url of roomImages) {
-              try {
-                const key = new URL(url).pathname.replace(/^\//, '');
-                if (key) await deleteR2Object(accountId, apiToken, r2Bucket, key);
-              } catch (e) { console.error(`[cleanup-place] 룸 R2 삭제 실패 (${url}):`, e.message); }
-            }
-          }
-          refsToDelete.push(roomDoc.ref);
-        }
-
-        refsToDelete.push(doc.ref);
       }
 
-      // Batch delete (Firestore 최대 500건/batch)
-      const CHUNK = 400;
-      for (let i = 0; i < refsToDelete.length; i += CHUNK) {
-        const batch = db.batch();
-        refsToDelete.slice(i, i + CHUNK).forEach((ref) => batch.delete(ref));
-        await batch.commit();
-      }
+      console.log(
+        `[cleanup-place] 완료 — ${done}/${snapshot.size}개 삭제, 거래기록 ${preserved}건 보존`,
+      );
 
-      console.log(`[cleanup-place] 완료 — 장소 ${snapshot.size}개(+하위 룸 포함 문서 ${refsToDelete.length}개) 삭제됨`);
+      // 문서 단위 실패는 위에서 격리돼 나머지 정리를 막지 않지만, 그동안은
+      // console.error로만 남아 관리자 '시스템 오류' 화면에 전혀 보이지 않았다.
+      // 매 실행마다 조용히 같은 문서가 실패해도 아무도 모르는 상태였으므로,
+      // 실패가 있었던 실행만 한 건으로 묶어 기록한다(문서당 한 건씩 남기면
+      // 같은 장소가 매일 실패할 때 로그가 폭증한다).
+      if (failed.length > 0) {
+        await logScheduledFunctionError(
+          db,
+          'deleteExpiredPlaces',
+          new Error(`장소 ${failed.length}/${snapshot.size}건 정리 실패 (나머지 ${done}건은 정상 삭제)`),
+          { failed, candidates: snapshot.size, deleted: done },
+        );
+      }
     } catch (e) {
       await logScheduledFunctionError(db, 'deleteExpiredPlaces', e);
       throw e; // Cloud Scheduler 재시도/실패 기록은 기존과 동일하게 유지
     }
   },
 );
+
+// ── 만료 문서 정리 공용 루프 ─────────────────────────────────────────────────
+//
+// 아래 두 스케줄러(플레이스·이벤트)가 같은 모양으로 돈다: 후보를 모아 한 건씩
+// cleanupContentDoc에 넘기고, 실패는 격리해 다음 실행에 맡기고, 실패가 있었던
+// 실행만 관리자 오류 화면에 한 건으로 남긴다(문서마다 남기면 같은 문서가 매일
+// 실패할 때 로그가 폭증한다). deleteExpiredPlaces가 이미 그 모양이라 그것을
+// 그대로 함수로 뽑았다 — 새 정책을 새 방식으로 구현하지 않는다.
+async function sweepExpired(db, { type, jobName, logTag, docs, creds }) {
+  console.log(`[${logTag}] 만료 후보 ${docs.length}개`);
+
+  let done = 0;
+  let preserved = 0;
+  const failed = [];
+  for (const doc of docs) {
+    try {
+      const result = await cleanupContentDoc(
+        db, type, doc.ref, doc.data(), creds, logTag,
+      );
+      preserved += result.preserved;
+      done++;
+    } catch (e) {
+      const message = e && e.message ? String(e.message) : String(e);
+      console.error(`[${logTag}] 정리 실패 (${doc.id}):`, message);
+      failed.push({ id: doc.id, message });
+    }
+  }
+
+  console.log(
+    `[${logTag}] 완료 — ${done}/${docs.length}개 삭제, 거래기록 ${preserved}건 보존`,
+  );
+
+  if (failed.length > 0) {
+    await logScheduledFunctionError(
+      db,
+      jobName,
+      new Error(
+        `${failed.length}/${docs.length}건 정리 실패 (나머지 ${done}건은 정상 삭제)`,
+      ),
+      { failed, candidates: docs.length, deleted: done },
+    );
+  }
+  return { done, preserved };
+}
+
+// ── 만료 플레이스 자동 삭제 (매일 03:10 KST) ─────────────────────────────────
+//
+// 기준: isActive == false(숨김) & hiddenAt + 14일 경과 — 장소대여와 **같은
+//       규칙**이다. 플레이스도 날짜가 없는 상시 등록물이라 "숨긴 시각"이
+//       유일하게 말이 되는 기준점이다.
+//
+// ⚠️ hiddenAt이 **없는 숨김 문서는 지우지 않는다.** 이 필드를 쓰기 시작한 것이
+//    이번이라, 그 전에 숨겨 둔 플레이스에는 값이 없다. updatedAt으로 대신
+//    세면 "숨긴 지 하루 된 플레이스"가 곧바로 삭제될 수 있다(마지막 수정이
+//    반년 전일 수 있으므로). 값이 없는 문서는 호스트가 한 번 저장하는 순간
+//    (수정 저장이 isActive와 함께 hiddenAt을 기록한다) 대상이 된다.
+//
+// 색인: `events (isActive ASC, hiddenAt ASC)` — places 쪽과 같은 이유로
+//       없으면 쿼리가 FAILED_PRECONDITION으로 죽는다.
+
+exports.deleteExpiredEvents = onSchedule(
+  {
+    schedule: '10 3 * * *',
+    timeZone: 'Asia/Seoul',
+    region:   'asia-northeast3',
+    secrets:  MEDIA_CLEANUP_SECRETS,
+  },
+  async () => {
+    const db = admin.firestore();
+    try {
+      const cutoffTs = admin.firestore.Timestamp.fromDate(
+        new Date(Date.now() - RETENTION_MS),
+      );
+
+      const snapshot = await db.collection('events')
+        .where('isActive', '==', false)
+        .where('hiddenAt', '<', cutoffTs)
+        .get();
+
+      const creds = readCloudflareCreds('cleanup-event');
+
+      await sweepExpired(db, {
+        type: 'event',
+        jobName: 'deleteExpiredEvents',
+        logTag: 'cleanup-event',
+        docs: snapshot.docs,
+        creds,
+      });
+    } catch (e) {
+      await logScheduledFunctionError(db, 'deleteExpiredEvents', e);
+      throw e;
+    }
+  },
+);
+
+// ── 만료 이벤트(placePromotions) 자동 삭제 (매일 03:15 KST) ──────────────────
+//
+// 기준: **손님에게 보이지 않게 된 시각** + 14일. 이벤트가 그렇게 되는 길은
+//       둘이고, 둘 다 겪었다면 **먼저 일어난 쪽**이 기준이다.
+//         · 기간 종료 — endAt이 가리키는 날의 끝(23:59:59)
+//         · 호스트가 '종료'를 누름 — isVisible:false + hiddenAt
+//       상시 진행(isAlways)이면서 노출 중인 이벤트는 끝나는 때가 없어 대상이
+//       아니다. 판정은 앱의 [PlacePromotion.statusAt]과 같은 규칙을 쓴다
+//       (registrationLimits.js의 isPromotionLive가 그 짝이다).
+//
+// ⚠️ hiddenAt이 없는 옛 숨김 이벤트는 지우지 않는다 — 플레이스와 같은 이유다.
+//    기간이 끝난 이벤트는 endAt이 있으므로 옛 문서도 그대로 정리된다.
+//
+// 후보 쿼리가 둘인 이유: Firestore는 "기간이 끝났거나 숨겨졌거나"를 한 쿼리로
+// 물어볼 수 없다. 둘을 따로 읽어 문서 id로 합친다.
+//
+// 색인: `placePromotions (isVisible ASC, hiddenAt ASC)`. endAt 단일 필드는
+//       자동 색인으로 충분하다.
+
+exports.deleteExpiredPromotions = onSchedule(
+  {
+    schedule: '15 3 * * *',
+    timeZone: 'Asia/Seoul',
+    region:   'asia-northeast3',
+    secrets:  MEDIA_CLEANUP_SECRETS,
+  },
+  async () => {
+    const db = admin.firestore();
+    try {
+      const now = Date.now();
+      const cutoff = new Date(now - RETENTION_MS);
+      const cutoffTs = admin.firestore.Timestamp.fromDate(cutoff);
+
+      // ① 기간이 끝난 이벤트. endAt은 '날짜'라 그 날의 끝까지 진행 중이므로,
+      //    쿼리는 하루 넉넉히 앞을 본 뒤 아래에서 정확히 다시 판정한다.
+      const byEnd = await db.collection('placePromotions')
+        .where('endAt', '<', cutoffTs)
+        .get();
+
+      // ② 호스트가 종료(숨김)한 이벤트.
+      const byHidden = await db.collection('placePromotions')
+        .where('isVisible', '==', false)
+        .where('hiddenAt', '<', cutoffTs)
+        .get();
+
+      // 판정은 순수 함수 하나가 한다(registrationLimits.js의 promotionGoneAt) —
+      // 앱의 PlacePromotion.goneAt과 짝이고, selfcheck로 묶여 있다.
+      const nowDate = new Date(now);
+      const candidates = new Map();
+      for (const doc of [...byEnd.docs, ...byHidden.docs]) {
+        if (candidates.has(doc.id)) continue;
+        const goneAt = promotionGoneAt(doc.data() || {}, nowDate);
+        if (goneAt == null) continue;                     // 아직 살아 있거나 기준점이 없다
+        if (goneAt.getTime() >= cutoff.getTime()) continue; // 아직 14일이 안 지났다
+        candidates.set(doc.id, doc);
+      }
+
+      const creds = readCloudflareCreds('cleanup-promotion');
+
+      await sweepExpired(db, {
+        type: 'promotion',
+        jobName: 'deleteExpiredPromotions',
+        logTag: 'cleanup-promotion',
+        docs: [...candidates.values()],
+        creds,
+      });
+    } catch (e) {
+      await logScheduledFunctionError(db, 'deleteExpiredPromotions', e);
+      throw e;
+    }
+  },
+);
+
+// ── 등록 개수 제한의 서버 강제 ───────────────────────────────────────────────
+//
+// 네 컬렉션의 onCreate 트리거 — 앱을 거치지 않고 만들어진 초과 등록물을
+// 정리한다. 규칙(firestore.rules)으로는 문서를 셀 수 없어서 트리거가 맡는다
+// (registrationLimitGuard.js 상단 주석에 그 판단이 전부 적혀 있다).
+Object.assign(exports, require('./registrationLimitGuard'));
 
 // ── Naver Geocoding ───────────────────────────────────────────────────────────
 
@@ -463,9 +1180,16 @@ exports.getApplicants = onCall(
   async (request) => {
     if (!request.auth) throw new HttpsError('unauthenticated', '로그인이 필요합니다.');
 
-    const { partyId } = request.data;
+    const { partyId, occurrenceId } = request.data;
     if (!partyId || typeof partyId !== 'string') {
       throw new HttpsError('invalid-argument', 'partyId가 필요합니다.');
+    }
+    // 정기 파티는 회차마다 신청이 따로다 — 회차를 지정하면 그 회차 신청만
+    // 내려준다. 지정하지 않으면 예전처럼 전부 내려준다(회차 목록을 만들려면
+    // 한 번은 전부 받아야 한다).
+    if (occurrenceId !== undefined && occurrenceId !== null &&
+        typeof occurrenceId !== 'string') {
+      throw new HttpsError('invalid-argument', 'occurrenceId가 올바르지 않습니다.');
     }
 
     const db = admin.firestore();
@@ -489,12 +1213,35 @@ exports.getApplicants = onCall(
     const applicants = await Promise.all(
       appsSnap.docs.map(async (doc) => {
         const a = doc.data();
-        const uid = doc.id;
+        // 문서 ID는 회차 신청이면 uid가 아니다 — uid는 언제나 필드에서 읽는다
+        // (doc.id 폴백은 uid 필드가 없던 아주 옛 문서용).
+        const uid = a.uid || doc.id;
         const userDoc = await db.collection('users').doc(uid).get();
-        const name = userDoc.exists ? (userDoc.data().name || '(이름 없음)') : '(알 수 없음)';
-        const gender = a.gender || (userDoc.exists ? userDoc.data().gender : '') || '';
+
+        // ── 호스트에게 보여줄 신원 ────────────────────────────────────────
+        //
+        // 조립 규칙은 applicantIdentity.js 한 곳에 있다 — 통합 신청자 관리
+        // (getHostApplicationInbox)가 같은 정보를 내려주므로, 판정이 갈리면
+        // 호스트가 보는 사실이 화면마다 달라진다.
+        //
+        // 규칙상 클라이언트는 남의 users 문서를 읽을 수 없다(users 읽기는 본인·
+        // 관리자뿐). 그래서 호스트 화면이 쓸 표시 정보는 이 콜러블만 내려줄 수
+        // 있고, 화면들은 uid를 그리면 안 된다. 실명이 나가도 되는 이유는 위에서
+        // hostId !== auth.uid 를 permission-denied 로 막았기 때문이다.
+        const { identity, name, gender } = buildApplicantIdentity(
+          userDoc.exists ? userDoc.data() : null,
+        );
         return {
           uid,
+          identity,
+          // 호스트가 승인·거절·입금확인을 **정확히 이 신청 한 건**에 걸 수
+          // 있도록 문서 ID를 그대로 내려준다(클라이언트는 파싱하지 않고
+          // 그대로 되돌려 보내기만 한다).
+          applicationId: doc.id,
+          occurrenceId: a.occurrenceId ?? null,
+          occurrenceStartAt: a.occurrenceStartAt
+            ? a.occurrenceStartAt.toDate().toISOString()
+            : null,
           name,
           gender,
           status: a.status || 'applied',
@@ -502,11 +1249,349 @@ exports.getApplicants = onCall(
           refundAmount: a.refundAmount ?? null,
           refundStatus: a.refundStatus ?? null,
           selectedRounds: a.selectedRounds ?? null,
+          // 차수 패키지로 신청했는지 — 호스트 참가자 관리에서 "1+2차 통합권"
+          // 처럼 한 덩어리로 보여준다(없으면 개별 차수 신청).
+          applicationType: a.applicationType || 'round',
+          packageName: a.packageName ?? null,
+          appliedFee: a.appliedFee ?? null,
+          // 결제 상태 — 호스트가 "누구 입금을 확인해야 하는지"를 이 목록
+          // 하나로 처리할 수 있어야 한다(무료 파티는 null).
+          payment: a.payment ?? null,
+          // ── 사전질문 답변·제출 사진(승인제) ────────────────────────────
+          // 이 콜러블은 맨 위에서 hostId !== auth.uid를 permission-denied로
+          // 막으므로 **호스트 전용 통로**다. 참가자끼리 서로의 답변을 볼 수
+          // 있는 경로는 없다(신청 문서 자체도 규칙상 본인·호스트·관리자만
+          // 읽을 수 있다).
+          //
+          // 답변은 질문 문구를 담지 않으므로 스냅샷을 함께 내려보내야 화면이
+          // "무엇에 대한 답인지"를 그릴 수 있다.
+          answers: a.answers ?? null,
+          questionsSnapshot: a.questionsSnapshot ?? null,
+          photos: a.photos ?? null,
         };
       })
     );
 
-    return { applicants };
+    // 회차 목록은 **거르기 전** 전체에서 뽑는다 — 한 회차만 보고 있어도 다른
+    // 회차 탭이 사라지면 안 된다. 지난 회차라도 신청이 있으면 여기 남는다.
+    const occurrenceIds = [
+      ...new Set(applicants.map((a) => a.occurrenceId).filter(Boolean)),
+    ].sort();
+
+    // 회차 필터는 메모리에서 건다. Firestore에서 where(occurrenceId) +
+    // orderBy(appliedAt)을 함께 쓰려면 복합 인덱스가 필요한데, 신청 수는
+    // 정원으로 묶여 있어 그만한 값을 하지 않는다.
+    const filtered = occurrenceId
+      ? applicants.filter((a) => a.occurrenceId === occurrenceId)
+      : applicants;
+
+    return { applicants: filtered, occurrenceIds };
+  }
+);
+
+// ── 호스트: 내 파티로 들어온 신청 전체 (통합 신청자·예약자 관리용) ──────────
+//
+// getApplicants가 **파티 한 개**의 신청을 주는 것과 달리, 이쪽은 호스트가 가진
+// 파티 전부의 신청을 한 번에 준다. 통합 화면이 파티마다 getApplicants를 부르면
+// 파티 수만큼 왕복이 생기고, 목록이 다 차기 전에는 미처리 건수도 못 센다.
+//
+// **왜 클라이언트가 직접 못 읽고 콜러블이어야 하나**
+//   규칙은 이미 collectionGroup('applications').where('hostId','==',uid) 를
+//   허용한다(firestore.rules). 하지만 그렇게 읽으면 상태·날짜만 얻고 **신청자가
+//   누구인지는 알 수 없다** — users 문서는 본인·관리자만 읽을 수 있어서, 닉네임/
+//   실명은 호스트 전용 통로인 콜러블로만 내려갈 수 있다(getApplicants와 같은 이유).
+//
+// 새 컬렉션을 만들지 않는다. 여기서 하는 일은 **기존 신청 문서를 모아 읽는 것**
+// 뿐이고, 상태를 바꾸는 것은 전부 기존 콜러블(decidePartyApplication ·
+// confirmPartyDeposit)이 그대로 한다.
+//
+// hostId가 없던 시절의 옛 신청 문서는 이 쿼리에 잡히지 않는다. 그런 신청도
+// 파티별 신청자 화면(getApplicants)에서는 그대로 보이므로 보정하지 않는다 —
+// 통합 목록에서만 빠진다.
+/** getAll은 한 번에 너무 많이 넘기지 않는다 — 100개씩 끊어 읽는다. */
+async function getAllChunked(db, refs) {
+  const out = [];
+  for (let i = 0; i < refs.length; i += 100) {
+    const chunk = refs.slice(i, i + 100);
+    if (chunk.length === 0) continue;
+    out.push(...(await db.getAll(...chunk)));
+  }
+  return out;
+}
+
+exports.getHostApplicationInbox = onCall(
+  { region: 'asia-northeast3' },
+  async (request) => {
+    if (!request.auth) throw new HttpsError('unauthenticated', '로그인이 필요합니다.');
+    const uid = request.auth.uid;
+    const db = admin.firestore();
+
+    // hostId 한 조건으로만 거르고 정렬은 appliedAt에 건다 — 이 조합이
+    // firestore.indexes.json의 applications 컬렉션 그룹 색인과 짝이다.
+    // 한 건 더 받아서 "잘렸는지"를 판정한다(화면이 그 사실을 알려줘야 한다).
+    const snap = await db
+      .collectionGroup('applications')
+      .where('hostId', '==', uid)
+      .orderBy('appliedAt', 'desc')
+      .limit(hostInbox.HOST_INBOX_LIMIT + 1)
+      .get();
+
+    // 숙박+파티 콤보에서 나온 신청은 뺀다. 콤보는 예약 문서와 파티 신청 문서를
+    // 함께 만드는데(packageBookings.js), 통합 목록은 예약 쪽을 이미 '숙박+파티'
+    // 한 줄로 보여준다 — 여기서 또 세면 예약 한 건이 두 줄로 뜨고 미처리
+    // 숫자도 두 번 세어진다(게스트 화면이 쓰는 판별과 같은 값이다).
+    const docs = snap.docs
+      .filter((d) => !hostInbox.isComboGeneratedApplication(d.data()))
+      .slice(0, hostInbox.HOST_INBOX_LIMIT);
+    const truncated = snap.docs.length > hostInbox.HOST_INBOX_LIMIT;
+
+    // 파티 제목은 신청 문서에 없다. 같은 파티의 신청이 여러 건이어도 파티
+    // 문서는 한 번만 읽는다.
+    const partyIds = [
+      ...new Set(docs.map((d) => d.ref.parent.parent?.id).filter(Boolean)),
+    ];
+    const partySnaps = await getAllChunked(
+      db,
+      partyIds.map((id) => db.collection('parties').doc(id)),
+    );
+    const partyById = new Map(
+      partySnaps.map((d) => [d.id, d.exists ? d.data() : null]),
+    );
+
+    // 신원도 마찬가지 — 같은 사람이 여러 회차를 신청했어도 users는 한 번만 읽는다.
+    const applicantUids = [
+      ...new Set(docs.map((d) => d.data().uid || d.id).filter(Boolean)),
+    ];
+    const userSnaps = await getAllChunked(
+      db,
+      applicantUids.map((id) => db.collection('users').doc(id)),
+    );
+    const identityByUid = new Map(
+      userSnaps.map((d) => [
+        d.id,
+        buildApplicantIdentity(d.exists ? d.data() : null),
+      ]),
+    );
+
+    const items = docs.map((doc) => {
+      const a = doc.data();
+      const partyId = doc.ref.parent.parent?.id || '';
+      const party = partyById.get(partyId) || null;
+      const applicantUid = a.uid || doc.id;
+      const built = identityByUid.get(applicantUid) || buildApplicantIdentity(null);
+
+      return {
+        applicationId: doc.id,
+        partyId,
+        // 파티가 지워졌어도 결제가 있었던 신청 문서는 남는다(contentCleanup).
+        partyTitle: party?.title || '',
+        partyDeleted: party === null,
+        uid: applicantUid,
+        identity: built.identity,
+        gender: built.gender,
+        status: a.status || 'applied',
+        occurrenceId: a.occurrenceId ?? null,
+        // 회차 신청은 회차 시작 시각이 정본이다(hostInbox.js 주석 참고).
+        startAtMs: hostInbox.applicationStartAtMs(a),
+        appliedAtMs:
+          a.appliedAt && typeof a.appliedAt.toMillis === 'function'
+            ? a.appliedAt.toMillis()
+            : null,
+        payment: a.payment ?? null,
+        applicationType: a.applicationType || 'round',
+        packageName: a.packageName ?? null,
+        appliedFee: a.appliedFee ?? null,
+        // 미처리 판정은 **서버가 한 번만** 한다 — 목록의 뱃지와 필터가 같은
+        // 값을 보게 하려면 판정이 한 곳이어야 한다.
+        unhandled: hostInbox.isPartyApplicationUnhandled(a),
+      };
+    });
+
+    return {
+      items,
+      unhandledCount: items.filter((i) => i.unhandled).length,
+      truncated,
+    };
+  }
+);
+
+// ── 호스트: 승인 방식 + 사전질문 저장 ───────────────────────────────────────
+//
+// 파티 문서의 다른 필드는 앱이 Firestore에 직접 쓰지만, **승인 방식과 사전질문
+// 두 필드만은 규칙에서 클라이언트 쓰기를 막고 이 콜러블로만 쓴다.**
+//
+// 이유는 하나다 — "개인정보를 요구하는 질문은 등록을 막는다"가 UI 검사만으로는
+// 성립하지 않기 때문이다. 앱을 거치지 않고 Firestore에 직접 쓰면 그만이므로,
+// 금지 판정이 실제 강제력을 가지려면 쓰기 경로 자체가 서버여야 한다.
+// (openState → openPartyRecruiting과 같은 패턴이다.)
+exports.setPartyApplicationForm = onCall(
+  { region: 'asia-northeast3' },
+  async (request) => {
+    if (!request.auth) throw new HttpsError('unauthenticated', '로그인이 필요합니다.');
+
+    const { partyId, approvalMode, questions, requireApplicantPhotos } =
+      request.data || {};
+    if (!partyId || typeof partyId !== 'string') {
+      throw new HttpsError('invalid-argument', 'partyId가 필요합니다.');
+    }
+    // 알 수 없는 값은 auto로 떨어뜨리지 않고 **거부**한다. 저장은 호스트의
+    // 명시적 행동이므로, 오타를 조용히 즉시확정으로 바꿔버리면 호스트는
+    // 승인제로 설정했다고 믿은 채 신청을 그대로 받게 된다(읽기 쪽의 관대한
+    // 기본값과는 반대 방향의 판단이다 — applicationQuestions.js 주석 참고).
+    if (
+      approvalMode !== applicationQuestions.APPROVAL_AUTO &&
+      approvalMode !== applicationQuestions.APPROVAL_MANUAL
+    ) {
+      throw new HttpsError('invalid-argument', '승인 방식이 올바르지 않습니다.');
+    }
+
+    const isManual = approvalMode === applicationQuestions.APPROVAL_MANUAL;
+    // 즉시확정으로 되돌리면 질문 정의도 함께 비운다 — 남겨두면 나중에 다시
+    // 승인제를 켰을 때 호스트가 기억하지 못하는 옛 질문이 되살아난다.
+    const validated = isManual
+      ? applicationQuestions.validateQuestions(questions)
+      : { ok: true, questions: [] };
+    if (!validated.ok) {
+      throw new HttpsError(validated.code, validated.message);
+    }
+
+    const db = admin.firestore();
+    const partyRef = db.collection('parties').doc(partyId);
+    const snap = await partyRef.get();
+    if (!snap.exists) throw new HttpsError('not-found', '파티를 찾을 수 없어요.');
+    if (snap.data().hostId !== request.auth.uid) {
+      throw new HttpsError('permission-denied', '이 파티의 호스트만 설정할 수 있어요.');
+    }
+
+    // 사진 요청은 승인제일 때만 의미가 있다 — 즉시확정으로 되돌리면 질문
+    // 정의를 비우는 것과 같은 이유로 함께 끈다. 값이 안 오면 꺼짐이다
+    // (필드가 없던 기존 파티와 같은 취급).
+    const requirePhotos = isManual && requireApplicantPhotos === true;
+
+    await partyRef.update({
+      applicationApprovalMode: approvalMode,
+      applicationQuestions: validated.questions,
+      [applicationQuestions.REQUIRE_PHOTOS_FIELD]: requirePhotos,
+      applicationFormUpdatedAt: admin.firestore.FieldValue.serverTimestamp(),
+    });
+
+    return {
+      success: true,
+      approvalMode,
+      questions: validated.questions,
+      requireApplicantPhotos: requirePhotos,
+    };
+  }
+);
+
+// ── 호스트: 신청 승인/거절 ──────────────────────────────────────────────────
+//
+// 승인 상태의 **정본은 신청 문서의 status**다. 예전에는 앱이 파티 문서의
+// approvedApplicants/rejectedApplicants uid 배열을 직접 수정했는데, 그 배열은
+// uid만 담아서 "8/15는 승인, 8/22는 거절"을 표현할 수 없다 — 회차별 신청이
+// 생긴 이상 배열로는 상태를 붙들 수 없다.
+//
+// 입금 확인(confirmPartyDeposit)이 이미 status='approved'를 쓰므로 승인 경로가
+// 하나로 합쳐진다. 레거시 배열은 새 결정에서 더 이상 쓰지 않는다(옛 데이터를
+// 읽는 쪽을 위해 남아 있을 뿐이다).
+exports.decidePartyApplication = onCall(
+  { region: 'asia-northeast3' },
+  async (request) => {
+    if (!request.auth) throw new HttpsError('unauthenticated', '로그인이 필요합니다.');
+
+    const { partyId, applicationId, decision } = request.data || {};
+    if (!partyId || typeof partyId !== 'string') {
+      throw new HttpsError('invalid-argument', 'partyId가 필요합니다.');
+    }
+    if (!applicationId || typeof applicationId !== 'string') {
+      throw new HttpsError('invalid-argument', 'applicationId가 필요합니다.');
+    }
+    if (decision !== 'approved' && decision !== 'rejected') {
+      throw new HttpsError('invalid-argument', 'decision이 올바르지 않습니다.');
+    }
+
+    const uid = request.auth.uid;
+    const db = admin.firestore();
+    const partyRef = db.collection('parties').doc(partyId);
+    const appRef = partyRef.collection('applications').doc(applicationId);
+
+    await db.runTransaction(async (transaction) => {
+      const [partySnap, appSnap] = await Promise.all([
+        transaction.get(partyRef),
+        transaction.get(appRef),
+      ]);
+      if (!partySnap.exists) throw new HttpsError('not-found', '파티를 찾을 수 없어요.');
+      if (!appSnap.exists) throw new HttpsError('not-found', '신청 내역을 찾을 수 없어요.');
+      if (partySnap.data().hostId !== uid) {
+        throw new HttpsError('permission-denied', '이 파티의 호스트만 처리할 수 있어요.');
+      }
+
+      const appData = appSnap.data();
+      // 취소·참석 처리가 끝난 건은 되돌리지 않는다 — 정원과 환불이 이미
+      // 그 상태를 기준으로 정리됐기 때문이다.
+      if (appData.status === 'cancelled') {
+        throw new HttpsError('failed-precondition', '이미 취소된 신청이에요.');
+      }
+      if (appData.status === 'attended' || appData.status === 'no_show') {
+        throw new HttpsError('failed-precondition', '이미 참석 처리가 끝난 신청이에요.');
+      }
+
+      // 이미 같은 결정이 내려진 건은 그대로 둔다 — 아래에서 정원을 되돌리므로,
+      // 거절을 두 번 누르면 자리를 두 번 반납해 카운터가 음수로 새어나간다.
+      if (appData.status === decision) {
+        throw new HttpsError('failed-precondition', '이미 처리된 신청이에요.');
+      }
+
+      // ── 거절: 자리를 **즉시** 되돌린다 ────────────────────────────────
+      // 예전에는 status만 바꾸고 정원을 그대로 뒀다. 즉시확정 파티에서는
+      // 거절이 드문 사후 조치라 티가 안 났지만, 승인제에서는 거절 한 건마다
+      // 정원이 영구히 잠긴다 — 20명 파티에서 20번 거절하면 아무도 못 든다.
+      //
+      // 되돌릴 칸은 **신청 문서에 남은 표시**로 정한다(occurrenceId·
+      // roundCounterScope를 그대로 넘긴다). 여기서 값을 추론하면 취소가 남의
+      // 자리를 반납한다 — partyCapacity.js의 ROUND_SCOPE_OCCURRENCE 주석 참고.
+      if (decision === 'rejected') {
+        const releaseData = releaseApplicantSlot(partySnap.data(), {
+          uid: appData.uid,
+          gender: appData.gender || null,
+          selectedRounds: appData.selectedRounds || null,
+          occurrenceId: appData.occurrenceId || null,
+          roundCounterScope: appData.roundCounterScope || null,
+        });
+        transaction.update(partyRef, releaseData);
+      }
+
+      // ── 승인: 승인제 무통장입금이면 그때부터 입금기한이 시작된다 ──────
+      // 승인 전에는 입금을 요구하지 않으므로(awaiting_approval) 기한도 없다.
+      // 전이 규칙은 depositFlow 하나만 쓴다 — 도메인마다 다시 구현하지 않는다.
+      // 기한은 파티 시작 시각을 넘지 않는다 — 정기 파티면 그 회차의 시작이다.
+      const approvePatch =
+        decision === 'approved'
+          ? depositFlow.approvePatch(appData.payment, Date.now(), {
+              notAfterMs: appData.occurrenceStartAt
+                ? appData.occurrenceStartAt.toMillis()
+                : appData.partyDateTime
+                  ? appData.partyDateTime.toMillis()
+                  : null,
+            })
+          : null;
+
+      transaction.update(appRef, {
+        status: decision,
+        statusUpdatedAt: admin.firestore.FieldValue.serverTimestamp(),
+        ...(decision === 'approved'
+          ? { confirmedAt: admin.firestore.FieldValue.serverTimestamp() }
+          : { rejectedAt: admin.firestore.FieldValue.serverTimestamp() }),
+        ...(approvePatch
+          ? {
+              'payment.status': approvePatch.status,
+              'payment.depositDeadlineMs': approvePatch.depositDeadlineMs,
+            }
+          : {}),
+      });
+    });
+
+    return { success: true, status: decision };
   }
 );
 
@@ -534,9 +1619,28 @@ exports.applyToParty = onCall(
   async (request) => {
     if (!request.auth) throw new HttpsError('unauthenticated', '로그인이 필요합니다.');
 
-    const { partyId, selectedRounds } = request.data;
+    // amounts는 앱이 화면에 띄운 금액(총액/예약금/잔금)이다. 금액의 정본은
+    // 언제나 서버 계산이고, 이 값은 **대조용**으로만 쓴다 — 화면에 60,000원이라
+    // 떠 있는데 서버가 80,000원을 청구하는 상황을 막는다.
+    const {
+      partyId, selectedRounds, packageId, occurrenceId, payment, amounts,
+      // 승인제 파티의 사전질문 답변·제출 사진. 즉시확정 파티는 아예 오지 않고,
+      // 와도 아래에서 질문 정의가 빈 배열이라 통째로 무시된다.
+      answers, photos,
+    } = request.data;
     if (!partyId || typeof partyId !== 'string') {
       throw new HttpsError('invalid-argument', 'partyId가 필요합니다.');
+    }
+    if (occurrenceId !== undefined && typeof occurrenceId !== 'string') {
+      throw new HttpsError('invalid-argument', 'occurrenceId가 올바르지 않습니다.');
+    }
+    // 차수 패키지 신청 — 포함 차수와 금액은 서버가 파티 문서의 패키지 정의에서
+    // 다시 읽는다(패키지가 있으면 클라이언트가 보낸 selectedRounds는 무시).
+    if (
+      packageId !== undefined &&
+      (typeof packageId !== 'string' || packageId.length === 0)
+    ) {
+      throw new HttpsError('invalid-argument', 'packageId가 올바르지 않습니다.');
     }
     if (selectedRounds !== undefined) {
       const valid =
@@ -554,6 +1658,30 @@ exports.applyToParty = onCall(
     // 사용자 인증 데이터: Admin SDK 읽기 → 클라이언트 위조 불가
     const userDoc = await db.collection('users').doc(uid).get();
     const userData = userDoc.exists ? userDoc.data() : {};
+    // 본인확인 게이트 — 이미 읽은 문서로 바로 판정한다(identityGuard.js 참고).
+    //
+    // 성별·연령 제한이 걸린 파티는 gender/birthYear가 없다는 이유로 아래
+    // reserveApplicantSlot에서 어차피 막히지만, **제한이 없는 파티는 그대로
+    // 통과했다.** 회원 정책은 파티 설정과 무관하므로 여기서 못박는다.
+    assertIdentityVerifiedData(userData);
+
+    // 환불계좌 게이트 — **무통장입금으로 신청할 때만** 건다.
+    //
+    // 무통장입금은 PG를 거치지 않아 원결제 취소라는 경로가 없다. 취소·환불이
+    // 생기면 돌려줄 방법이 계좌이체뿐이라, 낼 때 이미 **본인 명의로 인증된**
+    // 환불계좌가 있어야 한다. 현장결제는 현장에서 현금으로 돌려주므로 이
+    // 검증을 지나간다(`assertRefundAccountVerified`가 method로 가른다).
+    //
+    // 트랜잭션 **앞**에 둔다 — 사용자 문서는 위에서 이미 읽었고, 어차피
+    // 거절할 요청으로 정원 칸을 잡았다 푸는 일을 만들지 않기 위해서다.
+    // 앱도 신청 전에 같은 조건으로 안내하지만(헛걸음 방지), 최종 판정은
+    // 여기다 — 구버전 앱이나 콜러블 직접 호출은 화면을 거치지 않는다.
+    //
+    // ⚠️ 이 검증은 **파티 신청에만** 걸려 있다. buildPaymentInfo는 방문예약·
+    // 장소대여·파티샵·플레이스 상품·콤보가 함께 쓰는 공용 모듈이라, 거기에
+    // 넣었으면 다섯 도메인이 한꺼번에 막혔을 것이다.
+    assertRefundAccountVerified(payment && payment.method, userData);
+
     const gender = userData.gender || null;
     const birthYear = userData.birthYear != null ? Number(userData.birthYear) : null;
 
@@ -561,20 +1689,81 @@ exports.applyToParty = onCall(
 
     await db.runTransaction(async (transaction) => {
       const partyRef = db.collection('parties').doc(partyId);
-      const applicationRef = partyRef.collection('applications').doc(uid);
       const partySnapshot = await transaction.get(partyRef);
       if (!partySnapshot.exists) throw new HttpsError('not-found', '파티를 찾을 수 없어요');
 
       const data = partySnapshot.data();
 
+      // ── 참가 회차 확정 ────────────────────────────────────────────────
+      // 정기 파티는 "어느 회차에 가는지"가 신청의 일부다. 클라이언트가 보낸
+      // occurrenceId를 그대로 믿지 않고, 서버가 저장된 recurringSchedule로
+      // 그 날짜의 회차를 다시 계산해서 존재 여부까지 확인한다.
+      // occurrenceId 없이 들어온 정기 파티 신청(구버전 앱)은 예전처럼 "지금
+      // 기준 다음 회차"로 처리해 하위 호환을 유지한다.
+      let occurrence = null;
+      let effectiveOccurrenceId = null;
+      if (isRecurringParty(data) && occurrenceId) {
+        occurrence = occurrenceForId(data, occurrenceId);
+        if (!occurrence) {
+          throw new HttpsError('invalid-argument', '선택한 날짜에는 파티가 열리지 않아요.');
+        }
+        effectiveOccurrenceId = occurrenceId;
+      }
+
+      // ── 승인제 사전질문 ───────────────────────────────────────────────
+      // 질문 정의는 **파티 문서에서 다시 읽는다** — 클라이언트가 보낸 정의를
+      // 쓰면 필수 여부를 false로 바꿔 보내는 것만으로 필수 답변을 건너뛸 수
+      // 있다. 즉시확정 파티는 questionsOf가 빈 배열이라 이 구간이 통째로
+      // 무동작이고, 답변을 보내와도 저장되지 않는다(기존 흐름 무영향).
+      const requireApproval = applicationQuestions.requiresApproval(data);
+      const questionDefs = applicationQuestions.questionsOf(data);
+      const answerResult = applicationQuestions.validateAnswers(questionDefs, answers);
+      if (!answerResult.ok) {
+        throw new HttpsError(answerResult.code, answerResult.message);
+      }
+      // ── 프로필 사진 ───────────────────────────────────────────────────
+      // 예전에는 "승인제면 사진을 받는다"였다. 이제는 호스트가 켠 파티에서만
+      // 받고, 켠 파티에서는 **최소 1장이 필수**다. 끈 파티는 사진을 아예
+      // 저장하지 않는다 — 질문 정의가 없으면 답변을 버리는 것과 같은 규칙이다.
+      const requirePhotos = applicationQuestions.requiresApplicantPhotos(data);
+      const photoResult = requirePhotos
+        ? applicationQuestions.validatePhotos(photos, { required: true })
+        : { ok: true, photos: null };
+      if (!photoResult.ok) {
+        throw new HttpsError(photoResult.code, photoResult.message);
+      }
+
       // 자격 검증(이미신청/모집상태/마감일/연령제한/성별) + 정원 확인 +
       // 카운터 증가분 계산은 partyCapacity.js의 reserveApplicantSlot으로
       // 추출돼 있다 — createPendingPackageBooking(숙박+파티 패키지 예약의
       // pending 단계)과 동일한 로직을 공유한다.
-      const { updateData, appliedFee: fee, effectiveSelectedRounds } =
-        reserveApplicantSlot(data, { uid, gender, birthYear, selectedRounds });
+      //
+      // 승인제라도 자리는 **신청 시점에 잡는다** — 승인을 기다리는 동안 자리가
+      // 비어 있으면 정원을 넘겨 승인해버릴 수 있다. 거절하면 그 자리는
+      // decidePartyApplication이 즉시 되돌린다.
+      const {
+        updateData,
+        appliedFee: fee,
+        effectiveSelectedRounds,
+        appliedPackage,
+        roundCounterScope,
+      } = reserveApplicantSlot(data, {
+        uid,
+        gender,
+        birthYear,
+        selectedRounds,
+        packageId,
+        occurrence,
+        occurrenceId: effectiveOccurrenceId,
+      });
       appliedFee = fee;
       transaction.update(partyRef, updateData);
+
+      // 신청 문서 ID — 회차가 있으면 회차까지 합쳐 유일해진다(8/15와 8/22가
+      // 각각 별개의 신청 문서). 회차가 없으면 예전 그대로 uid 하나다.
+      const applicationRef = partyRef
+        .collection('applications')
+        .doc(applicationDocId(uid, effectiveOccurrenceId));
 
       // 관리자 웹/향후 통계용 신청 상태 추적 — 기존 applicants 배열은 그대로 두고
       // 신청 1건당 문서 1개를 추가로 남긴다 (배열만으로는 승인/참석/취소/노쇼
@@ -583,21 +1772,92 @@ exports.applyToParty = onCall(
       // 지역·시간·카테고리는 파티 문서가 나중에 수정/삭제돼도 통계가 그대로
       // 유지되도록 신청 시점 스냅샷으로 함께 저장한다(파티 원본을 다시 조인해서
       // 읽지 않아도 통계 집계가 가능해야 하기 때문).
-      const partyDateTime = data.partyDateTime && typeof data.partyDateTime.toDate === 'function'
-        ? data.partyDateTime.toDate()
-        : null;
+      //
+      // 정기 파티는 문서의 partyDateTime이 "첫 회차" 캐시라 통계가 틀어진다 —
+      // 이 사람이 실제로 신청한 회차(지금 기준 다음 회차)를 스냅샷으로 남긴다.
+      // 일회성 파티는 저장값을 그대로 쓰므로 기존과 동일하다.
+      // 회차를 직접 고른 신청이면 그 회차의 시작 시각이 곧 이 사람의 파티
+      // 일시다 — "지금 기준 다음 회차"로 덮어쓰면 다음 주 회차를 미리 신청한
+      // 사람의 기록이 이번 주 회차로 잘못 남는다.
+      const partyDateTime = occurrence
+        ? occurrence.start
+        : effectivePartyStartAt(data, new Date());
       const kst = partyDateTime ? kstParts(partyDateTime) : null;
+      const partyDateTimeField = partyDateTime
+        ? admin.firestore.Timestamp.fromDate(partyDateTime)
+        : data.partyDateTime || null;
+
+      // 결제 정보 — 금액은 위에서 서버가 계산한 appliedFee를 기준으로 한다.
+      // 참가비가 0원이면 null(결제 없음)이고, 유료인데 결제수단이 없거나
+      // 준비중인 수단이면 여기서 신청 자체가 거절된다.
+      //
+      // 상태는 'applied'(신청 진행 상태)와 **별개**다 — 신청은 접수됐지만 돈은
+      // 아직 안 들어온 구간(입금대기/현장결제 예정)을 이 맵이 표현한다.
+      //
+      // 호스트 결제 정책(전액 선결제 / 예약금 / 현장 전액결제)은 파티 문서에서
+      // 다시 읽는다. 정책이 없는 기존 파티는 policy가 null이 되어 지금까지와
+      // 똑같이 동작한다(구매자가 무통장입금·현장결제를 자유롭게 선택).
+      //
+      // 무료 파티는 정책 자체를 보지 않는다 — 받을 돈이 없으므로 예약금이라는
+      // 개념이 성립하지 않는다.
+      // 정책은 파티 문서 **최상단에 평평하게** 저장돼 있다(paymentMode 등) —
+      // 앱이 PaymentPolicy.toMap()을 문서에 그대로 펼쳐 넣기 때문이다.
+      const policy = appliedFee > 0
+        ? paymentPolicy.normalizePolicy(paymentPolicy.pickPolicyFields(data))
+        : null;
+      const breakdown = paymentPolicy.computeBreakdown(policy, appliedFee);
+      if (appliedFee > 0) {
+        // 정책이 현장결제만 허용하는데 무통장입금을 보내는 식의 우회를 막는다.
+        paymentPolicy.assertMethodAllowed(policy, payment && payment.method);
+        // 앱이 보낸 금액이 서버 계산과 어긋나면 진행하지 않는다.
+        paymentPolicy.assertClientAmountMatches(breakdown, amounts);
+      }
+
+      // 결제 맵의 금액은 **이번에 받을 금액**이다 — 예약금 방식이면 예약금만,
+      // 전액 선결제/현장결제면 전액이다(현장결제는 '현장에서 받을 금액').
+      // 승인제 무통장입금만 '승인대기'로 시작한다 — 승인 전에 입금을 받으면
+      // 거절 시 계좌로 수동 환불해야 하는데 PG가 없어 자동 환불이 안 된다.
+      // (현장결제는 승인과 무관하게 방문해서 내므로 그대로 '현장결제 예정'.)
+      // 파라미터는 원래부터 있었고 파티만 안 넘기고 있었다 — paymentInfo.js 참고.
+      const paymentInfo = buildPaymentInfo(payment, {
+        amount: breakdown.paymentAmount,
+        requireApproval,
+        // 무통장입금 안내 계좌 = 이 파티 호스트의 인증된 수취계좌.
+        // 없으면 buildPaymentInfo가 거절하고 트랜잭션 전체가 롤백된다.
+        payoutAccount: await loadPayoutSnapshot(db, data.hostId || data.hostUid),
+      });
 
       transaction.set(applicationRef, {
         uid,
         partyId,
         hostId: data.hostId || null,
-        status: 'applied',
+        // 승인제만 'pending'이다. 즉시확정 파티는 예전 그대로 'applied'이며
+        // 그 뜻도 그대로다("접수 = 자리 확정"). 두 값을 갈라 둔 덕에 목록·
+        // 통계·탈퇴 차단이 "승인을 기다리는 중"과 "이미 확정"을 구분할 수 있다.
+        status: requireApproval ? 'pending' : 'applied',
         gender,
         appliedFee,
+        // ── 사전질문(승인제 전용) ──────────────────────────────────────
+        // 답변은 질문 **id**로만 묶는다 — 문구를 답변마다 복사하지 않는다.
+        // 대신 신청 1건당 질문 정의 한 벌을 스냅샷으로 남겨서, 호스트가
+        // 나중에 질문을 고쳐도 이 사람이 무엇에 답한 것인지 남게 한다.
+        ...(answerResult.answers ? { answers: answerResult.answers } : {}),
+        ...(answerResult.snapshot ? { questionsSnapshot: answerResult.snapshot } : {}),
+        // 제출 사진은 **참조만** 남는다. 파일은 Firebase Storage에 있고
+        // 접근 권한은 storage.rules가 판정한다(호스트·관리자·본인만).
+        ...(photoResult.photos ? { photos: photoResult.photos } : {}),
+        // 금액 스냅샷 — 호스트가 나중에 참가비나 예약금 비율을 바꿔도 이미
+        // 만들어진 이 신청의 금액은 절대 변하지 않는다. 취소·환불도 이 값만
+        // 본다(호스트 설정을 다시 읽어 재계산하지 않는다).
+        amounts: paymentPolicy.snapshotOf(policy, appliedFee),
+        // 환불 규정 스냅샷 — 금액 스냅샷과 같은 이유다. 호스트가 나중에
+        // 환불 규정을 바꿔도 이미 접수된 이 신청의 환불 조건은 그대로다
+        // (취소는 이 값을 먼저 본다 — partyCapacity.effectiveRefundPolicy).
+        refundPolicy: snapshotRefundPolicy(data),
+        ...(paymentInfo ? { payment: paymentInfo } : {}),
         region: data.region || null,
         district: data.district || null,
-        partyDateTime: data.partyDateTime || null,
+        partyDateTime: partyDateTimeField,
         partyDate: kst?.dateKey || null,
         partyStartHour: kst?.hour ?? null,
         dayOfWeek: kst?.dayOfWeek ?? null,
@@ -608,6 +1868,50 @@ exports.applyToParty = onCall(
         attendedAt: null,
         cancelledAt: null,
         ...(effectiveSelectedRounds ? { selectedRounds: effectiveSelectedRounds } : {}),
+        // 차수 단건 신청과 패키지 신청을 구분하는 값 — 기존 신청 문서에는
+        // 없으므로 읽는 쪽은 없으면 'round'로 본다(하위 호환).
+        applicationType: appliedPackage ? 'package' : 'round',
+        ...(appliedPackage
+          ? {
+              packageId: appliedPackage.id,
+              packageName: appliedPackage.name || null,
+              // 취소·집계가 되짚을 수 있게 포함 차수를 신청 시점 스냅샷으로
+              // 남긴다(selectedRounds와 같은 값이지만, 패키지 정의가 나중에
+              // 바뀌어도 이 신청이 무엇이었는지 남아야 한다).
+              packageRoundNumbers: appliedPackage.roundNumbers,
+              // 정상 판매가 — appliedFee(실제 결제 금액)와 비교하면 얼리버드가
+              // 적용됐는지 그대로 드러난다.
+              packageListFee:
+                gender === 'female'
+                  ? Number(appliedPackage.femaleFee || 0)
+                  : Number(appliedPackage.maleFee || 0),
+              packageEarlyBirdApplied:
+                appliedPackage.earlyBirdEnabled === true &&
+                appliedFee <
+                  (gender === 'female'
+                    ? Number(appliedPackage.femaleFee || 0)
+                    : Number(appliedPackage.maleFee || 0)),
+            }
+          : {}),
+        // 차수 인원을 회차 칸(occurrenceStats.{회차}.rounds)에 기록했는지.
+        // 취소가 어느 칸을 되돌려야 하는지 이 값 하나로 결정된다 — 회차별
+        // 차수 카운터 도입 **전에** 만들어진 신청에는 이 필드가 없고, 그런
+        // 신청은 예전처럼 최상단 rounds[]를 되돌린다.
+        //
+        // reserveApplicantSlot이 돌려준 값을 **그대로** 저장하고, 취소·거절·
+        // 입금만료는 이 필드를 **그대로** releaseApplicantSlot에 되돌려준다.
+        // 중간에서 값을 지어내거나 추론하면 취소가 남의 자리를 반납한다
+        // (partyCapacity.js의 ROUND_SCOPE_OCCURRENCE 주석 참고).
+        ...(roundCounterScope ? { roundCounterScope } : {}),
+        // 정기 파티: 이 신청이 어느 회차의 것인지. 취소/환불/집계가 모두 이
+        // 값을 기준으로 그 회차를 되짚는다(회차별 카운터 키와 동일한 id).
+        ...(effectiveOccurrenceId
+          ? {
+              occurrenceId: effectiveOccurrenceId,
+              occurrenceStartAt: admin.firestore.Timestamp.fromDate(occurrence.start),
+              occurrenceEndAt: admin.firestore.Timestamp.fromDate(occurrence.end),
+            }
+          : {}),
       });
     });
 
@@ -636,28 +1940,88 @@ exports.cancelApplication = onCall(
   async (request) => {
     if (!request.auth) throw new HttpsError('unauthenticated', '로그인이 필요합니다.');
 
-    const { partyId } = request.data;
+    // 환불계좌는 **클라이언트에게 받지 않는다.**
+    //
+    // 예전에는 취소 화면이 은행·계좌번호를 자유 입력으로 받아 여기로 보냈다.
+    // 그 값이 그대로 refundRequests에 박히고 users/{uid}.refundAccount까지
+    // 덮어썼기 때문에, ① 본인 계좌가 아닌 곳으로 환불을 요청할 수 있었고
+    // ② 인증해 둔 계좌가 자유 입력 값으로 조용히 교체됐다.
+    //
+    // 이제 정본은 **환불계좌 관리에서 본인 인증을 마친 계좌 하나뿐**이고,
+    // 스냅샷은 서버가 그 값에서 뜬다(refundAccountVerify.verifiedSnapshotOf).
+    // request.data.refundAccount는 **읽지 않는다** — 구버전 앱이 계속 보내도
+    // 무시될 뿐이라 따로 거절하지 않는다.
+    const { partyId, occurrenceId } = request.data;
     if (!partyId || typeof partyId !== 'string') {
       throw new HttpsError('invalid-argument', 'partyId가 필요합니다.');
+    }
+    if (occurrenceId !== undefined && occurrenceId !== null &&
+        typeof occurrenceId !== 'string') {
+      throw new HttpsError('invalid-argument', 'occurrenceId가 올바르지 않습니다.');
     }
 
     const uid = request.auth.uid;
     const db = admin.firestore();
     const partyRef = db.collection('parties').doc(partyId);
-    const applicationRef = partyRef.collection('applications').doc(uid);
+    // 취소는 **정확히 그 회차 한 건**만 대상으로 한다 — 8/15를 취소해도
+    // 8/22 신청은 그대로 남아야 한다.
+    //
+    // 회차를 보낸 앱이면 그 회차 문서를, 회차 개념이 없던 옛 앱이거나 회차가
+    // 없는 파티면 예전처럼 uid 문서를 본다. 회차를 보냈는데 그 문서가 없으면
+    // 구조 변경 전에 신청한 옛 문서(id가 uid)일 수 있으므로 한 번 더 찾아본다.
+    const applicationsRef = partyRef.collection('applications');
+    const scopedRef = applicationsRef.doc(applicationDocId(uid, occurrenceId || null));
+    const legacyRef = applicationsRef.doc(uid);
 
     let result;
 
+    // 인증된 환불계좌 스냅샷 — 트랜잭션 **밖에서** 한 번 읽는다. 실제로 쓸지는
+    // 아래에서 환불액을 계산해 봐야 알지만(requiresRefundAccount), 읽기 한
+    // 번이라 조건부로 미룰 이유가 없고 트랜잭션 읽기 순서도 늘리지 않는다.
+    const verifiedRefundAccount = await loadVerifiedRefundSnapshot(db, uid);
+
     await db.runTransaction(async (transaction) => {
-      const [partySnap, appSnap] = await Promise.all([
+      const [partySnap, scopedSnap, legacySnap] = await Promise.all([
         transaction.get(partyRef),
-        transaction.get(applicationRef),
+        transaction.get(scopedRef),
+        occurrenceId ? transaction.get(legacyRef) : Promise.resolve(null),
       ]);
       if (!partySnap.exists) throw new HttpsError('not-found', '파티를 찾을 수 없어요');
-      if (!appSnap.exists) throw new HttpsError('not-found', '신청 내역을 찾을 수 없어요');
+
+      const asTarget = (snap) =>
+        snap && snap.exists ? { id: snap.id, data: snap.data(), ref: snap.ref } : null;
+      const scoped = asTarget(scopedSnap);
+
+      // 회차를 못 보내는 **구버전 앱**인데 uid 문서로는 대상을 정할 수 없을
+      // 때만, 이 사람의 이 파티 신청을 훑는다. 훑는다고 아무거나 취소하지는
+      // 않는다 — 살아 있는 신청이 **정확히 하나**일 때만 그것을 취소하고,
+      // 여러 회차가 살아 있으면 회차를 지정하라고 돌려보낸다
+      // (partyApplicationTargets.resolveCancelTarget).
+      //
+      // uid 필드로 찾는다 — 문서 id 규칙(uid / uid_회차)에 기대면 회차 id에
+      // 언더스코어가 들어가는 날 조용히 어긋난다. applyToParty가 신청 문서에
+      // 언제나 uid를 남기므로 이 조회는 옛 문서까지 그대로 집는다.
+      let activeCandidates = null;
+      if (needsCandidateLookup({ occurrenceId: occurrenceId || null, scoped })) {
+        const mine = await transaction.get(applicationsRef.where('uid', '==', uid));
+        activeCandidates = mine.docs.map((d) => ({
+          id: d.id,
+          data: d.data(),
+          ref: d.ref,
+        }));
+      }
+
+      const resolved = resolveCancelTarget({
+        occurrenceId: occurrenceId || null,
+        scoped,
+        legacy: asTarget(legacySnap),
+        activeCandidates,
+      });
+      if (!resolved.ok) throw new HttpsError(resolved.code, resolved.message);
+      const applicationRef = resolved.target.ref;
 
       const partyData = partySnap.data();
-      const appData = appSnap.data();
+      const appData = resolved.target.data;
 
       if (appData.status === 'cancelled') {
         throw new HttpsError('failed-precondition', '이미취소');
@@ -665,29 +2029,76 @@ exports.cancelApplication = onCall(
       if (appData.status === 'attended') {
         throw new HttpsError('failed-precondition', '이미참석');
       }
+      // 거절된 신청은 취소할 것이 남아 있지 않다 — decidePartyApplication이
+      // **거절 그 순간에 자리를 이미 반납**했다(releaseApplicantSlot). 여기서
+      // 다시 취소를 받아주면 같은 자리를 두 번 되돌려 정원 카운터가 0 아래로
+      // 새어나간다(20명 파티에서 거절-취소를 반복하면 정원이 무한히 늘어난다).
+      if (appData.status === 'rejected') {
+        throw new HttpsError('failed-precondition', '이미 거절된 신청입니다.');
+      }
 
-      const partyDateTime = partyData.partyDateTime;
-      if (
-        partyDateTime &&
-        typeof partyDateTime.toDate === 'function' &&
-        partyDateTime.toDate().getTime() <= Date.now()
-      ) {
+      // 정기 파티는 저장된 partyDateTime이 첫 회차(과거)라 그대로 쓰면 항상
+      // '종료된파티'가 되어 참가자가 영영 취소할 수 없다 — 신청 문서에 남은
+      // "내가 신청한 회차"를 우선 쓰고, 없으면(구버전 신청) 다음 회차 기준으로
+      // 판정한다(일회성 파티는 저장값 그대로라 기존 동작과 동일).
+      const appliedOccurrenceStart = appData.occurrenceStartAt
+        ? appData.occurrenceStartAt.toDate()
+        : null;
+      const partyDateTime =
+        appliedOccurrenceStart || effectivePartyStartAt(partyData, new Date());
+      if (partyDateTime && partyDateTime.getTime() <= Date.now()) {
         throw new HttpsError('failed-precondition', '종료된파티');
       }
 
       const appliedFee = Number(appData.appliedFee || 0);
-      const refund = computeRefund(partyData.refundPolicy, appliedFee, partyDateTime);
+      // 환불 상한은 **실제로 받은 돈**이다. 현장결제 예정이거나 입금대기라
+      // 아직 한 푼도 안 들어온 건은 환불 대상이 0원이고, 예약금만 낸 건은
+      // 예약금이 상한이다(문서에 남은 금액 스냅샷 기준 — 호스트가 나중에
+      // 정책을 바꿔도 이 값은 변하지 않는다).
+      const paidAmount = paymentPolicy.paidAmountOf(appData.payment, appData.amounts);
+      // 신청 시점 스냅샷이 있으면 그것으로 계산한다. 스냅샷이 없는 옛
+      // 신청만 파티의 현재 규정으로 폴백한다(마이그레이션 없이 호환).
+      const refund = computeRefund(
+        effectiveRefundPolicy(appData, partyData),
+        appliedFee,
+        partyDateTime,
+        { paidAmount },
+      );
 
       // 정원/카운트 되돌리기 — reserveApplicantSlot의 증가 로직을 그대로
       // 역산하는 releaseApplicantSlot(partyCapacity.js)으로 추출돼 있다 —
       // 패키지 예약의 pending 취소/만료(cancelPackageBooking,
       // expireStalePackageBookings)와 동일한 로직을 공유한다.
       const gender = appData.gender;
+      // 패키지 신청도 여기로 들어온다 — 신청 시점에 패키지의 포함 차수를
+      // selectedRounds로 저장해 두므로, 포함된 모든 차수의 카운터가 정확히
+      // 1씩 줄어든다(패키지 전용 취소 경로를 따로 두지 않는다).
       const updateData = releaseApplicantSlot(partyData, {
         uid,
         gender,
         selectedRounds: appData.selectedRounds,
+        occurrenceId: appData.occurrenceId || null,
+        // 신청 때 차수 인원을 어디에 올렸는지 — 그 칸을 그대로 되돌린다.
+        roundCounterScope: appData.roundCounterScope || null,
       });
+
+      // ── 환불계좌 ────────────────────────────────────────────────────────
+      // 계좌이체 말고는 돈을 돌려줄 방법이 없는 건(무통장입금 + 입금 완료 +
+      // 환불액 > 0)에서만 계좌를 요구한다. 그 외에는 계좌를 묻지도, 저장하지도
+      // 않는다 — 필요 없는 계좌번호를 모으지 않는 것도 보안이다.
+      //
+      // 계좌는 **인증된 것 하나뿐**이다. 클라이언트가 보낸 값은 쓰지 않으므로
+      // 임의의 계좌번호로 환불 요청을 만들 수 없다.
+      const needsAccount = requiresRefundAccount(appData.payment, refund.refundAmount);
+      const account = needsAccount ? verifiedRefundAccount : null;
+      if (needsAccount && !account) {
+        // 클라이언트가 이 코드를 보고 **환불계좌 인증 흐름**을 띄운다
+        // (예전에는 계좌 자유 입력을 띄웠다 — 코드는 그대로 두고 뜻만 바뀌었다).
+        throw new HttpsError(
+          'failed-precondition',
+          'REFUND_ACCOUNT_REQUIRED',
+        );
+      }
 
       transaction.update(partyRef, updateData);
       transaction.update(applicationRef, {
@@ -700,7 +2111,50 @@ exports.cancelApplication = onCall(
         statusUpdatedAt: admin.firestore.FieldValue.serverTimestamp(),
       });
 
-      result = { appliedFee, ...refund };
+      if (account) {
+        const refundHostId = partyData.hostId || partyData.hostUid || null;
+        // ① 환불 요청 접수 — 계좌는 **이 시점의 사본**으로 박힌다. 사용자가
+        //    나중에 마이페이지에서 환불계좌를 바꿔도 접수된 요청의 입금처는
+        //    그대로다. 처리는 그 파티의 **호스트**가 한다(참가비를 호스트
+        //    계좌로 직접 받았으므로) — 관리자는 감시·개입만 한다.
+        transaction.set(
+          db.collection('refundRequests').doc(),
+          buildRefundRequest({
+            requesterId: uid,
+            domain: 'party',
+            refId: partyId,
+            applicationPath: applicationRef.path,
+            refundAmount: refund.refundAmount,
+            account,
+            hostId: refundHostId,
+            title: partyData.title || null,
+          }),
+        );
+
+        // ② 호스트에게 알린다 — 돈을 돌려줄 사람이 호스트라서, 알림이 없으면
+        //    참가자는 취소만 되고 환불은 아무도 시작하지 않은 채로 멈춘다.
+        if (refundHostId) {
+          transaction.set(db.collection('notifications').doc(), {
+            uid: refundHostId,
+            type: 'refund_requested',
+            title: '환불해야 할 취소 건이 있어요',
+            body: `${partyData.title || '파티'} · ${refund.refundAmount || 0}원\n`
+              + '환불 요청 목록에서 참가자 계좌를 확인하고 보내주세요.',
+            refId: partyId,
+            read: false,
+            createdAt: admin.firestore.FieldValue.serverTimestamp(),
+          });
+        }
+
+        // ③ users/{uid}.refundAccount는 **여기서 쓰지 않는다.**
+        //
+        //    예전에는 "다음 취소 때 다시 입력하지 않도록" 자유 입력 값을 여기
+        //    저장했다. 이제 그 필드의 정본은 환불계좌 관리에서 본인 인증을
+        //    마친 계좌뿐이고, 쓰는 곳도 verifyRefundAccount 하나다. 여기서
+        //    다시 쓰면 인증 지문이 어긋나 인증이 조용히 풀린다.
+      }
+
+      result = { appliedFee, ...refund, refundRequested: account != null };
     });
 
     return { success: true, ...result };
@@ -729,16 +2183,24 @@ exports.onPartyCancelledByHost = onDocumentWritten(
 
     if (applicationsSnap.empty) return;
 
+    // 최소 인원 미달로 서버가 자동 취소한 경우도 환불은 호스트 취소와 똑같이
+    // 100%다 — 참가자 귀책이 아니기 때문. 다만 "누가 취소했는지"는 구분해
+    // 남겨 신청 내역 화면이 사유를 정확히 안내할 수 있게 한다.
+    const cancelledBy = after.cancelReason ? 'system' : 'host';
     const batch = db.batch();
     applicationsSnap.docs.forEach((doc) => {
       const appData = doc.data();
-      const appliedFee = Number(appData.appliedFee || 0);
+      // 호스트/시스템 취소는 환불률 100%지만, 환불 금액은 여기서도 실제로 받은
+      // 돈을 넘지 않는다 — 현장결제 예정으로 아직 안 낸 참가자에게 참가비를
+      // 환불 대상으로 잡으면 그대로 장부가 어긋난다.
+      const paidAmount = paymentPolicy.paidAmountOf(appData.payment, appData.amounts);
       batch.update(doc.ref, {
         status: 'cancelled',
-        cancelledBy: 'host',
-        refundPercent: appliedFee > 0 ? 100 : 0,
-        refundAmount: appliedFee,
-        refundStatus: appliedFee > 0 ? 'pending' : 'not_applicable',
+        cancelledBy,
+        cancelReason: after.cancelReason ?? null,
+        refundPercent: paidAmount > 0 ? 100 : 0,
+        refundAmount: paidAmount,
+        refundStatus: paidAmount > 0 ? 'pending' : 'not_applicable',
         appliedRefundTier: null,
         statusUpdatedAt: admin.firestore.FieldValue.serverTimestamp(),
       });
@@ -761,6 +2223,11 @@ exports.onPartyCancelledByHost = onDocumentWritten(
 // 신청서 생성(added)은 신청 카운터만 +1, 이후 상태 전환(modified)은 이전
 // 상태 카운터를 -1, 새 상태 카운터를 +1 한다. 문서 삭제는 현재 없음.
 
+// ⚠️ 'attended'는 **레거시**다. 그 상태를 쓰는 코드는 서버·앱 어디에도 없고,
+// 실제 현장 출석의 정본은 신청 문서의 checkedInAt이다(partyCheckIn.js가 그
+// 전이에서 totalAttended·dailyStats.attended 등을 증감한다). 표에서 빼지 않는
+// 것은 그 상태로 남아 있는 옛 문서가 전이할 때 예전처럼 집계되게 하기
+// 위해서다 — 새로 그 값을 쓰는 경로는 없다.
 const STATUS_COUNTER_FIELD = {
   applied: 'totalApplications',
   approved: 'totalConfirmed',
@@ -797,13 +2264,16 @@ function argMaxKey(map) {
 }
 
 exports.onApplicationStatusWrite = onDocumentWritten(
-  { document: 'parties/{partyId}/applications/{uid}', region: 'asia-northeast3' },
+  { document: 'parties/{partyId}/applications/{applicationId}', region: 'asia-northeast3' },
   async (event) => {
     const before = event.data.before.exists ? event.data.before.data() : null;
     const after = event.data.after.exists ? event.data.after.data() : null;
     if (!after) return; // 삭제는 다루지 않음
 
-    const uid = event.params.uid;
+    // 문서 ID는 회차 신청이면 uid가 아니다(`{uid}_{occurrenceId}`) — 통계·
+    // 활동로그가 엉뚱한 uid로 쌓이지 않도록 반드시 필드에서 읽는다.
+    // 회차별 신청은 각각 한 건으로 집계된다(8/15·8/22 참가 = 2건).
+    const uid = after.uid || event.params.applicationId;
     const prevStatus = before?.status;
     const newStatus = after.status;
     if (prevStatus === newStatus) return;
@@ -850,6 +2320,9 @@ exports.onApplicationStatusWrite = onDocumentWritten(
     }
     const APPLICATION_ACTIVITY_TYPE = {
       applied: 'party_applied',
+      // 승인제 신청도 회원 타임라인에서는 똑같이 "파티에 신청함"이다 —
+      // 여기서 빠지면 승인제 파티 신청만 활동 기록에 남지 않는다.
+      pending: 'party_applied',
       approved: 'party_approved',
       attended: 'party_attended',
       cancelled: 'party_application_cancelled',
@@ -907,7 +2380,9 @@ exports.onApplicationStatusWrite = onDocumentWritten(
         .set({ [dailyField]: admin.firestore.FieldValue.increment(1) }, { merge: true });
     }
 
-    // regionStats/hourlyStats는 전 기간 누적 — "신청" 시점과 "참석" 시점에만 집계
+    // regionStats/hourlyStats는 전 기간 누적 — "신청" 시점과 "참석" 시점에만 집계.
+    // 'attended' 가지는 레거시다(위 STATUS_COUNTER_FIELD 주석 참고) — 실제
+    // 현장 출석은 partyCheckIn.js가 checkedInAt 전이에서 같은 칸을 증감한다.
     if (!isTest && (newStatus === 'applied' || newStatus === 'attended')) {
       const regionField = newStatus === 'applied' ? 'totalApplications' : 'totalAttended';
       await db
@@ -1498,7 +2973,6 @@ exports.niceIntcResult = onCall(
     const uid        = request.auth.uid;
     const db         = admin.firestore();
     const sessionRef = db.collection('verificationSessions').doc(uid);
-    const userRef    = db.collection('users').doc(uid);
 
     const sessionDoc = await sessionRef.get();
     if (!sessionDoc.exists) {
@@ -1589,28 +3063,42 @@ exports.niceIntcResult = onCall(
     const di         = result.di || '';   // 중복가입방지 정보
     const ci         = result.ci || '';   // 연계정보
 
-    await userRef.set({
-      // NICE 인증 잠금 필드 — Admin SDK만 쓸 수 있음 (Firestore Rules 참조)
-      name,
-      gender,
-      birthYear,
-      birthMonth,
-      birthDay,
-      di,
+    // 휴대폰 본인확인 결과의 가입자 번호. 신 경로(niceAuth.js)와 **같은 규칙**
+    // 으로 정규화하고, 알아볼 수 없으면 필드를 쓰지 않는다.
+    // ⚠ 번호 원문은 어떤 로그에도 남기지 않는다.
+    const phoneNumber = normalizeKoreanMobile(result.mobile_no);
+    if (!phoneNumber) {
+      console.warn('[NICE] mobile_no를 국내 휴대폰 번호로 알아보지 못해'
+        + ` phoneNumber를 저장하지 않습니다. uid=${uid} present=${!!result.mobile_no}`);
+    }
+
+    // "1명의 실사용자 = 파티츄 계정 1개" — CI가 이미 다른 계정에 연결돼 있으면
+    // already-exists로 거부되고 users 문서는 전혀 갱신되지 않는다(identityLink.js).
+    await linkIdentityAndSaveVerification(db, {
+      uid,
       ci,
-      identityVerified:     true,
-      identityVerifiedAt:   admin.firestore.FieldValue.serverTimestamp(),
-      isVerified:           true,     // Firestore Rules 하위 호환
-      verifiedAt:           admin.firestore.FieldValue.serverTimestamp(),
-      profileCompleted:     true,
-      verificationProvider: 'nice_intc',
-    }, { merge: true });
+      provider: 'nice_intc',
+      userPatch: {
+        // NICE 인증 잠금 필드 — Admin SDK만 쓸 수 있음 (Firestore Rules 참조)
+        name,
+        gender,
+        birthYear,
+        birthMonth,
+        birthDay,
+        di,
+        ci,
+        // 알아보지 못한 번호는 필드 자체를 만들지 않는다(niceAuth.js와 동일).
+        ...(phoneNumber ? { phoneNumber } : {}),
+        identityVerified:     true,
+        identityVerifiedAt:   admin.firestore.FieldValue.serverTimestamp(),
+        isVerified:           true,     // Firestore Rules 하위 호환
+        verifiedAt:           admin.firestore.FieldValue.serverTimestamp(),
+        profileCompleted:     true,
+        verificationProvider: 'nice_intc',
+      },
+    });
 
     console.log(`[NICE] niceIntcResult 완료. uid=${uid}`);
     return { success: true };
   },
 );
-
-exports.verifyPayoutAccount = require('./payoutAccounts').verifyPayoutAccount;
-exports.getPayoutAccountStatus =
-  require('./payoutAccounts').getPayoutAccountStatus;

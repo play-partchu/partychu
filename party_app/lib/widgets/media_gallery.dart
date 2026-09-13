@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:ui' show ImageFilter;
 
 import 'package:flutter/material.dart';
 import 'package:video_player/video_player.dart';
@@ -22,6 +23,88 @@ const _kVideoFallbackGradient = LinearGradient(
   end: Alignment.bottomRight,
   colors: [Color(0xFFFF6FA0), Color(0xFF8B5CF6)],
 );
+
+/// 상세 화면 상단에 놓이는 사진 1장 — **항상 원본 전체가 보이게** 그린다.
+///
+/// 사진 자체는 [BoxFit.contain]이라 세로·가로·정사각형 어느 비율이든 상하좌우가
+/// 잘리지 않는다. 박스 비율과 사진 비율이 달라 남는 공간은 **같은 사진을 크게
+/// 깔고 블러 처리한 배경**으로 메운다 — 원본을 잘라 여백을 없애는 방식은 쓰지
+/// 않는다(배경은 어디까지나 여백을 채우는 장식이라 잘려도 정보 손실이 없다).
+///
+/// 배경과 본체가 같은 URL이라 Flutter 이미지 캐시가 요청을 합쳐, 네트워크
+/// 다운로드는 사진당 한 번만 일어난다.
+///
+/// 목록 카드 썸네일에는 쓰지 않는다 — 카드는 지금처럼 [BoxFit.cover]로 꽉 채운다.
+class DetailPhoto extends StatelessWidget {
+  final String url;
+
+  /// 블러 배경 아래에 깔리는 바탕색 — 사진이 아직 안 왔거나 블러 가장자리가
+  /// 비칠 때 보인다.
+  final Color backgroundColor;
+
+  /// 블러 세기. 기본값이면 배경 형태가 거의 알아볼 수 없을 만큼 흐려진다.
+  final double blurSigma;
+
+  const DetailPhoto({
+    super.key,
+    required this.url,
+    this.backgroundColor = const Color(0xFFFFE0EE),
+    this.blurSigma = 28,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Stack(
+      fit: StackFit.expand,
+      children: [
+        ColoredBox(color: backgroundColor),
+        // 여백 채우기용 블러 배경 — 여기서만 cover를 쓴다(잘려도 무방).
+        ClipRect(
+          child: ImageFiltered(
+            imageFilter: ImageFilter.blur(
+              sigmaX: blurSigma,
+              sigmaY: blurSigma,
+              tileMode: TileMode.decal,
+            ),
+            child: Image.network(
+              url,
+              fit: BoxFit.cover,
+              width: double.infinity,
+              height: double.infinity,
+              // 배경은 없어도 되는 장식이라 로딩/에러 시 조용히 바탕색만 남긴다.
+              errorBuilder: (_, _, _) => const SizedBox.shrink(),
+            ),
+          ),
+        ),
+        // 블러 배경이 본체보다 튀지 않도록 아주 옅게 눌러준다.
+        const ColoredBox(color: Color(0x14000000)),
+        // 본체 — 원본 전체. 탭 확대 없이 이 상태로 전부 보인다.
+        Image.network(
+          url,
+          fit: BoxFit.contain,
+          width: double.infinity,
+          height: double.infinity,
+          loadingBuilder: (_, child, progress) {
+            if (progress == null) return child;
+            return const Center(
+              child: CircularProgressIndicator(
+                strokeWidth: 2,
+                color: Color(0xFFFF6FA0),
+              ),
+            );
+          },
+          errorBuilder: (_, _, _) => const Center(
+            child: Icon(
+              Icons.broken_image_outlined,
+              size: 48,
+              color: Colors.grey,
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+}
 
 class MediaGallery extends StatefulWidget {
   final List<String> images;
@@ -80,8 +163,18 @@ class _MediaGalleryState extends State<MediaGallery> {
   // 동영상이 대표면 index 0, 아니면 기존처럼 항상 마지막 페이지.
   int get _videoPageIndex => widget.videoFirst ? 0 : widget.images.length;
   bool get _isVideoPage => _hasVideo && _current == _videoPageIndex;
+
+  /// 동영상이 **실제로 페이지를 차지하는가.**
+  ///
+  /// `videoFirst`만 보고 자리를 비우면 안 된다 — 동영상이 없는데 그 자리를
+  /// 비워 두면 사진 인덱스가 통째로 하나씩 밀려 첫 페이지가 images[-1]이 되고
+  /// `RangeError (length): Invalid value: Only valid value is 0: -1`로 죽는다
+  /// (사진만 있는 이벤트 상세가 이것 때문에 열리지 않았다). 자리를 만드는
+  /// 조건은 "앞세우기로 했는가"가 아니라 "앞세울 동영상이 있는가"다.
+  bool get _videoTakesFirstPage => widget.videoFirst && _hasVideo;
+
   // 사진 목록의 j번째 항목이 실제로 표시되는 페이지 인덱스.
-  int _imagePageIndex(int j) => widget.videoFirst ? j + 1 : j;
+  int _imagePageIndex(int j) => _videoTakesFirstPage ? j + 1 : j;
 
   @override
   void initState() {
@@ -111,6 +204,11 @@ class _MediaGalleryState extends State<MediaGallery> {
 
   @override
   Widget build(BuildContext context) {
+    // 보여줄 것이 하나도 없으면 자리를 통째로 비운다 — 예전에는 분홍 배경만
+    // 남은 280px 빈 상자가 그려졌다. 호출부마다 따로 감싸지 않아도 되도록
+    // 여기서 한 번에 막는다(미디어 없는 레거시 문서가 흔하다).
+    if (_totalCount == 0) return const SizedBox.shrink();
+
     final screenWidth = MediaQuery.of(context).size.width;
     final maxHeight = MediaQuery.of(context).size.height * 0.75;
     final ratio = _ratios[_current];
@@ -135,8 +233,8 @@ class _MediaGalleryState extends State<MediaGallery> {
           height: height,
           decoration: _isVideoPage
               ? (widget.videoBackgroundColor != null
-                  ? BoxDecoration(color: widget.videoBackgroundColor)
-                  : const BoxDecoration(gradient: _kVideoFallbackGradient))
+                    ? BoxDecoration(color: widget.videoBackgroundColor)
+                    : const BoxDecoration(gradient: _kVideoFallbackGradient))
               : const BoxDecoration(color: Color(0xFFFF6FA0)),
           child: PageView.builder(
             controller: _pageController,
@@ -155,33 +253,19 @@ class _MediaGalleryState extends State<MediaGallery> {
                   },
                 );
               }
-              // 이미지 페이지 — cover로 꽉 채운다. 컨테이너 높이는 이미
-              // 원본 비율(_ratios)에 맞춰 계산되므로 보통 잘리지 않지만,
-              // 비율이 아직 로드되기 전(레이스 컨디션)에는 임시로 다른
-              // 비율의 박스에 놓일 수 있는데, contain이면 그 순간 여백이
-              // 보이고 cover면 그 순간에도 항상 꽉 채워진다.
-              final imgIndex = widget.videoFirst ? i - 1 : i;
-              return Image.network(
-                widget.images[imgIndex],
-                fit: BoxFit.cover,
-                width: double.infinity,
-                loadingBuilder: (_, child, progress) {
-                  if (progress == null) return child;
-                  return const Center(
-                    child: CircularProgressIndicator(
-                      strokeWidth: 2,
-                      color: Color(0xFFFF6FA0),
-                    ),
-                  );
-                },
-                errorBuilder: (_, _, _) => const Center(
-                  child: Icon(
-                    Icons.broken_image_outlined,
-                    size: 48,
-                    color: Colors.grey,
-                  ),
-                ),
-              );
+              // 이미지 페이지 — 동영상과 똑같이 원본 비율 그대로(contain)
+              // 보여준다. 컨테이너 높이는 현재 페이지의 원본 비율에 맞춰
+              // 계산되므로 대개 여백 없이 딱 맞지만, ①비율이 아직 로드되기
+              // 전 ②아주 긴 세로 사진이 maxHeight에 걸릴 때 ③비율이 다른
+              // 사진끼리 넘길 때는 박스와 비율이 어긋난다 — 그 남는 공간은
+              // 사진을 자르는 대신 같은 사진의 블러 배경으로 채운다.
+              final imgIndex = _videoTakesFirstPage ? i - 1 : i;
+              // 인덱스가 범위를 벗어나면 그리지 않는다 — 위 계산이 어긋나도
+              // 상세 화면 전체가 죽는 대신 그 페이지만 비어 보인다.
+              if (imgIndex < 0 || imgIndex >= widget.images.length) {
+                return const SizedBox.shrink();
+              }
+              return DetailPhoto(url: widget.images[imgIndex]);
             },
           ),
         ),
@@ -389,7 +473,8 @@ class _GalleryVideoItemState extends State<GalleryVideoItem> {
     if (ctrl == null || !ctrl.value.isInitialized) return null;
     final raw = ctrl.value.size;
     if (raw.width <= 0 || raw.height <= 0) return null;
-    final rotated = ctrl.value.rotationCorrection == 90 ||
+    final rotated =
+        ctrl.value.rotationCorrection == 90 ||
         ctrl.value.rotationCorrection == 270;
     return rotated ? Size(raw.height, raw.width) : raw;
   }
@@ -510,7 +595,8 @@ class _GalleryVideoItemState extends State<GalleryVideoItem> {
             fit: BoxFit.cover,
             width: double.infinity,
             height: double.infinity,
-            errorBuilder: (_, _, _) => DecoratedBox(decoration: _fallbackDecoration),
+            errorBuilder: (_, _, _) =>
+                DecoratedBox(decoration: _fallbackDecoration),
           )
         : DecoratedBox(decoration: _fallbackDecoration);
 

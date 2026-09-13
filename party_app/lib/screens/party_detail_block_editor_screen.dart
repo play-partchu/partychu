@@ -1,5 +1,3 @@
-import 'dart:io';
-
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:video_compress/video_compress.dart';
@@ -9,6 +7,7 @@ import 'package:party_app/models/party_detail_theme_key.dart';
 import 'package:party_app/screens/photo_crop_screen.dart';
 import 'package:party_app/screens/video_trim_screen.dart';
 import 'package:party_app/utils/image_dimensions.dart';
+import 'package:party_app/utils/local_media.dart';
 import 'package:party_app/utils/video_crop.dart';
 import 'package:party_app/utils/video_dimensions.dart';
 import 'package:party_app/widgets/party_detail_block_preview.dart';
@@ -55,10 +54,12 @@ class PartyDetailBlockEditorScreen extends StatefulWidget {
   });
 
   @override
-  State<PartyDetailBlockEditorScreen> createState() => _PartyDetailBlockEditorScreenState();
+  State<PartyDetailBlockEditorScreen> createState() =>
+      _PartyDetailBlockEditorScreenState();
 }
 
-class _PartyDetailBlockEditorScreenState extends State<PartyDetailBlockEditorScreen> {
+class _PartyDetailBlockEditorScreenState
+    extends State<PartyDetailBlockEditorScreen> {
   late List<PartyDetailBlockDraft> _blocks;
   late PartyDetailThemeKey _theme;
   late PartyDetailDecorationIntensity _intensity;
@@ -92,8 +93,13 @@ class _PartyDetailBlockEditorScreenState extends State<PartyDetailBlockEditorScr
   }
 
   Future<void> _addBlock() async {
-    final hasVideoBlock = _blocks.any((d) => d.type == PartyDetailBlockType.video);
-    final type = await showPartyDetailBlockTypeSheet(context, videoBlockLimitReached: hasVideoBlock);
+    final hasVideoBlock = _blocks.any(
+      (d) => d.type == PartyDetailBlockType.video,
+    );
+    final type = await showPartyDetailBlockTypeSheet(
+      context,
+      videoBlockLimitReached: hasVideoBlock,
+    );
     if (type == null) return;
     setState(() => _blocks.add(PartyDetailBlockDraft.newBlock(type)));
   }
@@ -147,9 +153,10 @@ class _PartyDetailBlockEditorScreenState extends State<PartyDetailBlockEditorScr
     final frame = _imageFrameSize(context);
     final result = await Navigator.push<Map<String, double>>(
       context,
-      webFramedRoute((_) => PhotoCropScreen(
+      webFramedRoute(
+        (_) => PhotoCropScreen(
           imageUrl: draft.newImageFile == null ? draft.uploadedImageUrl : null,
-          imageFile: draft.newImageFile != null ? File(draft.newImageFile!.path) : null,
+          imageFile: draft.newImageFile,
           frameWidth: frame.width,
           frameHeight: frame.height,
           initialCropX: draft.imageCropX ?? 0.5,
@@ -172,7 +179,7 @@ class _PartyDetailBlockEditorScreenState extends State<PartyDetailBlockEditorScr
   Future<void> _pickImageFor(PartyDetailBlockDraft draft) async {
     final file = await _picker.pickImage(source: ImageSource.gallery);
     if (file == null) return;
-    final dims = await decodeImageDimensions(File(file.path));
+    final dims = await decodeImageDimensions(file);
     if (!mounted) return;
 
     // 취소 시 되돌릴 이전 상태 — "사진 변경"으로 기존 사진을 바꾸다가
@@ -224,9 +231,10 @@ class _PartyDetailBlockEditorScreenState extends State<PartyDetailBlockEditorScr
     final frame = _imageGroupCellFrameSize(context);
     final result = await Navigator.push<Map<String, double>>(
       context,
-      webFramedRoute((_) => PhotoCropScreen(
+      webFramedRoute(
+        (_) => PhotoCropScreen(
           imageUrl: item.newImageFile == null ? item.uploadedImageUrl : null,
-          imageFile: item.newImageFile != null ? File(item.newImageFile!.path) : null,
+          imageFile: item.newImageFile,
           frameWidth: frame.width,
           frameHeight: frame.height,
           initialCropX: item.cropX ?? 0.5,
@@ -253,7 +261,7 @@ class _PartyDetailBlockEditorScreenState extends State<PartyDetailBlockEditorScr
   Future<void> _pickImageForNewGroupItem(PartyDetailBlockDraft d) async {
     final file = await _picker.pickImage(source: ImageSource.gallery);
     if (file == null) return;
-    final dims = await decodeImageDimensions(File(file.path));
+    final dims = await decodeImageDimensions(file);
     if (!mounted) return;
 
     final item = ImageGroupItemDraft(
@@ -276,14 +284,25 @@ class _PartyDetailBlockEditorScreenState extends State<PartyDetailBlockEditorScr
     final file = await _picker.pickVideo(source: ImageSource.gallery);
     if (file == null) return;
 
-    final info = await decodeVideoLocalInfo(File(file.path));
+    final info = await decodeVideoLocalInfo(file);
     var videoToUse = file;
 
     if (info != null && info.duration.inSeconds > 30) {
       if (!mounted) return;
+      // 웹에는 video_trimmer 구현이 없다 — 자르기 대신 안내하고 받지 않는다
+      // (PartyMediaEditor.pickMedia()와 같은 정책).
+      if (!LocalMedia.canTrimVideo) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('30초 이내 동영상만 올릴 수 있어요. 영상을 먼저 편집해 주세요.'),
+          ),
+        );
+        return;
+      }
       final trimmedPath = await Navigator.push<String>(
         context,
-        webFramedRoute((_) => VideoTrimScreen(sourceFile: File(file.path)),
+        webFramedRoute(
+          (_) => VideoTrimScreen(sourceFile: file),
           fullscreenDialog: true,
         ),
       );
@@ -308,7 +327,9 @@ class _PartyDetailBlockEditorScreenState extends State<PartyDetailBlockEditorScr
   }
 
   Future<XFile?> _compressVideo(XFile file) async {
-    if (!File(file.path).existsSync()) return null;
+    // 웹에는 video_compress 구현이 없다 — 압축만 건너뛰고 원본을 그대로 쓴다.
+    if (!LocalMedia.canCompressVideo) return null;
+    if (!(await LocalMedia.stat(file)).exists) return null;
     try {
       final result = await VideoCompress.compressVideo(
         file.path,
@@ -339,21 +360,24 @@ class _PartyDetailBlockEditorScreenState extends State<PartyDetailBlockEditorScr
   }
 
   Future<void> _openPreview() async {
-    final localImageOverrides = <String, File>{
+    final localImageOverrides = <String, XFile>{
       for (final d in _blocks)
-        if (d.type == PartyDetailBlockType.image && d.newImageFile != null) d.id: File(d.newImageFile!.path),
+        if (d.type == PartyDetailBlockType.image && d.newImageFile != null)
+          d.id: d.newImageFile!,
       for (final d in _blocks)
         if (d.type == PartyDetailBlockType.imageGroup)
           for (final item in d.imageGroupItems)
-            if (item.newImageFile != null) item.uiKey: File(item.newImageFile!.path),
+            if (item.newImageFile != null) item.uiKey: item.newImageFile!,
     };
-    final localVideoOverrides = <String, File>{
+    final localVideoOverrides = <String, XFile>{
       for (final d in _blocks)
-        if (d.type == PartyDetailBlockType.video && d.newVideoFile != null) d.id: File(d.newVideoFile!.path),
+        if (d.type == PartyDetailBlockType.video && d.newVideoFile != null)
+          d.id: d.newVideoFile!,
     };
     final resultSeed = await Navigator.push<int>(
       context,
-      webFramedRoute((_) => _PreviewScreen(
+      webFramedRoute(
+        (_) => _PreviewScreen(
           blocks: _blocks.map((d) => d.toBlock()).toList(),
           theme: _theme,
           intensity: _intensity,
@@ -372,7 +396,19 @@ class _PartyDetailBlockEditorScreenState extends State<PartyDetailBlockEditorScr
     return Scaffold(
       backgroundColor: const Color(0xFFF3F4F6),
       appBar: AppBar(
-        title: const Text('상세페이지 만들기', style: TextStyle(fontFamily: 'SeoulHangang', fontWeight: FontWeight.w500, shadows: [Shadow(color: Colors.black87, offset: Offset(0.3, 0)), Shadow(color: Colors.black87, offset: Offset(-0.3, 0)), Shadow(color: Colors.black87, offset: Offset(0, 0.3)), Shadow(color: Colors.black87, offset: Offset(0, -0.3))])),
+        title: const Text(
+          '상세페이지 만들기',
+          style: TextStyle(
+            fontFamily: 'SeoulHangang',
+            fontWeight: FontWeight.w500,
+            shadows: [
+              Shadow(color: Colors.black87, offset: Offset(0.3, 0)),
+              Shadow(color: Colors.black87, offset: Offset(-0.3, 0)),
+              Shadow(color: Colors.black87, offset: Offset(0, 0.3)),
+              Shadow(color: Colors.black87, offset: Offset(0, -0.3)),
+            ],
+          ),
+        ),
         centerTitle: true,
         actions: [
           IconButton(
@@ -452,9 +488,16 @@ class _PartyDetailBlockEditorScreenState extends State<PartyDetailBlockEditorScr
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: const [
-            Icon(Icons.dashboard_customize_outlined, size: 40, color: Colors.black26),
+            Icon(
+              Icons.dashboard_customize_outlined,
+              size: 40,
+              color: Colors.black26,
+            ),
             SizedBox(height: 12),
-            Text('아직 블록이 없어요', style: TextStyle(fontSize: 14, color: Colors.black45)),
+            Text(
+              '아직 블록이 없어요',
+              style: TextStyle(fontSize: 14, color: Colors.black45),
+            ),
           ],
         ),
       ),
@@ -491,13 +534,21 @@ class _PartyDetailBlockEditorScreenState extends State<PartyDetailBlockEditorScr
                 index: index,
                 child: const Padding(
                   padding: EdgeInsets.only(right: 8),
-                  child: Icon(Icons.drag_indicator, size: 18, color: Colors.black26),
+                  child: Icon(
+                    Icons.drag_indicator,
+                    size: 18,
+                    color: Colors.black26,
+                  ),
                 ),
               ),
               Expanded(
                 child: Text(
                   _typeLabel(d.type),
-                  style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: _kAccent),
+                  style: const TextStyle(
+                    fontSize: 12,
+                    fontWeight: FontWeight.bold,
+                    color: _kAccent,
+                  ),
                 ),
               ),
               IconButton(
@@ -508,12 +559,18 @@ class _PartyDetailBlockEditorScreenState extends State<PartyDetailBlockEditorScr
               ),
               IconButton(
                 icon: const Icon(Icons.arrow_downward, size: 18),
-                onPressed: index == _blocks.length - 1 ? null : () => _moveDown(index),
+                onPressed: index == _blocks.length - 1
+                    ? null
+                    : () => _moveDown(index),
                 padding: EdgeInsets.zero,
                 constraints: const BoxConstraints(minWidth: 28, minHeight: 28),
               ),
               IconButton(
-                icon: const Icon(Icons.delete_outline, size: 18, color: Colors.redAccent),
+                icon: const Icon(
+                  Icons.delete_outline,
+                  size: 18,
+                  color: Colors.redAccent,
+                ),
                 onPressed: () => _removeBlock(index),
                 padding: EdgeInsets.zero,
                 constraints: const BoxConstraints(minWidth: 28, minHeight: 28),
@@ -565,7 +622,11 @@ class _PartyDetailBlockEditorScreenState extends State<PartyDetailBlockEditorScr
         return TextField(
           controller: d.textCtrl,
           maxLines: 2,
-          decoration: _deco(d.type == PartyDetailBlockType.heading ? '큰 제목을 입력하세요' : '소제목을 입력하세요'),
+          decoration: _deco(
+            d.type == PartyDetailBlockType.heading
+                ? '큰 제목을 입력하세요'
+                : '소제목을 입력하세요',
+          ),
         );
       case PartyDetailBlockType.paragraph:
       case PartyDetailBlockType.notice:
@@ -573,7 +634,9 @@ class _PartyDetailBlockEditorScreenState extends State<PartyDetailBlockEditorScr
           controller: d.textCtrl,
           minLines: 3,
           maxLines: null,
-          decoration: _deco(d.type == PartyDetailBlockType.notice ? '주의사항을 입력하세요' : '내용을 입력하세요'),
+          decoration: _deco(
+            d.type == PartyDetailBlockType.notice ? '주의사항을 입력하세요' : '내용을 입력하세요',
+          ),
         );
       case PartyDetailBlockType.divider:
         return Container(
@@ -604,18 +667,30 @@ class _PartyDetailBlockEditorScreenState extends State<PartyDetailBlockEditorScr
   }
 
   Widget _imageEditor(PartyDetailBlockDraft d) {
-    final hasImage = d.newImageFile != null || (d.uploadedImageUrl?.isNotEmpty ?? false);
+    final hasImage =
+        d.newImageFile != null || (d.uploadedImageUrl?.isNotEmpty ?? false);
     final cropX = d.imageCropX;
     final cropY = d.imageCropY;
     final cropScale = d.imageCropScale;
     final hasCrop = cropX != null && cropY != null && cropScale != null;
-    final naturalAspectRatio = (d.imageWidth != null && d.imageHeight != null && d.imageHeight! > 0)
+    final naturalAspectRatio =
+        (d.imageWidth != null && d.imageHeight != null && d.imageHeight! > 0)
         ? d.imageWidth! / d.imageHeight!
         : 4 / 3;
 
     Widget rawImage({required Alignment alignment}) => d.newImageFile != null
-        ? Image.file(File(d.newImageFile!.path), fit: BoxFit.cover, alignment: alignment, width: double.infinity)
-        : Image.network(d.uploadedImageUrl!, fit: BoxFit.cover, alignment: alignment, width: double.infinity);
+        ? LocalMedia.image(
+            d.newImageFile!,
+            fit: BoxFit.cover,
+            alignment: alignment,
+            width: double.infinity,
+          )
+        : Image.network(
+            d.uploadedImageUrl!,
+            fit: BoxFit.cover,
+            alignment: alignment,
+            width: double.infinity,
+          );
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -624,13 +699,17 @@ class _PartyDetailBlockEditorScreenState extends State<PartyDetailBlockEditorScr
           ClipRRect(
             borderRadius: BorderRadius.circular(8),
             child: AspectRatio(
-              aspectRatio: hasCrop ? _kImageBlockAspectRatio : naturalAspectRatio,
+              aspectRatio: hasCrop
+                  ? _kImageBlockAspectRatio
+                  : naturalAspectRatio,
               child: hasCrop
                   ? CroppedMedia(
                       cropX: cropX,
                       cropY: cropY,
                       cropScale: cropScale,
-                      child: rawImage(alignment: videoCropAlignment(cropX, cropY)),
+                      child: rawImage(
+                        alignment: videoCropAlignment(cropX, cropY),
+                      ),
                     )
                   : rawImage(alignment: Alignment.center),
             ),
@@ -661,8 +740,15 @@ class _PartyDetailBlockEditorScreenState extends State<PartyDetailBlockEditorScr
                   d.imageCropY = null;
                   d.imageCropScale = null;
                 }),
-                icon: const Icon(Icons.close, size: 16, color: Colors.redAccent),
-                label: const Text('사진 제거', style: TextStyle(color: Colors.redAccent)),
+                icon: const Icon(
+                  Icons.close,
+                  size: 16,
+                  color: Colors.redAccent,
+                ),
+                label: const Text(
+                  '사진 제거',
+                  style: TextStyle(color: Colors.redAccent),
+                ),
               ),
           ],
         ),
@@ -696,24 +782,49 @@ class _PartyDetailBlockEditorScreenState extends State<PartyDetailBlockEditorScr
           ),
         if (items.isNotEmpty) ...[
           const SizedBox(height: 8),
-          TextField(controller: d.captionCtrl, decoration: _deco('사진 설명 (선택, 그룹 전체에 1개)')),
+          TextField(
+            controller: d.captionCtrl,
+            decoration: _deco('사진 설명 (선택, 그룹 전체에 1개)'),
+          ),
         ],
       ],
     );
   }
 
-  Widget _imageGroupItemTile(PartyDetailBlockDraft d, ImageGroupItemDraft item) {
+  Widget _imageGroupItemTile(
+    PartyDetailBlockDraft d,
+    ImageGroupItemDraft item,
+  ) {
     final cropX = item.cropX;
     final cropY = item.cropY;
     final cropScale = item.cropScale;
     final hasCrop = cropX != null && cropY != null && cropScale != null;
-    final alignment = hasCrop ? videoCropAlignment(cropX, cropY) : Alignment.center;
+    final alignment = hasCrop
+        ? videoCropAlignment(cropX, cropY)
+        : Alignment.center;
 
     Widget image = item.newImageFile != null
-        ? Image.file(File(item.newImageFile!.path), fit: BoxFit.cover, alignment: alignment, width: 90, height: 90)
-        : Image.network(item.uploadedImageUrl!, fit: BoxFit.cover, alignment: alignment, width: 90, height: 90);
+        ? LocalMedia.image(
+            item.newImageFile!,
+            fit: BoxFit.cover,
+            alignment: alignment,
+            width: 90,
+            height: 90,
+          )
+        : Image.network(
+            item.uploadedImageUrl!,
+            fit: BoxFit.cover,
+            alignment: alignment,
+            width: 90,
+            height: 90,
+          );
     if (hasCrop) {
-      image = CroppedMedia(cropX: cropX, cropY: cropY, cropScale: cropScale, child: image);
+      image = CroppedMedia(
+        cropX: cropX,
+        cropY: cropY,
+        cropScale: cropScale,
+        child: image,
+      );
     }
 
     return GestureDetector(
@@ -732,7 +843,10 @@ class _PartyDetailBlockEditorScreenState extends State<PartyDetailBlockEditorScr
               child: Container(
                 width: 22,
                 height: 22,
-                decoration: const BoxDecoration(color: Colors.black54, shape: BoxShape.circle),
+                decoration: const BoxDecoration(
+                  color: Colors.black54,
+                  shape: BoxShape.circle,
+                ),
                 child: const Icon(Icons.close, size: 14, color: Colors.white),
               ),
             ),
@@ -753,7 +867,11 @@ class _PartyDetailBlockEditorScreenState extends State<PartyDetailBlockEditorScr
           borderRadius: BorderRadius.circular(8),
           border: Border.all(color: Colors.grey.shade300),
         ),
-        child: const Icon(Icons.add_photo_alternate_outlined, size: 26, color: Colors.black38),
+        child: const Icon(
+          Icons.add_photo_alternate_outlined,
+          size: 26,
+          color: Colors.black38,
+        ),
       ),
     );
   }
@@ -763,10 +881,17 @@ class _PartyDetailBlockEditorScreenState extends State<PartyDetailBlockEditorScr
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        TextField(controller: d.titleCtrl, decoration: _deco('제목 (선택, 예: 이런 점이 좋아요)')),
+        TextField(
+          controller: d.titleCtrl,
+          decoration: _deco('제목 (선택, 예: 이런 점이 좋아요)'),
+        ),
         const SizedBox(height: 8),
-        for (var i = 0; i < d.checklistItems.length; i++) _checklistItemRow(d, i),
-        _addItemButton(onTap: () => setState(() => d.checklistItems.add(ChecklistItemDraft()))),
+        for (var i = 0; i < d.checklistItems.length; i++)
+          _checklistItemRow(d, i),
+        _addItemButton(
+          onTap: () =>
+              setState(() => d.checklistItems.add(ChecklistItemDraft())),
+        ),
       ],
     );
   }
@@ -797,7 +922,8 @@ class _PartyDetailBlockEditorScreenState extends State<PartyDetailBlockEditorScr
                     final it = d.checklistItems.removeAt(i);
                     d.checklistItems.insert(i + 1, it);
                   }),
-            onDelete: () => setState(() => d.checklistItems.removeAt(i).dispose()),
+            onDelete: () =>
+                setState(() => d.checklistItems.removeAt(i).dispose()),
           ),
         ],
       ),
@@ -809,10 +935,15 @@ class _PartyDetailBlockEditorScreenState extends State<PartyDetailBlockEditorScr
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        TextField(controller: d.titleCtrl, decoration: _deco('제목 (선택, 예: 자주 묻는 질문)')),
+        TextField(
+          controller: d.titleCtrl,
+          decoration: _deco('제목 (선택, 예: 자주 묻는 질문)'),
+        ),
         const SizedBox(height: 8),
         for (var i = 0; i < d.faqItems.length; i++) _faqItemCard(d, i),
-        _addItemButton(onTap: () => setState(() => d.faqItems.add(FaqItemDraft()))),
+        _addItemButton(
+          onTap: () => setState(() => d.faqItems.add(FaqItemDraft())),
+        ),
       ],
     );
   }
@@ -823,7 +954,10 @@ class _PartyDetailBlockEditorScreenState extends State<PartyDetailBlockEditorScr
       key: ValueKey(item.uiKey),
       margin: const EdgeInsets.only(bottom: 8),
       padding: const EdgeInsets.all(8),
-      decoration: BoxDecoration(color: const Color(0xFFFAFAFC), borderRadius: BorderRadius.circular(8)),
+      decoration: BoxDecoration(
+        color: const Color(0xFFFAFAFC),
+        borderRadius: BorderRadius.circular(8),
+      ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -832,7 +966,11 @@ class _PartyDetailBlockEditorScreenState extends State<PartyDetailBlockEditorScr
               Expanded(
                 child: Text(
                   'Q${i + 1}',
-                  style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: _kAccent),
+                  style: const TextStyle(
+                    fontSize: 12,
+                    fontWeight: FontWeight.bold,
+                    color: _kAccent,
+                  ),
                 ),
               ),
               _itemActions(
@@ -848,7 +986,8 @@ class _PartyDetailBlockEditorScreenState extends State<PartyDetailBlockEditorScr
                         final it = d.faqItems.removeAt(i);
                         d.faqItems.insert(i + 1, it);
                       }),
-                onDelete: () => setState(() => d.faqItems.removeAt(i).dispose()),
+                onDelete: () =>
+                    setState(() => d.faqItems.removeAt(i).dispose()),
               ),
             ],
           ),
@@ -870,10 +1009,16 @@ class _PartyDetailBlockEditorScreenState extends State<PartyDetailBlockEditorScr
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        TextField(controller: d.titleCtrl, decoration: _deco('제목 (선택, 예: 진행 일정)')),
+        TextField(
+          controller: d.titleCtrl,
+          decoration: _deco('제목 (선택, 예: 진행 일정)'),
+        ),
         const SizedBox(height: 8),
-        for (var i = 0; i < d.timelineItems.length; i++) _timelineItemCard(d, i),
-        _addItemButton(onTap: () => setState(() => d.timelineItems.add(TimelineItemDraft()))),
+        for (var i = 0; i < d.timelineItems.length; i++)
+          _timelineItemCard(d, i),
+        _addItemButton(
+          onTap: () => setState(() => d.timelineItems.add(TimelineItemDraft())),
+        ),
       ],
     );
   }
@@ -884,7 +1029,10 @@ class _PartyDetailBlockEditorScreenState extends State<PartyDetailBlockEditorScr
       key: ValueKey(item.uiKey),
       margin: const EdgeInsets.only(bottom: 8),
       padding: const EdgeInsets.all(8),
-      decoration: BoxDecoration(color: const Color(0xFFFAFAFC), borderRadius: BorderRadius.circular(8)),
+      decoration: BoxDecoration(
+        color: const Color(0xFFFAFAFC),
+        borderRadius: BorderRadius.circular(8),
+      ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -924,12 +1072,16 @@ class _PartyDetailBlockEditorScreenState extends State<PartyDetailBlockEditorScr
                         final it = d.timelineItems.removeAt(i);
                         d.timelineItems.insert(i + 1, it);
                       }),
-                onDelete: () => setState(() => d.timelineItems.removeAt(i).dispose()),
+                onDelete: () =>
+                    setState(() => d.timelineItems.removeAt(i).dispose()),
               ),
             ],
           ),
           const SizedBox(height: 6),
-          TextField(controller: item.descriptionCtrl, decoration: _deco('설명 (선택)')),
+          TextField(
+            controller: item.descriptionCtrl,
+            decoration: _deco('설명 (선택)'),
+          ),
         ],
       ),
     );
@@ -949,12 +1101,22 @@ class _PartyDetailBlockEditorScreenState extends State<PartyDetailBlockEditorScr
           decoration: _deco('본문 (예: 신분증을 반드시 지참해주세요.)'),
         ),
         const SizedBox(height: 10),
-        const Text('아이콘', style: TextStyle(fontSize: 12, color: Colors.black54, fontWeight: FontWeight.w600)),
+        const Text(
+          '아이콘',
+          style: TextStyle(
+            fontSize: 12,
+            color: Colors.black54,
+            fontWeight: FontWeight.w600,
+          ),
+        ),
         const SizedBox(height: 6),
         Wrap(
           spacing: 8,
           runSpacing: 8,
-          children: [for (final name in partyDetailInfoCardIconNames) _iconChoiceChip(d, name)],
+          children: [
+            for (final name in partyDetailInfoCardIconNames)
+              _iconChoiceChip(d, name),
+          ],
         ),
       ],
     );
@@ -969,7 +1131,9 @@ class _PartyDetailBlockEditorScreenState extends State<PartyDetailBlockEditorScr
         decoration: BoxDecoration(
           color: selected ? _kAccent : const Color(0xFFF7F7FA),
           borderRadius: BorderRadius.circular(10),
-          border: Border.all(color: selected ? _kAccent : const Color(0xFFE8EBF2)),
+          border: Border.all(
+            color: selected ? _kAccent : const Color(0xFFE8EBF2),
+          ),
         ),
         child: Icon(
           partyDetailInfoCardIconData(name),
@@ -982,7 +1146,8 @@ class _PartyDetailBlockEditorScreenState extends State<PartyDetailBlockEditorScr
 
   // ── 동영상 ──────────────────────────────────────────────────────────
   Widget _videoEditor(PartyDetailBlockDraft d) {
-    final hasVideo = d.newVideoFile != null || (d.uploadedVideoUrl?.isNotEmpty ?? false);
+    final hasVideo =
+        d.newVideoFile != null || (d.uploadedVideoUrl?.isNotEmpty ?? false);
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -1001,7 +1166,11 @@ class _PartyDetailBlockEditorScreenState extends State<PartyDetailBlockEditorScr
                       child: CircularProgressIndicator(strokeWidth: 2),
                     )
                   : const Icon(Icons.videocam_outlined, size: 16),
-              label: Text(_isProcessingVideo ? '처리 중...' : (hasVideo ? '동영상 변경' : '동영상 선택')),
+              label: Text(
+                _isProcessingVideo
+                    ? '처리 중...'
+                    : (hasVideo ? '동영상 변경' : '동영상 선택'),
+              ),
             ),
             if (hasVideo && !_isProcessingVideo)
               TextButton.icon(
@@ -1012,13 +1181,23 @@ class _PartyDetailBlockEditorScreenState extends State<PartyDetailBlockEditorScr
                   d.uploadedVideoThumbnailUrl = null;
                   d.videoAspectRatio = null;
                 }),
-                icon: const Icon(Icons.close, size: 16, color: Colors.redAccent),
-                label: const Text('동영상 제거', style: TextStyle(color: Colors.redAccent)),
+                icon: const Icon(
+                  Icons.close,
+                  size: 16,
+                  color: Colors.redAccent,
+                ),
+                label: const Text(
+                  '동영상 제거',
+                  style: TextStyle(color: Colors.redAccent),
+                ),
               ),
           ],
         ),
         if (hasVideo)
-          TextField(controller: d.captionCtrl, decoration: _deco('동영상 설명 (선택)')),
+          TextField(
+            controller: d.captionCtrl,
+            decoration: _deco('동영상 설명 (선택)'),
+          ),
       ],
     );
   }
@@ -1054,7 +1233,10 @@ class _PartyDetailBlockEditorScreenState extends State<PartyDetailBlockEditorScr
     );
   }
 
-  Widget _addItemButton({required VoidCallback onTap, String label = '+ 항목 추가'}) {
+  Widget _addItemButton({
+    required VoidCallback onTap,
+    String label = '+ 항목 추가',
+  }) {
     return GestureDetector(
       onTap: onTap,
       child: Container(
@@ -1068,7 +1250,11 @@ class _PartyDetailBlockEditorScreenState extends State<PartyDetailBlockEditorScr
         child: Text(
           label,
           textAlign: TextAlign.center,
-          style: const TextStyle(fontSize: 12, color: _kAccent, fontWeight: FontWeight.w600),
+          style: const TextStyle(
+            fontSize: 12,
+            color: _kAccent,
+            fontWeight: FontWeight.w600,
+          ),
         ),
       ),
     );
@@ -1100,7 +1286,11 @@ class _PartyDetailBlockEditorScreenState extends State<PartyDetailBlockEditorScr
                   SizedBox(width: 4),
                   Text(
                     '블록 추가',
-                    style: TextStyle(fontSize: 13, color: _kAccent, fontWeight: FontWeight.w600),
+                    style: TextStyle(
+                      fontSize: 13,
+                      color: _kAccent,
+                      fontWeight: FontWeight.w600,
+                    ),
                   ),
                 ],
               ),
@@ -1115,9 +1305,14 @@ class _PartyDetailBlockEditorScreenState extends State<PartyDetailBlockEditorScr
               style: ElevatedButton.styleFrom(
                 backgroundColor: _kAccent,
                 foregroundColor: Colors.white,
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(14),
+                ),
               ),
-              child: const Text('저장하고 나가기', style: TextStyle(fontSize: 15, fontWeight: FontWeight.bold)),
+              child: const Text(
+                '저장하고 나가기',
+                style: TextStyle(fontSize: 15, fontWeight: FontWeight.bold),
+              ),
             ),
           ),
         ],
@@ -1148,8 +1343,8 @@ class _PreviewScreen extends StatefulWidget {
   final PartyDetailThemeKey theme;
   final PartyDetailDecorationIntensity intensity;
   final int initialVariantSeed;
-  final Map<String, File> localImageOverrides;
-  final Map<String, File> localVideoOverrides;
+  final Map<String, XFile> localImageOverrides;
+  final Map<String, XFile> localVideoOverrides;
 
   const _PreviewScreen({
     required this.blocks,
@@ -1182,7 +1377,19 @@ class _PreviewScreenState extends State<_PreviewScreen> {
       child: Scaffold(
         backgroundColor: palette.pageBackground,
         appBar: AppBar(
-          title: const Text('미리보기', style: TextStyle(fontFamily: 'SeoulHangang', fontWeight: FontWeight.w500, shadows: [Shadow(color: Colors.black87, offset: Offset(0.3, 0)), Shadow(color: Colors.black87, offset: Offset(-0.3, 0)), Shadow(color: Colors.black87, offset: Offset(0, 0.3)), Shadow(color: Colors.black87, offset: Offset(0, -0.3))])),
+          title: const Text(
+            '미리보기',
+            style: TextStyle(
+              fontFamily: 'SeoulHangang',
+              fontWeight: FontWeight.w500,
+              shadows: [
+                Shadow(color: Colors.black87, offset: Offset(0.3, 0)),
+                Shadow(color: Colors.black87, offset: Offset(-0.3, 0)),
+                Shadow(color: Colors.black87, offset: Offset(0, 0.3)),
+                Shadow(color: Colors.black87, offset: Offset(0, -0.3)),
+              ],
+            ),
+          ),
           centerTitle: true,
           actions: [
             TextButton.icon(
@@ -1240,7 +1447,7 @@ class _VideoPreviewBoxState extends State<_VideoPreviewBox> {
       final src = _source;
       if (src == null || src.isEmpty) return;
       final newCtrl = _isLocal
-          ? VideoPlayerController.file(File(src))
+          ? LocalMedia.videoControllerForPath(src)
           : VideoPlayerController.networkUrl(Uri.parse(src));
       try {
         await newCtrl.initialize();
@@ -1289,11 +1496,13 @@ class _VideoPreviewBoxState extends State<_VideoPreviewBox> {
             children: [
               if (ctrl != null && ctrl.value.isInitialized)
                 VideoPlayer(ctrl)
-              else if (!_isLocal && (d.uploadedVideoThumbnailUrl?.isNotEmpty ?? false))
+              else if (!_isLocal &&
+                  (d.uploadedVideoThumbnailUrl?.isNotEmpty ?? false))
                 Image.network(
                   d.uploadedVideoThumbnailUrl!,
                   fit: BoxFit.cover,
-                  errorBuilder: (context, error, stackTrace) => Container(color: Colors.black87),
+                  errorBuilder: (context, error, stackTrace) =>
+                      Container(color: Colors.black87),
                 )
               else
                 Container(color: Colors.black87),
@@ -1301,8 +1510,15 @@ class _VideoPreviewBoxState extends State<_VideoPreviewBox> {
                 Container(
                   width: 48,
                   height: 48,
-                  decoration: const BoxDecoration(color: Colors.black38, shape: BoxShape.circle),
-                  child: const Icon(Icons.play_arrow, color: Colors.white, size: 28),
+                  decoration: const BoxDecoration(
+                    color: Colors.black38,
+                    shape: BoxShape.circle,
+                  ),
+                  child: const Icon(
+                    Icons.play_arrow,
+                    color: Colors.white,
+                    size: 28,
+                  ),
                 ),
             ],
           ),

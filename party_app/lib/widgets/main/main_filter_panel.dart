@@ -46,21 +46,28 @@ class MainFilterPanel extends StatelessWidget {
                   icon: Icon(
                     Icons.tune,
                     size: 18,
-                    color: detailFilterActive ? Colors.white : const Color(0xFFFF6FA0),
+                    color: detailFilterActive
+                        ? Colors.white
+                        : const Color(0xFFFF6FA0),
                   ),
                   label: Text(
                     '상세 검색',
                     style: TextStyle(
-                      color: detailFilterActive ? Colors.white : const Color(0xFFFF6FA0),
+                      color: detailFilterActive
+                          ? Colors.white
+                          : const Color(0xFFFF6FA0),
                       fontWeight: FontWeight.w700,
                     ),
                   ),
                   style: OutlinedButton.styleFrom(
-                    backgroundColor:
-                        detailFilterActive ? const Color(0xFFFF6FA0) : Colors.white,
+                    backgroundColor: detailFilterActive
+                        ? const Color(0xFFFF6FA0)
+                        : Colors.white,
                     side: const BorderSide(color: Color(0xFFFF6FA0)),
                     padding: const EdgeInsets.symmetric(vertical: 14),
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(12),
+                    ),
                   ),
                 ),
               ),

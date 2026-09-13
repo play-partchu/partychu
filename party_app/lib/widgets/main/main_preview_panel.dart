@@ -44,7 +44,11 @@ class MainPreviewPanel extends StatelessWidget {
             Text(
               '카드를 선택하면\n상세 미리보기가 여기 표시됩니다.',
               textAlign: TextAlign.center,
-              style: TextStyle(fontSize: 13, color: Colors.black45, height: 1.6),
+              style: TextStyle(
+                fontSize: 13,
+                color: Colors.black45,
+                height: 1.6,
+              ),
             ),
           ],
         ),
@@ -60,7 +64,11 @@ class MainPreviewPanel extends StatelessWidget {
           padding: EdgeInsets.fromLTRB(16, 16, 16, 8),
           child: Text(
             '미리보기',
-            style: TextStyle(fontSize: 15, fontWeight: FontWeight.bold, color: Colors.black87),
+            style: TextStyle(
+              fontSize: 15,
+              fontWeight: FontWeight.bold,
+              color: Colors.black87,
+            ),
           ),
         ),
         Expanded(
@@ -81,9 +89,14 @@ class MainPreviewPanel extends StatelessWidget {
                 backgroundColor: const Color(0xFFFF6FA0),
                 foregroundColor: Colors.white,
                 padding: const EdgeInsets.symmetric(vertical: 14),
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(12),
+                ),
               ),
-              child: const Text('상세보기', style: TextStyle(fontWeight: FontWeight.bold)),
+              child: const Text(
+                '상세보기',
+                style: TextStyle(fontWeight: FontWeight.bold),
+              ),
             ),
           ),
         ),

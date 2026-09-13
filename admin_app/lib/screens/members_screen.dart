@@ -1,14 +1,53 @@
 import 'dart:async';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 
+import '../models/business_info.dart';
 import '../services/admin_firestore_service.dart';
 import '../theme/admin_theme.dart';
 import '../utils/masking.dart';
 
 typedef OpenMember = void Function(String uid);
+
+/// 회원 목록 '나이' 칸 문구 — `91년생 · 36세`.
+///
+/// 정본은 **본인확인(NICE)이 저장한 `birthYear` 하나**다(`functions/niceAuth.js`가
+/// 인증 결과의 생년월일에서 잘라 넣는다). 나이를 따로 저장하지 않으므로 해가
+/// 바뀌면 이 계산이 저절로 한 살을 올린다 — 그래서 여기서 계산한다.
+///
+/// 한국 나이 = **올해 - 출생연도 + 1**. 생일이 지났는지는 보지 않는다.
+///
+/// 본인확인 전이라 `birthYear`가 없으면 `-`. 없는 값을 0살이나 올해 출생으로
+/// 추측하지 않는다.
+///
+/// ── 예전에 붙어 있던 `(2)` ─────────────────────────────────────────────────
+///
+/// 나이 뒤에 `36세 (2)`처럼 숫자가 하나 더 붙어 있었다. 어딘가에서 읽어 온
+/// 값이 아니라 **성별과 출생연도로 만들어 낸 주민등록번호 뒷자리 첫 숫자**였다
+/// (2000년 이전 출생 남1·여2, 이후 남3·여4). 나이 칸에서 읽을 이유가 없는 값인
+/// 데다 민감정보로 오해되기 쉬워, 표시도 계산도 함께 지웠다.
+///
+/// [now]는 테스트에서만 넘긴다(`test/member_age_label_test.dart`).
+String memberAgeLabel(int? birthYear, {DateTime? now}) {
+  if (birthYear == null) return '-';
+  final yy = (birthYear % 100).toString().padLeft(2, '0');
+  final koreanAge = (now ?? DateTime.now()).year - birthYear + 1;
+  return '$yy년생 · $koreanAge세';
+}
+
+/// 생년월일 표기 — `1991.03.15`. 월/일이 없는 옛 기록은 연도만(`1991`),
+/// 본인확인 전이라 연도조차 없으면 `-`.
+///
+/// 값의 출처는 본인확인(NICE)이 저장한 birthYear/Month/Day뿐이다
+/// (`functions/niceAuth.js`). 없는 값을 가입일 등으로 **추측하지 않는다.**
+String memberBirthDateLabel(int? year, int? month, int? day) {
+  if (year == null) return '-';
+  if (month == null || day == null) return '$year';
+  return '$year.${month.toString().padLeft(2, '0')}.${day.toString().padLeft(2, '0')}';
+}
 
 /// 가입기간/연령대/최근활동은 Firestore 제약상 한 번에 하나만 걸 수 있어
 /// (admin_firestore_service.dart의 usersBaseQuery 주석 참고) 이 중 어떤
@@ -81,7 +120,9 @@ class _MembersScreenState extends State<MembersScreen> {
   int _pageSize = AdminFirestoreService.pageSizeOptions.first;
 
   List<QueryDocumentSnapshot<Map<String, dynamic>>> _docs = [];
-  Map<String, Map<String, dynamic>> _statsById = {};
+  // 목록에서 활동·통계 열을 걷어내면서 userStats 조회도 함께 없앴다 —
+  // 페이지를 넘길 때마다 아무도 읽지 않는 문서를 최대 100건씩 받아오던
+  // 자리다. 그 수치는 회원 상세와 '이용 통계' 화면이 그대로 보여준다.
   final List<QueryDocumentSnapshot<Map<String, dynamic>>?> _pageStartStack = [null];
   int _pageIndex = 0;
   bool _hasNextPage = false;
@@ -90,6 +131,32 @@ class _MembersScreenState extends State<MembersScreen> {
   String? _searchNotice;
 
   int? _filteredTotal;
+
+
+  /// 화면에 실제로 그리는 행 — 받아온 페이지에서 **명시적으로 테스트로 표시된
+  /// 계정만** 뺀다.
+  ///
+  /// 서버 쿼리에서 거르지 않는 이유는 [AdminFirestoreService.isTestAccountDoc]에
+  /// 적어 뒀다: Firestore 등호/부등호 필터는 필드가 없는 문서를 매칭하지 않아,
+  /// `isTestAccount == false`로 거르면 그 필드가 생기기 전에 가입한 **정상
+  /// 회원까지 목록에서 사라진다.**
+  ///
+  /// 검색 결과는 거르지 않는다 — UID·이메일을 정확히 찍어 찾은 것이라 "찾았는데
+  /// 안 보인다"가 더 나쁘다(예전 동작도 그랬다). 대신 그때는 '테스트' 열을 켜서
+  /// 어느 줄이 테스트 계정인지 밝힌다.
+  List<QueryDocumentSnapshot<Map<String, dynamic>>> get _visibleDocs =>
+      (_showTestAccounts || _searchMode)
+          ? _docs
+          : _docs
+              .where((d) => !AdminFirestoreService.isTestAccountDoc(d.data()))
+              .toList();
+
+  /// 이 페이지에서 테스트 계정이라 감춘 수 — 페이지 수가 덜 차 보이는 이유를
+  /// 하단에 밝히는 데 쓴다.
+  int get _hiddenTestCount => _docs.length - _visibleDocs.length;
+
+  /// '테스트' 열을 그릴지 — 테스트 계정이 화면에 섞여 나올 수 있는 때만.
+  bool get _showTestColumn => _showTestAccounts || _searchMode;
 
   bool get _hasRangeFilter => _rangeFilterType != _RangeFilterType.none;
 
@@ -118,7 +185,6 @@ class _MembersScreenState extends State<MembersScreen> {
         activityRole: _activityRoleFilter,
         accountStatus: _accountStatusFilter,
         signupProvider: _signupProviderFilter,
-        showTestAccounts: _showTestAccounts,
         joinedFrom: _rangeFilterType == _RangeFilterType.joined ? _joinedRange?.start : null,
         joinedTo: _rangeFilterType == _RangeFilterType.joined ? _joinedRange?.end : null,
         ageMin: _rangeFilterType == _RangeFilterType.age ? _ageBucket?.minAge : null,
@@ -140,6 +206,7 @@ class _MembersScreenState extends State<MembersScreen> {
       ageMin: _rangeFilterType == _RangeFilterType.age ? _ageBucket?.minAge : null,
       ageMax: _rangeFilterType == _RangeFilterType.age ? _ageBucket?.maxAge : null,
       lastLoginSince: _activeSinceThreshold,
+      sortField: _sortField,
     );
     if (!mounted) return;
     setState(() => _filteredTotal = total);
@@ -155,12 +222,10 @@ class _MembersScreenState extends State<MembersScreen> {
     final docs = snap.docs;
     final hasNext = docs.length > _pageSize;
     final pageDocs = hasNext ? docs.sublist(0, _pageSize) : docs;
-    final stats = await AdminFirestoreService.fetchUserStatsForUids(pageDocs.map((d) => d.id).toList());
 
     if (!mounted) return;
     setState(() {
       _docs = pageDocs;
-      _statsById = stats;
       _hasNextPage = hasNext;
       _loading = false;
     });
@@ -249,12 +314,10 @@ class _MembersScreenState extends State<MembersScreen> {
       }
     }
 
-    final stats = await AdminFirestoreService.fetchUserStatsForUids(results.map((d) => d.id).toList());
 
     if (!mounted) return;
     setState(() {
       _docs = results;
-      _statsById = stats;
       _hasNextPage = false;
       _loading = false;
       _searchNotice = notice ?? (results.isEmpty ? '검색 결과가 없습니다.' : null);
@@ -336,8 +399,15 @@ class _MembersScreenState extends State<MembersScreen> {
             ),
             child: _loading
                 ? const Center(child: CircularProgressIndicator(color: AdminTheme.accent))
-                : _docs.isEmpty
-                    ? const Center(child: Text('회원이 없습니다.', style: TextStyle(color: AdminTheme.textSecondary)))
+                : _visibleDocs.isEmpty
+                    ? Center(
+                        child: Text(
+                          _docs.isEmpty
+                              ? '회원이 없습니다.'
+                              : '이 페이지는 모두 테스트 계정입니다. 다음 페이지를 확인하세요.',
+                          style: const TextStyle(color: AdminTheme.textSecondary),
+                        ),
+                      )
                     : _buildTable(),
           ),
         ),
@@ -374,26 +444,26 @@ class _MembersScreenState extends State<MembersScreen> {
             onChanged: _onSearchChanged,
           ),
         ),
-        DropdownButton<bool?>(
+        _LabeledDropdown<bool?>(
+          label: '본인확인',
           value: _identityVerifiedFilter,
-          hint: const Text('본인확인'),
-          items: const [
-            DropdownMenuItem(value: null, child: Text('전체')),
-            DropdownMenuItem(value: true, child: Text('완료')),
-            DropdownMenuItem(value: false, child: Text('미완료')),
+          options: const [
+            (value: null, text: '전체'),
+            (value: true, text: '완료'),
+            (value: false, text: '미완료'),
           ],
           onChanged: (v) {
             _identityVerifiedFilter = v;
             _applyFilters();
           },
         ),
-        DropdownButton<String?>(
+        _LabeledDropdown<String?>(
+          label: '성별',
           value: _genderFilter,
-          hint: const Text('성별'),
-          items: const [
-            DropdownMenuItem(value: null, child: Text('전체')),
-            DropdownMenuItem(value: 'male', child: Text('남성')),
-            DropdownMenuItem(value: 'female', child: Text('여성')),
+          options: const [
+            (value: null, text: '전체'),
+            (value: 'male', text: '남성'),
+            (value: 'female', text: '여성'),
           ],
           onChanged: (v) {
             _genderFilter = v;
@@ -402,39 +472,39 @@ class _MembersScreenState extends State<MembersScreen> {
         ),
         // 활동 유형 — "호스트만 보기"/"게스트만 보기"는 별도 화면이 아니라
         // 이 필터 하나로 처리한다(activityRoles array-contains).
-        DropdownButton<String?>(
+        _LabeledDropdown<String?>(
+          label: '활동 유형',
           value: _activityRoleFilter,
-          hint: const Text('활동 유형'),
-          items: [
-            const DropdownMenuItem(value: null, child: Text('전체')),
+          options: [
+            const (value: null, text: '전체'),
             for (final entry in _activityRoleLabels.entries)
-              DropdownMenuItem(value: entry.key, child: Text(entry.value)),
+              (value: entry.key, text: entry.value),
           ],
           onChanged: (v) {
             _activityRoleFilter = v;
             _applyFilters();
           },
         ),
-        DropdownButton<String?>(
+        _LabeledDropdown<String?>(
+          label: '계정 상태',
           value: _accountStatusFilter,
-          hint: const Text('계정 상태'),
-          items: [
-            const DropdownMenuItem(value: null, child: Text('전체')),
+          options: [
+            const (value: null, text: '전체'),
             for (final entry in _accountStatusLabels.entries)
-              DropdownMenuItem(value: entry.key, child: Text(entry.value)),
+              (value: entry.key, text: entry.value),
           ],
           onChanged: (v) {
             _accountStatusFilter = v;
             _applyFilters();
           },
         ),
-        DropdownButton<String?>(
+        _LabeledDropdown<String?>(
+          label: '가입 경로',
           value: _signupProviderFilter,
-          hint: const Text('가입 경로'),
-          items: [
-            const DropdownMenuItem(value: null, child: Text('전체')),
+          options: [
+            const (value: null, text: '전체'),
             for (final entry in _signupProviderLabels.entries)
-              DropdownMenuItem(value: entry.key, child: Text(entry.value)),
+              (value: entry.key, text: entry.value),
           ],
           onChanged: (v) {
             _signupProviderFilter = v;
@@ -547,71 +617,136 @@ class _MembersScreenState extends State<MembersScreen> {
     );
   }
 
+  /// 계정 상태 필터가 '탈퇴'면 **다른 표를 그린다.**
+  ///
+  /// 탈퇴 회원은 닉네임·이름·연락처·사업자 정보가 전부 지워져 있어서 평소 표를
+  /// 그대로 쓰면 30여 개 열이 거의 '-'로 찬다. 운영이 실제로 봐야 하는 것은
+  /// "언제 가입해 언제 나갔고, 왜 나갔고, 어떤 유형이었나"뿐이라 그 열만 남긴다.
+  /// 쿼리·색인·필터는 그대로 재사용한다(accountStatus + createdAt 복합 색인).
+  bool get _isWithdrawnView => _accountStatusFilter == 'withdrawn';
+
   Widget _buildTable() {
-    return SingleChildScrollView(
-      child: SingleChildScrollView(
-        scrollDirection: Axis.horizontal,
-        child: DataTable(
-          columns: const [
-            DataColumn(label: Text('')),
-            DataColumn(label: Text('닉네임')),
-            DataColumn(label: Text('이름')),
-            DataColumn(label: Text('나이')),
-            DataColumn(label: Text('성별')),
-            DataColumn(label: Text('전화번호')),
-            DataColumn(label: Text('이메일')),
-            DataColumn(label: Text('본인확인')),
-            DataColumn(label: Text('가입일')),
-            DataColumn(label: Text('가입경로')),
-            DataColumn(label: Text('활동 배지')),
-            DataColumn(label: Text('활동 지역')),
-            DataColumn(label: Text('최근 로그인일')),
-            DataColumn(label: Text('최근 활동일')),
-            DataColumn(label: Text('계정 상태')),
-            DataColumn(label: Text('테스트')),
-            DataColumn(label: Text('등록 파티')),
-            DataColumn(label: Text('신청 수')),
-            DataColumn(label: Text('실제 참여')),
-            DataColumn(label: Text('등록 플레이스')),
-            DataColumn(label: Text('예약 수')),
-            DataColumn(label: Text('등록 상품')),
-            DataColumn(label: Text('구매 수')),
-            DataColumn(label: Text('등록 크루')),
-            DataColumn(label: Text('크루 지원')),
-            DataColumn(label: Text('받은 찜')),
-            DataColumn(label: Text('신고')),
-            DataColumn(label: Text('누적 결제')),
-            DataColumn(label: Text('누적 환불')),
-          ],
-          rows: [for (final doc in _docs) _buildRow(doc)],
-        ),
+    if (_isWithdrawnView) return _buildWithdrawnTable();
+    return _ScrollableTable(
+      child: DataTable(
+        // 생년월일 칸이 두 줄(생년월일 + 나이)이라 기본 행 높이(48)로는 넘친다.
+        dataRowMinHeight: 46,
+        dataRowMaxHeight: 62,
+        columns: [
+          // 맨 앞 체크박스 칸은 DataTable이 onSelectChanged가 있는 행에
+          // 자동으로 붙인다 — 여기서 선언하지 않는다.
+          const DataColumn(label: Text('이름')),
+          const DataColumn(label: Text('생년월일 / 나이')),
+          const DataColumn(label: Text('성별')),
+          const DataColumn(label: Text('닉네임')),
+          const DataColumn(label: Text('UID')),
+          const DataColumn(label: Text('전화번호')),
+          const DataColumn(label: Text('이메일')),
+          const DataColumn(label: Text('본인확인')),
+          // 사업자/일반회원 구분 — users.businessVerification 맵을 그대로
+          // 읽는다(추가 조회 없음). 맵이 없으면 일반회원.
+          const DataColumn(label: Text('회원 구분')),
+          const DataColumn(label: Text('사업자번호')),
+          const DataColumn(label: Text('상호명')),
+          const DataColumn(label: Text('가입일')),
+          const DataColumn(label: Text('가입경로')),
+          // '테스트 계정 보기'를 켰을 때만 붙는다. 꺼져 있으면 모든 행이
+          // 실사용자라 칸을 쓸 이유가 없고, 켜면 섞여 나오므로 반드시 필요하다
+          // (본인확인 목록과 회원 관리가 달라 보였던 원인이 이 구분이다).
+          if (_showTestColumn) const DataColumn(label: Text('테스트')),
+        ],
+        rows: [for (final doc in _visibleDocs) _buildRow(doc)],
       ),
+    );
+  }
+
+  // ── 탈퇴 회원 표 ──────────────────────────────────────────────────────────
+  //
+  // 여기 있는 값은 전부 users 비석에 남는 것들이다(accountWithdrawal.js가
+  // 완전 탈퇴 때 일부러 지우지 않는 필드). 개인정보는 이미 지워져 있어서
+  // 이 표에는 사람을 특정할 수 있는 값이 없다 — 식별은 UID로만 한다.
+
+  static const _withdrawalReasonLabels = <String, String>{
+    'no_longer_use': '미이용',
+    'few_listings': '원하는 파티 없음',
+    'privacy': '개인정보 우려',
+    'bad_experience': '불쾌한 경험',
+    'app_issue': '앱 불편·오류',
+    'price': '비용 부담',
+    'switch_account': '계정 이전',
+    'other': '기타',
+  };
+
+  Widget _buildWithdrawnTable() {
+    return _ScrollableTable(
+      child: DataTable(
+        columns: const [
+          DataColumn(label: Text('UID')),
+          DataColumn(label: Text('가입일')),
+          DataColumn(label: Text('탈퇴 신청일')),
+          DataColumn(label: Text('최종 탈퇴일')),
+          DataColumn(label: Text('탈퇴 당시 유형')),
+          DataColumn(label: Text('탈퇴 사유')),
+          DataColumn(label: Text('탈퇴 직전 상태')),
+        ],
+        rows: [for (final doc in _docs) _buildWithdrawnRow(doc)],
+      ),
+    );
+  }
+
+  DataRow _buildWithdrawnRow(QueryDocumentSnapshot<Map<String, dynamic>> doc) {
+    final d = doc.data();
+    String date(String key) {
+      final t = (d[key] as Timestamp?)?.toDate();
+      return t == null ? '-' : DateFormat('yyyy.MM.dd').format(t);
+    }
+
+    final memberType = d['withdrawnMemberType'] as String?;
+    // 유형이 비어 있는 건 이 기능 이전에 탈퇴한 계정이다. '일반회원'으로 단정하면
+    // 사업자였던 사람을 잘못 표시하게 되므로 '-'로 둔다.
+    final memberTypeLabel = memberType == 'business'
+        ? '사업자'
+        : memberType == 'individual'
+            ? '일반'
+            : '-';
+
+    final reasonCode = d['withdrawalReasonCode'] as String?;
+    final reasonLabel = reasonCode == null
+        ? ((d['withdrawalReasonProvided'] as bool? ?? false) ? '(서술만)' : '-')
+        : (_withdrawalReasonLabels[reasonCode] ?? reasonCode);
+
+    final fromStatus = d['withdrawnFromStatus'] as String?;
+
+    return DataRow(
+      onSelectChanged: (_) => widget.onOpenMember(doc.id),
+      cells: [
+        DataCell(SelectableText(
+          doc.id,
+          style: const TextStyle(fontFamily: 'monospace', fontSize: 12),
+        )),
+        DataCell(Text(date('createdAt'))),
+        DataCell(Text(date('withdrawalRequestedAt'))),
+        DataCell(Text(date('withdrawnAt'))),
+        DataCell(Text(memberTypeLabel)),
+        DataCell(Text(reasonLabel)),
+        // 제재 중이던 회원이 탈퇴했는지 — 재가입 심사에서 가장 먼저 볼 값이다.
+        DataCell(fromStatus == null || fromStatus == 'active'
+            ? const Text('-')
+            : _AccountStatusBadge(status: fromStatus)),
+      ],
     );
   }
 
   DataRow _buildRow(QueryDocumentSnapshot<Map<String, dynamic>> doc) {
     final d = doc.data();
-    final photoUrl = d['profileImageUrl'] as String? ?? '';
     final nickname = d['nickname'] as String? ?? '-';
     final name = d['name'] as String? ?? '-';
     final gender = d['gender'] as String?;
     final genderLabel = gender == 'male' ? '남' : gender == 'female' ? '여' : '-';
-    final birthYear = (d['birthYear'] as num?)?.toInt();
-    // 주민등록번호 뒷자리 첫 숫자: 2000년 이전 출생 남1/여2, 2000년 이후 출생 남3/여4.
-    final rrnGenderDigit = birthYear == null
-        ? null
-        : (birthYear < 2000
-            ? (gender == 'male' ? 1 : gender == 'female' ? 2 : null)
-            : (gender == 'male' ? 3 : gender == 'female' ? 4 : null));
-    final age = birthYear == null
-        ? '-'
-        : '${DateTime.now().year - birthYear + 1}세${rrnGenderDigit != null ? ' ($rrnGenderDigit)' : ''}';
     final phone = Masking.phone(d['phoneNumber'] as String?);
     final email = d['email'] as String? ?? '-';
     final verified = (d['identityVerified'] as bool?) ?? (d['isVerified'] as bool?) ?? false;
     final createdAt = (d['createdAt'] as Timestamp?)?.toDate();
-    final lastLoginAt = (d['lastLoginAt'] as Timestamp?)?.toDate();
-    final lastActiveAt = (d['lastActiveAt'] as Timestamp?)?.toDate();
     // "이메일 테스트 계정"(kDebugMode 전용 로그인) — signupProvider 없이
     // isTestAccount만 true인 경우를 이렇게 구분해 표시한다.
     final signupProvider = d['signupProvider'] as String?;
@@ -619,56 +754,39 @@ class _MembersScreenState extends State<MembersScreen> {
     final signupProviderLabel = signupProvider != null
         ? (_signupProviderLabels[signupProvider] ?? signupProvider)
         : (isTestAccount ? '이메일(테스트)' : '-');
-    final accountStatus = d['accountStatus'] as String? ?? 'active';
-    final activityRoles = (d['activityRoles'] as List?)?.cast<String>() ?? const [];
-
-    // 신청/실제이용 등 상세 수치는 users가 아니라 별도 userStats 컬렉션에서
-    // 온다(원본 신청 기록과 요약 통계 분리) — 활동이 전혀 없는 회원은 문서가
-    // 아직 없어 0으로 표시한다. 크루 지원/신고는 앱에 기능 자체가 없어
-    // 항상 0/"-"로 고정된다(userStats 필드도 예약만 돼 있고 절대 채워지지
-    // 않음 — memberManagement.js 상단 주석 참고).
-    final stats = _statsById[doc.id];
-    int n(String key) => (stats?[key] as num?)?.toInt() ?? 0;
-    num money(String key) => (stats?[key] as num?) ?? 0;
-    final placeReservations = n('totalPlaceReservationsAsGuest') + n('totalPlaceReservationsAsHost');
+    // 사업자 정보는 이 회원 문서 안에 이미 들어 있다 — 추가 조회가 없다.
+    final biz = BusinessInfo.fromUserDoc(d);
 
     return DataRow(
       onSelectChanged: (_) => widget.onOpenMember(doc.id),
       cells: [
-        DataCell(CircleAvatar(
-          radius: 14,
-          backgroundColor: AdminTheme.accentLight,
-          backgroundImage: photoUrl.isNotEmpty ? NetworkImage(photoUrl) : null,
-          child: photoUrl.isEmpty ? const Icon(Icons.person, size: 14, color: AdminTheme.accent) : null,
-        )),
-        DataCell(Text(nickname)),
         DataCell(Text(name)),
-        DataCell(Text(age)),
+        // 생년월일·성별은 본인확인(NICE)이 저장한 값이 유일한 출처다 —
+        // 인증 전 회원에게는 이 칸에 채울 근거가 없어 '-'로 둔다.
+        DataCell(_BirthCell(
+          year: (d['birthYear'] as num?)?.toInt(),
+          month: (d['birthMonth'] as num?)?.toInt(),
+          day: (d['birthDay'] as num?)?.toInt(),
+        )),
         DataCell(Text(genderLabel)),
+        DataCell(Text(nickname)),
+        // 문의·장애 대응에서 그대로 복사해 쓰는 값이라 선택 가능해야 한다.
+        DataCell(SelectableText(
+          doc.id,
+          style: const TextStyle(fontFamily: 'monospace', fontSize: 12),
+        )),
         DataCell(Text(phone)),
         DataCell(Text(email)),
         DataCell(_VerifiedBadge(verified: verified)),
+        DataCell(_BusinessBadge(info: biz)),
+        DataCell(Text(biz.isBusiness ? biz.formattedBusinessNumber : '-')),
+        DataCell(Text(
+          biz.businessName.isNotEmpty ? biz.businessName : '-',
+          overflow: TextOverflow.ellipsis,
+        )),
         DataCell(Text(createdAt == null ? '-' : DateFormat('yyyy.MM.dd').format(createdAt))),
         DataCell(Text(signupProviderLabel)),
-        DataCell(_ActivityBadges(roles: activityRoles)),
-        DataCell(Text((stats?['favoriteRegion'] as String? ?? '-').replaceAll('_', ' '))),
-        DataCell(Text(lastLoginAt == null ? '-' : DateFormat('yyyy.MM.dd').format(lastLoginAt))),
-        DataCell(Text(lastActiveAt == null ? '-' : DateFormat('yyyy.MM.dd').format(lastActiveAt))),
-        DataCell(_AccountStatusBadge(status: accountStatus)),
-        DataCell(Text(isTestAccount ? 'O' : '-')),
-        DataCell(Text('${n('totalPartiesCreated')}')),
-        DataCell(Text('${n('totalApplications')}')),
-        DataCell(Text('${n('totalAttended')}')),
-        DataCell(Text('${n('totalPlacesCreated')}')),
-        DataCell(Text('$placeReservations')),
-        DataCell(Text('${n('totalProductsRegistered')}')),
-        DataCell(Text('${n('totalProductPurchases')}')),
-        DataCell(Text('${n('totalCrewPostings')}')),
-        const DataCell(Text('0')), // 크루 지원 — 기능 미구현, 항상 0
-        DataCell(Text('${n('totalFavoritesReceived')}')),
-        const DataCell(Text('-')), // 신고 — 기능 미구현, 항상 "-"
-        DataCell(Text(NumberFormat('#,###').format(money('cumulativePaymentAmount')))),
-        DataCell(Text(NumberFormat('#,###').format(money('cumulativeRefundAmount')))),
+        if (_showTestColumn) DataCell(Text(isTestAccount ? 'O' : '-')),
       ],
     );
   }
@@ -676,9 +794,14 @@ class _MembersScreenState extends State<MembersScreen> {
   Widget _buildPagination() {
     final start = _pageIndex * _pageSize + 1;
     final end = _pageIndex * _pageSize + _docs.length;
+    // 위치(start–end)는 **받아온 페이지 기준** 그대로다 — 테스트 계정을
+    // 화면에서만 빼기 때문에, 감춘 수를 따로 밝혀야 "50명씩인데 왜 47줄"이
+    // 설명된다.
+    final hidden = _hiddenTestCount;
     final rangeLabel = _docs.isEmpty
         ? '0건'
-        : '$start–$end / 전체 ${_filteredTotal == null ? '-' : NumberFormat('#,###').format(_filteredTotal)}명';
+        : '$start–$end / 전체 ${_filteredTotal == null ? '-' : NumberFormat('#,###').format(_filteredTotal)}명'
+            '${hidden == 0 ? '' : ' · 테스트 계정 $hidden명 숨김'}';
 
     return Padding(
       padding: const EdgeInsets.only(top: 12),
@@ -734,37 +857,51 @@ class _VerifiedBadge extends StatelessWidget {
   }
 }
 
-/// 회원이 실제로 수행한 활동에 따라 자동으로 붙는 배지 — 고정 역할이 아니라
-/// users.activityRoles 배열을 그대로 나열한다. 여러 활동을 했으면 여러 개.
-class _ActivityBadges extends StatelessWidget {
-  final List<String> roles;
-  const _ActivityBadges({required this.roles});
+/// 사업자/일반회원 구분 배지.
+///
+/// "사업자"의 근거는 users.businessVerification 맵이 있느냐 하나뿐이다 —
+/// settlementInfo.hostType('개인'/'사업자')은 사용자가 정산 화면에서 직접
+/// 고르는 자기신고 값이라 여기 쓰지 않는다(business_info.dart 주석 참고).
+///
+/// 인증 통과(verified)와 그 외(심사 필요·실패·휴폐업)를 색으로 갈라서, 목록만
+/// 훑어도 "사업자라고 넣었는데 아직 통과 못 한 사람"이 눈에 띄게 한다.
+class _BusinessBadge extends StatelessWidget {
+  final BusinessInfo info;
+  const _BusinessBadge({required this.info});
 
   @override
   Widget build(BuildContext context) {
-    if (roles.isEmpty) {
-      return const Text('-', style: TextStyle(color: AdminTheme.textSecondary, fontSize: 12));
+    if (!info.isBusiness) {
+      return const Text('일반회원',
+          style: TextStyle(fontSize: 11.5, color: AdminTheme.textSecondary));
     }
-    return Wrap(
-      spacing: 4,
-      runSpacing: 4,
-      children: [
-        for (final role in roles)
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
-            decoration: BoxDecoration(
-              color: AdminTheme.accentLight,
-              borderRadius: BorderRadius.circular(20),
-            ),
-            child: Text(
-              _activityRoleLabels[role] ?? role,
-              style: const TextStyle(fontSize: 10.5, fontWeight: FontWeight.bold, color: AdminTheme.accent),
-            ),
-          ),
-      ],
+    // ok는 **권한까지 열린 경우만**이다 — 대표자 확인이 필요한 계정을
+    // 파란 '인증 완료'로 그리면 목록만 보고 권한이 있다고 오해한다.
+    final ok = info.isVerified;
+    final warn = info.status == BizStatus.suspended || info.status == BizStatus.failed;
+    final (bg, fg) = ok
+        ? (const Color(0xFFE6F0FF), const Color(0xFF2D5BD1))
+        : warn
+            ? (const Color(0xFFFDECEC), const Color(0xFFC03A3A))
+            : (const Color(0xFFFFF4E2), const Color(0xFFB2701A));
+    return Tooltip(
+      message: '사업자 · ${info.statusLabel}'
+          '${info.ntsStatusLabel.isNotEmpty ? ' (${info.ntsStatusLabel})' : ''}'
+          '${info.needsOwnerApproval ? ' — 국세청 확인은 끝났으나 본인 명의가 아니라 권한이 열리지 않았습니다.' : ''}',
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+        decoration: BoxDecoration(color: bg, borderRadius: BorderRadius.circular(20)),
+        child: Text(
+          '사업자 · ${info.statusLabel}',
+          style: TextStyle(fontSize: 11.5, fontWeight: FontWeight.bold, color: fg),
+        ),
+      ),
     );
   }
 }
+
+/// 회원이 실제로 수행한 활동에 따라 자동으로 붙는 배지 — 고정 역할이 아니라
+/// users.activityRoles 배열을 그대로 나열한다. 여러 활동을 했으면 여러 개.
 
 class _AccountStatusBadge extends StatelessWidget {
   final String status;
@@ -799,6 +936,188 @@ class _AccountStatusBadge extends StatelessWidget {
           color: _textColors[status] ?? _textColors['active'],
         ),
       ),
+    );
+  }
+}
+
+/// 표를 카드 안에서 **가로·세로 모두** 스크롤할 수 있게 감싼다.
+///
+/// 열이 화면보다 넓을 때 오른쪽 끝(가입경로)까지 볼 수 없던 이유가 세 가지였다.
+///
+///   1. 데스크톱 웹의 기본 `ScrollBehavior`는 **마우스 드래그로 스크롤하지
+///      않는다**(dragDevices에 mouse가 없다) — 표를 잡아끌어도 움직이지 않는다.
+///   2. 휠은 세로 축에만 걸린다. 가로로 밀려면 Shift+휠을 알고 있어야 한다.
+///   3. `SingleChildScrollView`는 스크롤바를 스스로 그리지 않아서, **오른쪽에
+///      더 있다는 사실 자체가 화면에 나타나지 않는다.**
+///
+/// 그래서 축마다 스크롤바를 하나씩 항상 띄우고(thumbVisibility), 마우스 드래그도
+/// 허용한다. 가로 스크롤바는 세로 스크롤 뷰 **바깥**에 있어 카드 아래쪽에 붙어
+/// 있고, 세로로 내려도 함께 사라지지 않는다.
+///
+/// 표 자체는 예전처럼 자기 자연 너비를 그대로 쓴다 — 페이지를 늘리거나 열을
+/// 찌그러뜨리지 않고, 넘치는 만큼만 카드 안에서 밀린다.
+class _ScrollableTable extends StatefulWidget {
+  final Widget child;
+
+  const _ScrollableTable({required this.child});
+
+  @override
+  State<_ScrollableTable> createState() => _ScrollableTableState();
+}
+
+class _ScrollableTableState extends State<_ScrollableTable> {
+  final _horizontal = ScrollController();
+  final _vertical = ScrollController();
+
+  @override
+  void dispose() {
+    _horizontal.dispose();
+    _vertical.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return ScrollConfiguration(
+      behavior: ScrollConfiguration.of(context).copyWith(
+        dragDevices: const {
+          PointerDeviceKind.touch,
+          PointerDeviceKind.mouse,
+          PointerDeviceKind.trackpad,
+          PointerDeviceKind.stylus,
+        },
+        // 스크롤바는 아래에서 축마다 직접 붙인다 — 기본 동작에 맡기면 세로만
+        // 붙고, 여기에 또 겹치면 같은 자리에 두 개가 그려진다.
+        scrollbars: false,
+      ),
+      child: Scrollbar(
+        controller: _vertical,
+        thumbVisibility: true,
+        child: Scrollbar(
+          controller: _horizontal,
+          thumbVisibility: true,
+          // 가로 스크롤 알림은 세로 스크롤 뷰를 한 번 지나 올라온다(depth 1).
+          // 이 조건이 없으면 세로 스크롤에 가로 스크롤바가 반응한다.
+          notificationPredicate: (n) => n.depth == 1,
+          child: SingleChildScrollView(
+            controller: _vertical,
+            child: SingleChildScrollView(
+              controller: _horizontal,
+              scrollDirection: Axis.horizontal,
+              child: widget.child,
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// 생년월일 + 한국 나이 두 줄 — `1991.03.15` / `91년생 · 36세`.
+///
+/// 값의 출처는 본인확인(NICE)이 저장한 birthYear/Month/Day 하나뿐이다
+/// (`functions/niceAuth.js`). 인증 전 회원은 이 값이 아예 없으므로 `-`로 두고,
+/// 가입일이나 다른 필드로 **추측하지 않는다.**
+///
+/// 나이는 저장하지 않고 [memberAgeLabel]이 매번 계산한다 — 해가 바뀌면 저절로
+/// 한 살이 오른다.
+class _BirthCell extends StatelessWidget {
+  final int? year;
+  final int? month;
+  final int? day;
+
+  const _BirthCell({this.year, this.month, this.day});
+
+  @override
+  Widget build(BuildContext context) {
+    final y = year;
+    if (y == null) return const Text('-');
+    final date = memberBirthDateLabel(y, month, day);
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(date),
+        Text(
+          memberAgeLabel(y),
+          style: const TextStyle(fontSize: 11.5, color: AdminTheme.textSecondary),
+        ),
+      ],
+    );
+  }
+}
+/// 필터 이름이 **항상 보이는** 드롭다운.
+///
+/// 예전에는 필터 이름을 [DropdownButton.hint]에만 넣었는데, 선택지에
+/// `value: null`인 '전체' 항목이 함께 있으면 hint는 그려지지 않는다(값이 null
+/// 이어도 그 항목에 매칭되기 때문이다). 그래서 툴바에 '전체'만 다섯 개
+/// 늘어서서 각각이 무슨 필터인지 알 수 없었다.
+///
+/// 그래서 버튼 표면에는 '성별 전체'처럼 **이름과 현재 값을 함께** 그리고
+/// ([DropdownButton.selectedItemBuilder]), 펼친 메뉴에는 값만 보여준다
+/// ('전체 / 남성 / 여성').
+///
+/// 라벨을 별도 위젯으로 떼어내지 않은 것이 핵심이다 — 이름과 값이 같은
+/// DropdownButton 안에 있으므로 **어디를 눌러도 그대로 메뉴가 열린다.**
+/// 폭도 selectedItemBuilder가 만드는 '이름 + 값' 기준으로 잡혀서
+/// '본인확인 미완료' 같은 긴 조합도 잘리지 않는다.
+///
+/// ⚠️ 표시 전용이다. 필터 판정·검색·정렬·페이지네이션은 이 위젯을 거치지
+/// 않는다 — [onChanged]가 예전과 똑같은 값을 그대로 돌려준다.
+class _LabeledDropdown<T> extends StatelessWidget {
+  const _LabeledDropdown({
+    required this.label,
+    required this.value,
+    required this.options,
+    required this.onChanged,
+  });
+
+  /// 필터 이름 — 버튼에 항상 붙는다.
+  final String label;
+
+  final T value;
+
+  /// 값과 표기. 나열 순서가 곧 메뉴 순서다.
+  final List<({T value, String text})> options;
+
+  final ValueChanged<T?>? onChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    return DropdownButton<T>(
+      value: value,
+      onChanged: onChanged,
+      // 펼친 메뉴 — 값만 보여준다. 이름은 버튼에 이미 붙어 있어서 항목마다
+      // 반복하면 '성별 전체 / 성별 남성 / 성별 여성'처럼 읽힌다.
+      items: [
+        for (final o in options)
+          DropdownMenuItem<T>(value: o.value, child: Text(o.text)),
+      ],
+      // 버튼 표면 — '이름 값'. items와 **순서가 같아야** 선택값과 짝이 맞는다.
+      selectedItemBuilder: (context) => [
+        for (final o in options)
+          Align(
+            alignment: Alignment.centerLeft,
+            child: Text.rich(
+              TextSpan(
+                children: [
+                  TextSpan(
+                    text: '$label ',
+                    style: const TextStyle(
+                      color: AdminTheme.textSecondary,
+                      fontWeight: FontWeight.w500,
+                    ),
+                  ),
+                  TextSpan(
+                    text: o.text,
+                    style: const TextStyle(fontWeight: FontWeight.w700),
+                  ),
+                ],
+              ),
+              maxLines: 1,
+            ),
+          ),
+      ],
     );
   }
 }

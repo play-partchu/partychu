@@ -4,6 +4,12 @@
 // 그대로 옮긴 것으로, 동작은 바뀌지 않는다.
 
 const { HttpsError } = require('firebase-functions/v2/https');
+// 호스트 결제 정책(예약금) 필드 추출 — 룸/장소 문서 최상단에 평평하게 저장된다.
+const paymentPolicyModule = require('./paymentPolicy');
+const {
+  normalizeApprovalMode,
+  normalizeApprovalHours,
+} = require('./placeReservationFlow');
 
 const PENDING_TTL_MS = 10 * 60 * 1000; // 결제 대기 10분 — 이후 자동 만료
 const WEEKDAY_LABELS = ['월', '화', '수', '목', '금', '토', '일'];
@@ -37,6 +43,37 @@ function windowsOverlap(a, b) {
   return a.start < b.end && a.end > b.start;
 }
 
+// ── 예약 방식(복수 선택) ──────────────────────────────────────────────────────
+// 'stay'(숙박 1박) | 'hourly'(시간제) | 'package'. 룸 문서의 정본은
+// reservationModes 배열이고, reservationMode(단수)는 아직 업데이트되지 않은
+// 앱을 위한 하위호환 미러다. 해석 규칙은 클라이언트
+// (party_app/lib/models/reservation_modes.dart)와 반드시 같아야 한다.
+
+const RESERVATION_MODES = ['stay', 'hourly', 'package'];
+
+function normalizeReservationModes(cfg, packages) {
+  const raw = cfg.reservationModes;
+  if (Array.isArray(raw)) {
+    const parsed = raw.filter((m) => RESERVATION_MODES.includes(m));
+    if (parsed.length > 0) return parsed;
+  }
+  switch (cfg.reservationMode) {
+    case 'both': return ['hourly', 'package'];
+    case 'hourly': return ['hourly'];
+    case 'package': return ['package'];
+    // 'daily'는 옛 하루단위 대여 값 — 의미상 숙박에 가장 가깝다.
+    case 'stay':
+    case 'daily': return ['stay'];
+    default: break;
+  }
+  return packages.length > 0 ? ['package'] : ['hourly'];
+}
+
+// 숙박 예약은 하나가 여러 날에 걸쳐 있어서, 겹침 판정용 슬롯 조회를 하루보다
+// 훨씬 넓게 해야 한다 — 선택한 날짜를 "관통하는" 장기 숙박을 놓치지 않으려는
+// 것(placeReservations.js / packageBookings.js가 이 값을 그대로 쓴다).
+const STAY_LOOKBACK_DAYS = 31;
+
 // ── 룸/장소 설정 로드 (룸 있으면 룸 스키마, 없으면 place 구 스키마로 폴백) ──────
 
 async function loadReservationConfig(db, placeId, roomId) {
@@ -56,15 +93,38 @@ async function loadReservationConfig(db, placeId, roomId) {
 
   const packages = (Array.isArray(cfg.packages) ? cfg.packages : [])
     .filter((p) => p && p.isActive !== false);
-  const reservationMode = cfg.reservationMode
-    || (packages.length > 0 ? 'package' : 'hourly');
+  const reservationModes = normalizeReservationModes(cfg, packages);
 
   return {
     hostId: placeData.hostId || null,
     placeName: placeData.name || null,
     roomName: roomId ? (cfg.roomName || null) : null,
-    reservationMode,
+    reservationModes,
     packages,
+    // 승인 방식 — 'auto'(신청 즉시 확정) | 'manual'(업주 승인 후 확정).
+    // 룸에 설정이 없으면 장소 문서를 보고, 그것도 없으면 'auto'다(지금까지
+    // 장소대여에는 승인 단계가 아예 없었으므로 그 동작을 그대로 지킨다).
+    approvalMode: normalizeApprovalMode(
+      cfg.reservationApprovalMode || placeData.reservationApprovalMode,
+    ),
+    approvalHours: normalizeApprovalHours(
+      cfg.reservationApprovalHours || placeData.reservationApprovalHours,
+    ),
+    // 호스트 결제 정책(전액 선결제 / 예약금 / 현장 전액결제) — 승인 방식과
+    // 같은 규칙으로 룸 설정을 먼저 보고 없으면 장소 문서를 본다. 둘 다 없으면
+    // null이고, 그때는 지금까지처럼 구매자가 결제수단을 자유롭게 고른다.
+    // (정규화·검증은 paymentPolicy.normalizePolicy가 호출 시점에 한다 —
+    //  여기서는 원본을 그대로 실어 나른다.)
+    // 정책 필드는 룸/장소 문서 최상단에 평평하게 저장된다(paymentMode 등).
+    paymentPolicy:
+      paymentPolicyModule.pickPolicyFields(cfg) ||
+      paymentPolicyModule.pickPolicyFields(placeData),
+    // 숙박(1박) 설정 — StayConfig(reservation_modes.dart)와 같은 필드.
+    stayPricePerNight: Number(cfg.stayPricePerNight) || 0,
+    stayCheckInMinutes: parseTimeStr(cfg.stayCheckInTime || '16:00'),
+    stayCheckOutMinutes: parseTimeStr(cfg.stayCheckOutTime || '11:00'),
+    stayMinNights: Number(cfg.stayMinNights) || 1,
+    stayMaxNights: cfg.stayMaxNights != null ? Number(cfg.stayMaxNights) : null,
     unitMinutes: Number(cfg.bookingUnitMinutes) || 60,
     openMinutes: cfg.openTime ? parseTimeStr(cfg.openTime)
       : (Number(cfg.openHour) || 9) * 60,
@@ -81,6 +141,37 @@ async function loadReservationConfig(db, placeId, roomId) {
 // ── 요청 → 예약 구간(window) 목록 계산 + 검증 ──────────────────────────────────
 
 function computeWindows(cfg, bookingType, data) {
+  // 숙박(1박 단위) — 체크인 시각부터 N일 뒤 체크아웃 시각까지를 하나의
+  // 구간으로 점유한다. 예) 체크인 16:00 / 체크아웃 11:00 짜리 2박이면
+  // 자정 기준 960분 ~ 3540분(2×1440+660). 이렇게 두면 그 사이에 들어오는
+  // 시간제·패키지 예약이 같은 겹침 판정 함수 하나로 전부 걸러진다.
+  if (bookingType === 'stay') {
+    if (!cfg.reservationModes.includes('stay')) {
+      throw new HttpsError('failed-precondition', '이 룸은 숙박 예약을 지원하지 않아요.');
+    }
+    const nights = Number(data.nights) || 0;
+    if (!Number.isInteger(nights) || nights < 1) {
+      throw new HttpsError('invalid-argument', '숙박일 수가 올바르지 않습니다.');
+    }
+    if (nights < cfg.stayMinNights) {
+      throw new HttpsError('failed-precondition', `최소 ${cfg.stayMinNights}박부터 예약할 수 있어요.`);
+    }
+    if (cfg.stayMaxNights != null && nights > cfg.stayMaxNights) {
+      throw new HttpsError('failed-precondition', `최대 ${cfg.stayMaxNights}박까지 예약할 수 있어요.`);
+    }
+    const start = cfg.stayCheckInMinutes;
+    const end = nights * 1440 + cfg.stayCheckOutMinutes;
+    if (end <= start) {
+      throw new HttpsError('failed-precondition', '체크인/체크아웃 시각 설정이 올바르지 않아요.');
+    }
+    return {
+      windows: [{ start, end, price: cfg.stayPricePerNight * nights }],
+      totalMinutes: end - start,
+      packageId: null,
+      packageName: null,
+    };
+  }
+
   if (bookingType === 'daily') {
     const totalMinutes = 1440;
     return {
@@ -92,7 +183,7 @@ function computeWindows(cfg, bookingType, data) {
   }
 
   if (bookingType === 'package') {
-    if (cfg.reservationMode === 'hourly') {
+    if (!cfg.reservationModes.includes('package')) {
       throw new HttpsError('failed-precondition', '이 룸은 패키지 예약을 지원하지 않아요.');
     }
     const packageId = data.packageId;
@@ -126,7 +217,7 @@ function computeWindows(cfg, bookingType, data) {
   }
 
   // hourly
-  if (cfg.reservationMode === 'package') {
+  if (!cfg.reservationModes.includes('hourly')) {
     throw new HttpsError('failed-precondition', '이 룸은 시간제 예약을 지원하지 않아요.');
   }
   const ranges = Array.isArray(data.ranges) ? data.ranges : [];
@@ -177,6 +268,9 @@ function computeWindows(cfg, bookingType, data) {
 module.exports = {
   PENDING_TTL_MS,
   WEEKDAY_LABELS,
+  RESERVATION_MODES,
+  STAY_LOOKBACK_DAYS,
+  normalizeReservationModes,
   parseTimeStr,
   kstMidnight,
   kstWeekdayLabel,

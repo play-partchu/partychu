@@ -1,0 +1,1852 @@
+{
+  "now": "2026-08-22T03:00:00.000Z",
+  "note": "이 파일은 functions/partyRegistration.selfcheck.js --write 로 만들어지고, party_app/test/party_registration_parity_test.dart 가 같은 파일을 읽어 앱 모델이 같은 값을 내는지 확인한다. 손으로 고치지 말 것.",
+  "pricing": [
+    {
+      "name": "무료",
+      "input": {
+        "male": 0,
+        "female": 0
+      },
+      "expected": {
+        "pricingType": "free",
+        "price": 0,
+        "malePrice": 0,
+        "femalePrice": 0,
+        "maleFee": 0,
+        "femaleFee": 0
+      }
+    },
+    {
+      "name": "음수는 0으로 자른다",
+      "input": {
+        "male": -5000,
+        "female": 0
+      },
+      "expected": {
+        "pricingType": "free",
+        "price": 0,
+        "malePrice": 0,
+        "femalePrice": 0,
+        "maleFee": 0,
+        "femaleFee": 0
+      }
+    },
+    {
+      "name": "남녀 같은 금액 → same",
+      "input": {
+        "male": 30000,
+        "female": 30000
+      },
+      "expected": {
+        "pricingType": "same",
+        "price": 30000,
+        "malePrice": null,
+        "femalePrice": null,
+        "maleFee": 30000,
+        "femaleFee": 30000
+      }
+    },
+    {
+      "name": "type:same 직접 지정",
+      "input": {
+        "type": "same",
+        "price": 25000
+      },
+      "expected": {
+        "pricingType": "same",
+        "price": 25000,
+        "malePrice": null,
+        "femalePrice": null,
+        "maleFee": 25000,
+        "femaleFee": 25000
+      }
+    },
+    {
+      "name": "남녀 다른 금액 → gendered",
+      "input": {
+        "male": 35000,
+        "female": 25000
+      },
+      "expected": {
+        "pricingType": "gendered",
+        "price": null,
+        "malePrice": 35000,
+        "femalePrice": 25000,
+        "maleFee": 35000,
+        "femaleFee": 25000
+      }
+    },
+    {
+      "name": "한쪽만 유료 — 대표가는 0보다 큰 쪽",
+      "input": {
+        "male": 35000,
+        "female": 0
+      },
+      "expected": {
+        "pricingType": "gendered",
+        "price": null,
+        "malePrice": 35000,
+        "femalePrice": 0,
+        "maleFee": 35000,
+        "femaleFee": 0
+      }
+    },
+    {
+      "name": "type:free는 금액을 무시한다",
+      "input": {
+        "type": "free",
+        "male": 30000
+      },
+      "expected": {
+        "pricingType": "free",
+        "price": 0,
+        "malePrice": 0,
+        "femalePrice": 0,
+        "maleFee": 0,
+        "femaleFee": 0
+      }
+    }
+  ],
+  "recruitRule": [
+    {
+      "name": "기본(시작 60분 전)",
+      "input": {},
+      "expected": {
+        "mode": "beforeStart",
+        "minutes": 60,
+        "hours": 1
+      }
+    },
+    {
+      "name": "시작 90분 전 — hours는 내림",
+      "input": {
+        "mode": "beforeStart",
+        "minutes": 90
+      },
+      "expected": {
+        "mode": "beforeStart",
+        "minutes": 90,
+        "hours": 1
+      }
+    },
+    {
+      "name": "옛 문서: hours만 있음",
+      "input": {
+        "mode": "beforeStart",
+        "hours": 2
+      },
+      "expected": {
+        "mode": "beforeStart",
+        "minutes": 120,
+        "hours": 2
+      }
+    },
+    {
+      "name": "시작일 지정 시각",
+      "input": {
+        "mode": "startDayTime",
+        "time": "18:00"
+      },
+      "expected": {
+        "mode": "startDayTime",
+        "time": "18:00"
+      }
+    },
+    {
+      "name": "전날 지정 시각",
+      "input": {
+        "mode": "prevDayTime",
+        "time": "21:30"
+      },
+      "expected": {
+        "mode": "prevDayTime",
+        "time": "21:30"
+      }
+    },
+    {
+      "name": "직접 지정",
+      "input": {
+        "mode": "customDateTime",
+        "atMs": 1788512400000
+      },
+      "expected": {
+        "mode": "customDateTime",
+        "atMs": 1788512400000
+      }
+    },
+    {
+      "name": "제한 없음",
+      "input": {
+        "mode": "none"
+      },
+      "expected": {
+        "mode": "none"
+      }
+    },
+    {
+      "name": "옛 키 hoursBefore → beforeStart",
+      "input": {
+        "mode": "hoursBefore",
+        "hours": 3
+      },
+      "expected": {
+        "mode": "beforeStart",
+        "minutes": 180,
+        "hours": 3
+      }
+    },
+    {
+      "name": "옛 키 sameDayTime → startDayTime",
+      "input": {
+        "mode": "sameDayTime",
+        "time": "20:00"
+      },
+      "expected": {
+        "mode": "startDayTime",
+        "time": "20:00"
+      }
+    }
+  ],
+  "earlyBird": [
+    {
+      "name": "꺼짐",
+      "input": {
+        "enabled": false
+      },
+      "isRecurring": false,
+      "expected": {
+        "earlyBirdEnabled": false,
+        "earlyBirdDiscountPercent": null,
+        "earlyBirdEndType": null,
+        "earlyBirdEndAt": null,
+        "earlyBirdDeadlineRule": null
+      }
+    },
+    {
+      "name": "고정 종료 시각",
+      "input": {
+        "enabled": true,
+        "percent": 10,
+        "endType": "fixedDate",
+        "endAt": {
+          "date": "2026-09-01",
+          "time": "23:59"
+        }
+      },
+      "isRecurring": false,
+      "expected": {
+        "earlyBirdEnabled": true,
+        "earlyBirdDiscountPercent": 10,
+        "earlyBirdEndType": "fixedDate",
+        "earlyBirdEndAt": {
+          "__date": "2026-09-01T14:59:00.000Z"
+        },
+        "earlyBirdDeadlineRule": null
+      }
+    },
+    {
+      "name": "고정 종료 시각인데 시각이 없으면 꺼진 것으로 저장된다",
+      "input": {
+        "enabled": true,
+        "percent": 10,
+        "endType": "fixedDate"
+      },
+      "isRecurring": false,
+      "expected": {
+        "earlyBirdEnabled": false,
+        "earlyBirdDiscountPercent": null,
+        "earlyBirdEndType": null,
+        "earlyBirdEndAt": null,
+        "earlyBirdDeadlineRule": null
+      }
+    },
+    {
+      "name": "시작 N일 전",
+      "input": {
+        "enabled": true,
+        "percent": 15,
+        "endType": "beforeStart",
+        "beforeStartRule": {
+          "mode": "daysBefore",
+          "days": 3,
+          "time": "23:59"
+        }
+      },
+      "isRecurring": false,
+      "expected": {
+        "earlyBirdEnabled": true,
+        "earlyBirdDiscountPercent": 15,
+        "earlyBirdEndType": "beforeStart",
+        "earlyBirdEndAt": null,
+        "earlyBirdDeadlineRule": {
+          "mode": "daysBefore",
+          "days": 3,
+          "time": "23:59"
+        }
+      }
+    },
+    {
+      "name": "시작 N시간 전 — time은 저장하지 않는다",
+      "input": {
+        "enabled": true,
+        "percent": 20,
+        "endType": "beforeStart",
+        "beforeStartRule": {
+          "mode": "hoursBefore",
+          "hours": 24
+        }
+      },
+      "isRecurring": false,
+      "expected": {
+        "earlyBirdEnabled": true,
+        "earlyBirdDiscountPercent": 20,
+        "earlyBirdEndType": "beforeStart",
+        "earlyBirdEndAt": null,
+        "earlyBirdDeadlineRule": {
+          "mode": "hoursBefore",
+          "hours": 24
+        }
+      }
+    },
+    {
+      "name": "정기 파티는 고정 시각을 골라도 규칙으로 저장된다",
+      "input": {
+        "enabled": true,
+        "percent": 10,
+        "endType": "fixedDate",
+        "endAt": {
+          "date": "2026-09-01",
+          "time": "23:59"
+        },
+        "beforeStartRule": {
+          "mode": "sameDayTime",
+          "time": "18:00"
+        }
+      },
+      "isRecurring": true,
+      "expected": {
+        "earlyBirdEnabled": true,
+        "earlyBirdDiscountPercent": 10,
+        "earlyBirdEndType": "beforeStart",
+        "earlyBirdEndAt": null,
+        "earlyBirdDeadlineRule": {
+          "mode": "sameDayTime",
+          "time": "18:00"
+        }
+      }
+    }
+  ],
+  "singleSchedule": [
+    {
+      "name": "일회성 — 시작일 18:00 마감",
+      "slot": {
+        "date": "2026-09-05",
+        "startTime": "20:00",
+        "endTime": "23:00"
+      },
+      "deadlineRule": {
+        "mode": "startDayTime",
+        "time": "18:00"
+      },
+      "openRule": {
+        "mode": "none"
+      },
+      "expected": {
+        "scheduleType": "single",
+        "singleSchedule": {
+          "date": {
+            "__date": "2026-09-04T15:00:00.000Z"
+          },
+          "startTime": "20:00",
+          "endTime": "23:00",
+          "registrationDeadline": {
+            "__date": "2026-09-05T09:00:00.000Z"
+          },
+          "registrationOpen": null
+        },
+        "recurringSchedule": null,
+        "recruitDeadlineRule": {
+          "mode": "startDayTime",
+          "time": "18:00"
+        },
+        "recruitOpenRule": {
+          "mode": "none"
+        },
+        "recruitOpenAt": null
+      }
+    },
+    {
+      "name": "자정을 넘기는 파티 — 종료가 다음 날",
+      "slot": {
+        "date": "2026-09-05",
+        "startTime": "21:00",
+        "endTime": "02:00"
+      },
+      "deadlineRule": {
+        "mode": "beforeStart",
+        "minutes": 60
+      },
+      "openRule": {
+        "mode": "prevDayTime",
+        "time": "10:00"
+      },
+      "expected": {
+        "scheduleType": "single",
+        "singleSchedule": {
+          "date": {
+            "__date": "2026-09-04T15:00:00.000Z"
+          },
+          "startTime": "21:00",
+          "endTime": "02:00",
+          "registrationDeadline": {
+            "__date": "2026-09-05T11:00:00.000Z"
+          },
+          "registrationOpen": {
+            "__date": "2026-09-04T01:00:00.000Z"
+          }
+        },
+        "recurringSchedule": null,
+        "recruitDeadlineRule": {
+          "mode": "beforeStart",
+          "minutes": 60,
+          "hours": 1
+        },
+        "recruitOpenRule": {
+          "mode": "prevDayTime",
+          "time": "10:00"
+        },
+        "recruitOpenAt": {
+          "__date": "2026-09-04T01:00:00.000Z"
+        }
+      }
+    },
+    {
+      "name": "마감 제한 없음",
+      "slot": {
+        "date": "2026-09-05",
+        "startTime": "19:00",
+        "endTime": null
+      },
+      "deadlineRule": {
+        "mode": "none"
+      },
+      "openRule": {
+        "mode": "none"
+      },
+      "expected": {
+        "scheduleType": "single",
+        "singleSchedule": {
+          "date": {
+            "__date": "2026-09-04T15:00:00.000Z"
+          },
+          "startTime": "19:00",
+          "endTime": null,
+          "registrationDeadline": null,
+          "registrationOpen": null
+        },
+        "recurringSchedule": null,
+        "recruitDeadlineRule": {
+          "mode": "none"
+        },
+        "recruitOpenRule": {
+          "mode": "none"
+        },
+        "recruitOpenAt": null
+      }
+    }
+  ],
+  "recurringSchedule": [
+    {
+      "name": "매주 금·토 20:00~23:00",
+      "input": {
+        "startDate": "2026-09-01",
+        "endDate": "2026-12-31",
+        "weekly": {
+          "friday": {
+            "enabled": true,
+            "startTime": "20:00",
+            "endTime": "23:00"
+          },
+          "saturday": {
+            "enabled": true,
+            "startTime": "20:00",
+            "endTime": "23:00"
+          }
+        },
+        "deadlineRule": {
+          "mode": "startDayTime",
+          "time": "18:00"
+        },
+        "openRule": {
+          "mode": "none"
+        }
+      },
+      "expected": {
+        "scheduleType": "recurring",
+        "recurringSchedule": {
+          "startDate": {
+            "__date": "2026-08-31T15:00:00.000Z"
+          },
+          "endDate": {
+            "__date": "2026-12-30T15:00:00.000Z"
+          },
+          "weeklySchedule": {
+            "friday": {
+              "enabled": true,
+              "startTime": "20:00",
+              "endTime": "23:00"
+            },
+            "saturday": {
+              "enabled": true,
+              "startTime": "20:00",
+              "endTime": "23:00"
+            }
+          },
+          "registrationOpen": {
+            "mode": "none"
+          },
+          "registrationDeadline": {
+            "mode": "startDayTime",
+            "time": "18:00"
+          }
+        },
+        "singleSchedule": null,
+        "recruitDeadlineAt": null,
+        "recruitOpenAt": null,
+        "recruitDeadlineRule": null,
+        "recruitOpenRule": null,
+        "partyDateTime": {
+          "__date": "2026-09-04T11:00:00.000Z"
+        }
+      }
+    },
+    {
+      "name": "종료일 없음 + 자정 넘김",
+      "input": {
+        "startDate": "2026-09-01",
+        "endDate": null,
+        "weekly": {
+          "wednesday": {
+            "enabled": true,
+            "startTime": "21:00",
+            "endTime": "01:00"
+          }
+        },
+        "deadlineRule": {
+          "mode": "beforeStart",
+          "minutes": 120
+        },
+        "openRule": {
+          "mode": "prevDayTime",
+          "time": "09:00"
+        }
+      },
+      "expected": {
+        "scheduleType": "recurring",
+        "recurringSchedule": {
+          "startDate": {
+            "__date": "2026-08-31T15:00:00.000Z"
+          },
+          "endDate": null,
+          "weeklySchedule": {
+            "wednesday": {
+              "enabled": true,
+              "startTime": "21:00",
+              "endTime": "01:00"
+            }
+          },
+          "registrationOpen": {
+            "mode": "prevDayTime",
+            "time": "09:00"
+          },
+          "registrationDeadline": {
+            "mode": "beforeStart",
+            "minutes": 120,
+            "hours": 2
+          }
+        },
+        "singleSchedule": null,
+        "recruitDeadlineAt": null,
+        "recruitOpenAt": {
+          "__date": "2026-09-01T00:00:00.000Z"
+        },
+        "recruitDeadlineRule": null,
+        "recruitOpenRule": null,
+        "partyDateTime": {
+          "__date": "2026-09-02T12:00:00.000Z"
+        }
+      }
+    }
+  ],
+  "round": [
+    {
+      "name": "통합 정원 — 정원·참가비를 저장하지 않는다",
+      "input": {
+        "id": "round_x",
+        "label": "",
+        "startTime": "22:00",
+        "endTime": "23:30",
+        "openRule": {
+          "mode": "none"
+        },
+        "closeRule": {
+          "mode": "beforeStart",
+          "minutes": 30
+        }
+      },
+      "isoDate": "2026-09-05",
+      "roundNumber": 2,
+      "perRound": false,
+      "expected": {
+        "id": "round_x",
+        "roundNumber": 2,
+        "label": "2차",
+        "time": {
+          "__date": "2026-09-05T13:00:00.000Z"
+        },
+        "endAt": {
+          "__date": "2026-09-05T14:30:00.000Z"
+        },
+        "startTime": "22:00",
+        "endTime": "23:30",
+        "recruitOpenAt": null,
+        "recruitCloseAt": {
+          "__date": "2026-09-05T12:30:00.000Z"
+        },
+        "recruitOpenRule": {
+          "mode": "none"
+        },
+        "recruitCloseRule": {
+          "mode": "beforeStart",
+          "minutes": 30,
+          "hours": 0
+        }
+      }
+    },
+    {
+      "name": "차수별 정원 — 남녀 분리 합계가 최대",
+      "input": {
+        "id": "round_y",
+        "label": "2부",
+        "startTime": "22:00",
+        "endTime": "01:00",
+        "openRule": {
+          "mode": "prevDayTime",
+          "time": "12:00"
+        },
+        "closeRule": {
+          "mode": "startDayTime",
+          "time": "21:00"
+        },
+        "minCapacity": 4,
+        "maxCapacity": 0,
+        "maleCapacity": 6,
+        "femaleCapacity": 6,
+        "maleFee": 20000,
+        "femaleFee": 15000,
+        "earlyBird": {
+          "enabled": true,
+          "percent": 10,
+          "endType": "beforeStart",
+          "beforeStartRule": {
+            "mode": "hoursBefore",
+            "hours": 6
+          }
+        }
+      },
+      "isoDate": "2026-09-05",
+      "roundNumber": 2,
+      "perRound": true,
+      "expected": {
+        "id": "round_y",
+        "roundNumber": 2,
+        "label": "2부",
+        "time": {
+          "__date": "2026-09-05T13:00:00.000Z"
+        },
+        "endAt": {
+          "__date": "2026-09-05T16:00:00.000Z"
+        },
+        "startTime": "22:00",
+        "endTime": "01:00",
+        "recruitOpenAt": {
+          "__date": "2026-09-04T03:00:00.000Z"
+        },
+        "recruitCloseAt": {
+          "__date": "2026-09-05T12:00:00.000Z"
+        },
+        "recruitOpenRule": {
+          "mode": "prevDayTime",
+          "time": "12:00"
+        },
+        "recruitCloseRule": {
+          "mode": "startDayTime",
+          "time": "21:00"
+        },
+        "minCapacity": 4,
+        "maxCapacity": 12,
+        "maleCapacity": 6,
+        "femaleCapacity": 6,
+        "currentParticipants": 0,
+        "currentMaleCount": 0,
+        "currentFemaleCount": 0,
+        "maleFee": 20000,
+        "femaleFee": 15000,
+        "earlyBirdEnabled": true,
+        "earlyBirdDiscountPercent": 10,
+        "earlyBirdEndType": "beforeStart",
+        "earlyBirdEndAt": null,
+        "earlyBirdDeadlineRule": {
+          "mode": "hoursBefore",
+          "hours": 6
+        }
+      }
+    }
+  ],
+  "roundPackage": [
+    {
+      "name": "이름 없이 — 1+2차 패키지",
+      "input": {
+        "id": "pkg_a",
+        "roundNumbers": [
+          2,
+          1
+        ],
+        "roundIds": [
+          "round_1",
+          "round_y"
+        ],
+        "maleFee": 35000,
+        "femaleFee": 28000,
+        "earlyBirdEnabled": true,
+        "earlyBirdMaleFee": 30000,
+        "earlyBirdFemaleFee": 24000,
+        "earlyBirdDeadlineRule": {
+          "mode": "daysBefore",
+          "days": 3,
+          "time": "23:59"
+        }
+      },
+      "firstRoundStart": "2026-09-05T11:00:00.000Z",
+      "expected": {
+        "id": "pkg_a",
+        "name": "1+2차 패키지",
+        "roundNumbers": [
+          1,
+          2
+        ],
+        "roundIds": [
+          "round_1",
+          "round_y"
+        ],
+        "maleFee": 35000,
+        "femaleFee": 28000,
+        "earlyBirdEnabled": true,
+        "earlyBirdMaleFee": 30000,
+        "earlyBirdFemaleFee": 24000,
+        "earlyBirdDeadlineRule": {
+          "mode": "daysBefore",
+          "days": 3,
+          "time": "23:59"
+        },
+        "earlyBirdEndAt": {
+          "__date": "2026-09-02T14:59:00.000Z"
+        }
+      }
+    },
+    {
+      "name": "얼리버드 꺼짐 — 금액과 규칙이 비워진다",
+      "input": {
+        "id": "pkg_b",
+        "name": "풀패키지",
+        "roundNumbers": [
+          1,
+          2
+        ],
+        "maleFee": 40000,
+        "femaleFee": 32000,
+        "earlyBirdEnabled": false,
+        "earlyBirdMaleFee": 30000,
+        "earlyBirdFemaleFee": 24000
+      },
+      "firstRoundStart": "2026-09-05T11:00:00.000Z",
+      "expected": {
+        "id": "pkg_b",
+        "name": "풀패키지",
+        "roundNumbers": [
+          1,
+          2
+        ],
+        "roundIds": [],
+        "maleFee": 40000,
+        "femaleFee": 32000,
+        "earlyBirdEnabled": false,
+        "earlyBirdMaleFee": 0,
+        "earlyBirdFemaleFee": 0,
+        "earlyBirdDeadlineRule": null,
+        "earlyBirdEndAt": null
+      }
+    }
+  ],
+  "registrationData": [
+    {
+      "name": "일회성 · 통합 정원 · 남녀 다른 참가비 · 고정 얼리버드",
+      "input": {
+        "title": "금요일 루프탑 파티",
+        "description": "한강뷰 루프탑에서 여는 파티예요.",
+        "capacity": {
+          "genderLimit": "all",
+          "genderCapacityMode": "unlimited",
+          "maxCapacity": 30,
+          "minCapacity": 10,
+          "minCapacityPolicy": "autoCancel"
+        },
+        "pricing": {
+          "male": 35000,
+          "female": 25000
+        },
+        "earlyBird": {
+          "enabled": true,
+          "percent": 10,
+          "endType": "fixedDate",
+          "endAt": {
+            "date": "2026-09-01",
+            "time": "23:59"
+          }
+        },
+        "refundTiers": [
+          {
+            "daysBefore": 7,
+            "refundPercent": 100
+          },
+          {
+            "daysBefore": 3,
+            "refundPercent": 50
+          }
+        ],
+        "paymentPolicy": {
+          "paymentMode": "partial",
+          "upfrontType": "percentage",
+          "upfrontPercent": 30
+        },
+        "age": {
+          "enabled": true,
+          "male": {
+            "enabled": true,
+            "minBirthYear": 1995,
+            "maxBirthYear": 2003
+          },
+          "female": {
+            "enabled": true,
+            "minBirthYear": 1995,
+            "maxBirthYear": 2003
+          }
+        },
+        "taxonomy": {
+          "partyTypes": [
+            "루프탑 파티",
+            "와인 파티"
+          ],
+          "vibes": [
+            "🔥 신나는"
+          ],
+          "tags": [
+            "한강뷰",
+            "루프탑"
+          ]
+        },
+        "schedule": {
+          "type": "single",
+          "slots": [
+            {
+              "date": "2026-09-05",
+              "startTime": "20:00",
+              "endTime": "23:00"
+            }
+          ],
+          "deadlineRule": {
+            "mode": "startDayTime",
+            "time": "18:00"
+          },
+          "openRule": {
+            "mode": "prevDayTime",
+            "time": "10:00"
+          }
+        }
+      },
+      "expected": {
+        "scheduleType": "single",
+        "singleSchedule": {
+          "date": {
+            "__date": "2026-09-04T15:00:00.000Z"
+          },
+          "startTime": "20:00",
+          "endTime": "23:00",
+          "registrationDeadline": {
+            "__date": "2026-09-05T09:00:00.000Z"
+          },
+          "registrationOpen": {
+            "__date": "2026-09-04T01:00:00.000Z"
+          }
+        },
+        "recurringSchedule": null,
+        "recruitDeadlineRule": {
+          "mode": "startDayTime",
+          "time": "18:00"
+        },
+        "recruitOpenRule": {
+          "mode": "prevDayTime",
+          "time": "10:00"
+        },
+        "recruitOpenAt": {
+          "__date": "2026-09-04T01:00:00.000Z"
+        },
+        "people": "0/30명",
+        "genderLimit": "all",
+        "genderCapacityMode": "unlimited",
+        "genderMode": "",
+        "maleCapacity": 0,
+        "femaleCapacity": 0,
+        "currentMaleCount": 0,
+        "currentFemaleCount": 0,
+        "revealParticipantGenderRatio": true,
+        "partyMinCapacity": 10,
+        "minCapacity": 10,
+        "maxCapacity": 30,
+        "minCapacityPolicy": "autoCancel",
+        "maxParticipants": 30,
+        "currentParticipants": 0,
+        "pricingType": "gendered",
+        "price": null,
+        "malePrice": 35000,
+        "femalePrice": 25000,
+        "maleFee": 35000,
+        "femaleFee": 25000,
+        "earlyBirdEnabled": true,
+        "earlyBirdDiscountPercent": 10,
+        "earlyBirdEndType": "fixedDate",
+        "earlyBirdEndAt": {
+          "__date": "2026-09-01T14:59:00.000Z"
+        },
+        "earlyBirdDeadlineRule": null,
+        "refundPolicy": [
+          {
+            "daysBefore": 7,
+            "refundPercent": 100
+          },
+          {
+            "daysBefore": 3,
+            "refundPercent": 50
+          }
+        ],
+        "paymentMode": "partial",
+        "upfrontType": "percentage",
+        "upfrontPercent": 30,
+        "ageRestrictionEnabled": true,
+        "maleAgeRestrictionEnabled": true,
+        "maleMinBirthYear": 1995,
+        "maleMaxBirthYear": 2003,
+        "femaleAgeRestrictionEnabled": true,
+        "femaleMinBirthYear": 1995,
+        "femaleMaxBirthYear": 2003,
+        "minBirthYear": 1995,
+        "maxBirthYear": 2003,
+        "category": "🌇 루프탑",
+        "partyTypes": [
+          "루프탑 파티",
+          "와인 파티"
+        ],
+        "vibes": [
+          "🔥 신나는"
+        ],
+        "tags": [
+          "한강뷰",
+          "루프탑"
+        ],
+        "description": "한강뷰 루프탑에서 여는 파티예요."
+      }
+    },
+    {
+      "name": "무료 파티 — 결제 방식과 얼리버드가 저장되지 않는다",
+      "input": {
+        "title": "무료 보드게임 모임",
+        "description": "",
+        "capacity": {
+          "genderLimit": "all",
+          "genderCapacityMode": "separate",
+          "maleCapacity": 8,
+          "femaleCapacity": 8,
+          "minCapacity": 0,
+          "minCapacityPolicy": "autoCancel"
+        },
+        "pricing": {
+          "male": 0,
+          "female": 0
+        },
+        "earlyBird": {
+          "enabled": true,
+          "percent": 10,
+          "endType": "beforeStart"
+        },
+        "refundTiers": [
+          {
+            "daysBefore": 1,
+            "refundPercent": 100
+          }
+        ],
+        "paymentPolicy": {
+          "paymentMode": "prepaid"
+        },
+        "age": {
+          "enabled": false
+        },
+        "taxonomy": {
+          "partyTypes": [],
+          "vibes": [],
+          "tags": []
+        },
+        "schedule": {
+          "type": "single",
+          "slots": [
+            {
+              "date": "2026-09-12",
+              "startTime": "14:00",
+              "endTime": "18:00"
+            }
+          ],
+          "deadlineRule": {
+            "mode": "none"
+          },
+          "openRule": {
+            "mode": "none"
+          }
+        }
+      },
+      "expected": {
+        "scheduleType": "single",
+        "singleSchedule": {
+          "date": {
+            "__date": "2026-09-11T15:00:00.000Z"
+          },
+          "startTime": "14:00",
+          "endTime": "18:00",
+          "registrationDeadline": null,
+          "registrationOpen": null
+        },
+        "recurringSchedule": null,
+        "recruitDeadlineRule": {
+          "mode": "none"
+        },
+        "recruitOpenRule": {
+          "mode": "none"
+        },
+        "recruitOpenAt": null,
+        "people": "0/16명",
+        "genderLimit": "all",
+        "genderCapacityMode": "separate",
+        "genderMode": "",
+        "maleCapacity": 8,
+        "femaleCapacity": 8,
+        "currentMaleCount": 0,
+        "currentFemaleCount": 0,
+        "revealParticipantGenderRatio": true,
+        "partyMinCapacity": 0,
+        "minCapacity": 0,
+        "maxCapacity": 16,
+        "minCapacityPolicy": "proceed",
+        "maxParticipants": 16,
+        "currentParticipants": 0,
+        "pricingType": "free",
+        "price": 0,
+        "malePrice": 0,
+        "femalePrice": 0,
+        "maleFee": 0,
+        "femaleFee": 0,
+        "earlyBirdEnabled": true,
+        "earlyBirdDiscountPercent": 10,
+        "earlyBirdEndType": "beforeStart",
+        "earlyBirdEndAt": null,
+        "earlyBirdDeadlineRule": {
+          "mode": "daysBefore",
+          "days": 3,
+          "time": "23:59"
+        },
+        "refundPolicy": [
+          {
+            "daysBefore": 1,
+            "refundPercent": 100
+          }
+        ],
+        "ageRestrictionEnabled": false,
+        "category": "기타",
+        "partyTypes": [],
+        "vibes": [],
+        "tags": [],
+        "description": ""
+      }
+    },
+    {
+      "name": "정기 파티 — 얼리버드가 규칙으로, 마감은 null로 저장된다",
+      "input": {
+        "title": "매주 수요일 와인 클래스",
+        "description": "소믈리에와 함께하는 와인 모임.",
+        "capacity": {
+          "genderLimit": "all",
+          "genderCapacityMode": "unlimited",
+          "maxCapacity": 16,
+          "minCapacity": 6,
+          "minCapacityPolicy": "autoCancel"
+        },
+        "pricing": {
+          "male": 40000,
+          "female": 40000
+        },
+        "earlyBird": {
+          "enabled": true,
+          "percent": 15,
+          "endType": "beforeStart",
+          "beforeStartRule": {
+            "mode": "daysBefore",
+            "days": 2,
+            "time": "23:59"
+          }
+        },
+        "refundTiers": [
+          {
+            "daysBefore": 3,
+            "refundPercent": 100
+          }
+        ],
+        "paymentPolicy": null,
+        "age": {
+          "enabled": false
+        },
+        "taxonomy": {
+          "partyTypes": [
+            "와인 파티"
+          ],
+          "vibes": [
+            "✨ 프리미엄"
+          ],
+          "tags": []
+        },
+        "schedule": {
+          "type": "recurring",
+          "recurring": {
+            "startDate": "2099-01-01",
+            "endDate": "2099-12-31",
+            "weekly": {
+              "wednesday": {
+                "enabled": true,
+                "startTime": "19:30",
+                "endTime": "22:00"
+              }
+            },
+            "deadlineRule": {
+              "mode": "startDayTime",
+              "time": "18:00"
+            },
+            "openRule": {
+              "mode": "prevDayTime",
+              "time": "09:00"
+            }
+          }
+        }
+      },
+      "expected": {
+        "scheduleType": "recurring",
+        "singleSchedule": null,
+        "recurringSchedule": {
+          "startDate": {
+            "__date": "2098-12-31T15:00:00.000Z"
+          },
+          "endDate": {
+            "__date": "2099-12-30T15:00:00.000Z"
+          },
+          "weeklySchedule": {
+            "wednesday": {
+              "enabled": true,
+              "startTime": "19:30",
+              "endTime": "22:00"
+            }
+          },
+          "registrationOpen": {
+            "mode": "prevDayTime",
+            "time": "09:00"
+          },
+          "registrationDeadline": {
+            "mode": "startDayTime",
+            "time": "18:00"
+          }
+        },
+        "recruitDeadlineRule": null,
+        "recruitOpenRule": null,
+        "partyDateTime": {
+          "__date": "2099-01-07T10:30:00.000Z"
+        },
+        "recruitDeadlineAt": null,
+        "recruitOpenAt": {
+          "__date": "2099-01-06T00:00:00.000Z"
+        },
+        "people": "0/16명",
+        "genderLimit": "all",
+        "genderCapacityMode": "unlimited",
+        "genderMode": "",
+        "maleCapacity": 0,
+        "femaleCapacity": 0,
+        "currentMaleCount": 0,
+        "currentFemaleCount": 0,
+        "revealParticipantGenderRatio": true,
+        "partyMinCapacity": 6,
+        "minCapacity": 6,
+        "maxCapacity": 16,
+        "minCapacityPolicy": "autoCancel",
+        "maxParticipants": 16,
+        "currentParticipants": 0,
+        "pricingType": "same",
+        "price": 40000,
+        "malePrice": null,
+        "femalePrice": null,
+        "maleFee": 40000,
+        "femaleFee": 40000,
+        "earlyBirdEnabled": true,
+        "earlyBirdDiscountPercent": 15,
+        "earlyBirdEndType": "beforeStart",
+        "earlyBirdEndAt": null,
+        "earlyBirdDeadlineRule": {
+          "mode": "daysBefore",
+          "days": 2,
+          "time": "23:59"
+        },
+        "refundPolicy": [
+          {
+            "daysBefore": 3,
+            "refundPercent": 100
+          }
+        ],
+        "ageRestrictionEnabled": false,
+        "category": "🍷 와인",
+        "partyTypes": [
+          "와인 파티"
+        ],
+        "vibes": [
+          "✨ 프리미엄"
+        ],
+        "tags": [],
+        "description": "소믈리에와 함께하는 와인 모임."
+      }
+    },
+    {
+      "name": "연령 제한 · 남녀 서로 다른 범위",
+      "input": {
+        "title": "남녀 연령 다른 파티",
+        "description": "",
+        "capacity": {
+          "genderLimit": "all",
+          "genderCapacityMode": "unlimited",
+          "maxCapacity": 20,
+          "minCapacity": 0,
+          "minCapacityPolicy": "proceed"
+        },
+        "pricing": {
+          "male": 30000,
+          "female": 20000
+        },
+        "earlyBird": {
+          "enabled": false
+        },
+        "refundTiers": [
+          {
+            "daysBefore": 1,
+            "refundPercent": 100
+          }
+        ],
+        "paymentPolicy": null,
+        "age": {
+          "enabled": true,
+          "male": {
+            "enabled": true,
+            "minBirthYear": 1991,
+            "maxBirthYear": 2001
+          },
+          "female": {
+            "enabled": true,
+            "minBirthYear": 1994,
+            "maxBirthYear": 2003
+          }
+        },
+        "taxonomy": {
+          "partyTypes": [],
+          "vibes": [],
+          "tags": []
+        },
+        "schedule": {
+          "type": "single",
+          "slots": [
+            {
+              "date": "2026-10-02",
+              "startTime": "19:00",
+              "endTime": "23:00"
+            }
+          ],
+          "deadlineRule": {
+            "mode": "none"
+          },
+          "openRule": {
+            "mode": "none"
+          }
+        }
+      },
+      "expected": {
+        "scheduleType": "single",
+        "singleSchedule": {
+          "date": {
+            "__date": "2026-10-01T15:00:00.000Z"
+          },
+          "startTime": "19:00",
+          "endTime": "23:00",
+          "registrationDeadline": null,
+          "registrationOpen": null
+        },
+        "recurringSchedule": null,
+        "recruitDeadlineRule": {
+          "mode": "none"
+        },
+        "recruitOpenRule": {
+          "mode": "none"
+        },
+        "recruitOpenAt": null,
+        "people": "0/20명",
+        "genderLimit": "all",
+        "genderCapacityMode": "unlimited",
+        "genderMode": "",
+        "maleCapacity": 0,
+        "femaleCapacity": 0,
+        "currentMaleCount": 0,
+        "currentFemaleCount": 0,
+        "revealParticipantGenderRatio": true,
+        "partyMinCapacity": 0,
+        "minCapacity": 0,
+        "maxCapacity": 20,
+        "minCapacityPolicy": "proceed",
+        "maxParticipants": 20,
+        "currentParticipants": 0,
+        "pricingType": "gendered",
+        "price": null,
+        "malePrice": 30000,
+        "femalePrice": 20000,
+        "maleFee": 30000,
+        "femaleFee": 20000,
+        "earlyBirdEnabled": false,
+        "earlyBirdDiscountPercent": null,
+        "earlyBirdEndType": null,
+        "earlyBirdEndAt": null,
+        "earlyBirdDeadlineRule": null,
+        "refundPolicy": [
+          {
+            "daysBefore": 1,
+            "refundPercent": 100
+          }
+        ],
+        "ageRestrictionEnabled": true,
+        "maleAgeRestrictionEnabled": true,
+        "maleMinBirthYear": 1991,
+        "maleMaxBirthYear": 2001,
+        "femaleAgeRestrictionEnabled": true,
+        "femaleMinBirthYear": 1994,
+        "femaleMaxBirthYear": 2003,
+        "minBirthYear": 1991,
+        "maxBirthYear": 2003,
+        "category": "기타",
+        "partyTypes": [],
+        "vibes": [],
+        "tags": [],
+        "description": ""
+      }
+    },
+    {
+      "name": "연령 제한 · 남성만 제한(여성 제한 없음) — 공통 필드는 만들지 않는다",
+      "input": {
+        "title": "남성만 연령 제한",
+        "description": "",
+        "capacity": {
+          "genderLimit": "all",
+          "genderCapacityMode": "unlimited",
+          "maxCapacity": 20,
+          "minCapacity": 0,
+          "minCapacityPolicy": "proceed"
+        },
+        "pricing": {
+          "male": 0,
+          "female": 0
+        },
+        "earlyBird": {
+          "enabled": false
+        },
+        "refundTiers": [
+          {
+            "daysBefore": 1,
+            "refundPercent": 100
+          }
+        ],
+        "paymentPolicy": null,
+        "age": {
+          "enabled": true,
+          "male": {
+            "enabled": true,
+            "minBirthYear": 1991,
+            "maxBirthYear": 2001
+          },
+          "female": {
+            "enabled": false,
+            "minBirthYear": 1994,
+            "maxBirthYear": 2003
+          }
+        },
+        "taxonomy": {
+          "partyTypes": [],
+          "vibes": [],
+          "tags": []
+        },
+        "schedule": {
+          "type": "single",
+          "slots": [
+            {
+              "date": "2026-10-03",
+              "startTime": "19:00",
+              "endTime": "23:00"
+            }
+          ],
+          "deadlineRule": {
+            "mode": "none"
+          },
+          "openRule": {
+            "mode": "none"
+          }
+        }
+      },
+      "expected": {
+        "scheduleType": "single",
+        "singleSchedule": {
+          "date": {
+            "__date": "2026-10-02T15:00:00.000Z"
+          },
+          "startTime": "19:00",
+          "endTime": "23:00",
+          "registrationDeadline": null,
+          "registrationOpen": null
+        },
+        "recurringSchedule": null,
+        "recruitDeadlineRule": {
+          "mode": "none"
+        },
+        "recruitOpenRule": {
+          "mode": "none"
+        },
+        "recruitOpenAt": null,
+        "people": "0/20명",
+        "genderLimit": "all",
+        "genderCapacityMode": "unlimited",
+        "genderMode": "",
+        "maleCapacity": 0,
+        "femaleCapacity": 0,
+        "currentMaleCount": 0,
+        "currentFemaleCount": 0,
+        "revealParticipantGenderRatio": true,
+        "partyMinCapacity": 0,
+        "minCapacity": 0,
+        "maxCapacity": 20,
+        "minCapacityPolicy": "proceed",
+        "maxParticipants": 20,
+        "currentParticipants": 0,
+        "pricingType": "free",
+        "price": 0,
+        "malePrice": 0,
+        "femalePrice": 0,
+        "maleFee": 0,
+        "femaleFee": 0,
+        "earlyBirdEnabled": false,
+        "earlyBirdDiscountPercent": null,
+        "earlyBirdEndType": null,
+        "earlyBirdEndAt": null,
+        "earlyBirdDeadlineRule": null,
+        "refundPolicy": [
+          {
+            "daysBefore": 1,
+            "refundPercent": 100
+          }
+        ],
+        "ageRestrictionEnabled": true,
+        "maleAgeRestrictionEnabled": true,
+        "maleMinBirthYear": 1991,
+        "maleMaxBirthYear": 2001,
+        "femaleAgeRestrictionEnabled": false,
+        "category": "기타",
+        "partyTypes": [],
+        "vibes": [],
+        "tags": [],
+        "description": ""
+      }
+    },
+    {
+      "name": "연령 제한 · 여성만 모집 — 모집하지 않는 성별(남성)의 제한은 지워진다",
+      "input": {
+        "title": "여성만 모집 파티",
+        "description": "",
+        "capacity": {
+          "genderLimit": "female",
+          "genderCapacityMode": "separate",
+          "maleCapacity": 10,
+          "femaleCapacity": 12,
+          "minCapacity": 0,
+          "minCapacityPolicy": "proceed"
+        },
+        "pricing": {
+          "male": 0,
+          "female": 20000
+        },
+        "earlyBird": {
+          "enabled": false
+        },
+        "refundTiers": [
+          {
+            "daysBefore": 1,
+            "refundPercent": 100
+          }
+        ],
+        "paymentPolicy": null,
+        "age": {
+          "enabled": true,
+          "male": {
+            "enabled": true,
+            "minBirthYear": 1991,
+            "maxBirthYear": 2001
+          },
+          "female": {
+            "enabled": true,
+            "minBirthYear": 1994,
+            "maxBirthYear": 2003
+          }
+        },
+        "taxonomy": {
+          "partyTypes": [],
+          "vibes": [],
+          "tags": []
+        },
+        "schedule": {
+          "type": "single",
+          "slots": [
+            {
+              "date": "2026-10-04",
+              "startTime": "19:00",
+              "endTime": "23:00"
+            }
+          ],
+          "deadlineRule": {
+            "mode": "none"
+          },
+          "openRule": {
+            "mode": "none"
+          }
+        }
+      },
+      "expected": {
+        "scheduleType": "single",
+        "singleSchedule": {
+          "date": {
+            "__date": "2026-10-03T15:00:00.000Z"
+          },
+          "startTime": "19:00",
+          "endTime": "23:00",
+          "registrationDeadline": null,
+          "registrationOpen": null
+        },
+        "recurringSchedule": null,
+        "recruitDeadlineRule": {
+          "mode": "none"
+        },
+        "recruitOpenRule": {
+          "mode": "none"
+        },
+        "recruitOpenAt": null,
+        "people": "0/12명",
+        "genderLimit": "female",
+        "genderCapacityMode": "separate",
+        "genderMode": "",
+        "maleCapacity": 0,
+        "femaleCapacity": 12,
+        "currentMaleCount": 0,
+        "currentFemaleCount": 0,
+        "revealParticipantGenderRatio": true,
+        "partyMinCapacity": 0,
+        "minCapacity": 0,
+        "maxCapacity": 12,
+        "minCapacityPolicy": "proceed",
+        "maxParticipants": 12,
+        "currentParticipants": 0,
+        "pricingType": "gendered",
+        "price": null,
+        "malePrice": 0,
+        "femalePrice": 20000,
+        "maleFee": 0,
+        "femaleFee": 20000,
+        "earlyBirdEnabled": false,
+        "earlyBirdDiscountPercent": null,
+        "earlyBirdEndType": null,
+        "earlyBirdEndAt": null,
+        "earlyBirdDeadlineRule": null,
+        "refundPolicy": [
+          {
+            "daysBefore": 1,
+            "refundPercent": 100
+          }
+        ],
+        "ageRestrictionEnabled": true,
+        "maleAgeRestrictionEnabled": false,
+        "femaleAgeRestrictionEnabled": true,
+        "femaleMinBirthYear": 1994,
+        "femaleMaxBirthYear": 2003,
+        "minBirthYear": 1994,
+        "maxBirthYear": 2003,
+        "category": "기타",
+        "partyTypes": [],
+        "vibes": [],
+        "tags": [],
+        "description": ""
+      }
+    },
+    {
+      "name": "연령 제한 · 옛 공통 스키마 입력 — 남녀 모두에게 같은 값으로 저장된다",
+      "input": {
+        "title": "옛 스키마로 들어온 파티",
+        "description": "",
+        "capacity": {
+          "genderLimit": "all",
+          "genderCapacityMode": "unlimited",
+          "maxCapacity": 20,
+          "minCapacity": 0,
+          "minCapacityPolicy": "proceed"
+        },
+        "pricing": {
+          "male": 0,
+          "female": 0
+        },
+        "earlyBird": {
+          "enabled": false
+        },
+        "refundTiers": [
+          {
+            "daysBefore": 1,
+            "refundPercent": 100
+          }
+        ],
+        "paymentPolicy": null,
+        "age": {
+          "enabled": true,
+          "minBirthYear": 1990,
+          "maxBirthYear": 2000
+        },
+        "taxonomy": {
+          "partyTypes": [],
+          "vibes": [],
+          "tags": []
+        },
+        "schedule": {
+          "type": "single",
+          "slots": [
+            {
+              "date": "2026-10-05",
+              "startTime": "19:00",
+              "endTime": "23:00"
+            }
+          ],
+          "deadlineRule": {
+            "mode": "none"
+          },
+          "openRule": {
+            "mode": "none"
+          }
+        }
+      },
+      "expected": {
+        "scheduleType": "single",
+        "singleSchedule": {
+          "date": {
+            "__date": "2026-10-04T15:00:00.000Z"
+          },
+          "startTime": "19:00",
+          "endTime": "23:00",
+          "registrationDeadline": null,
+          "registrationOpen": null
+        },
+        "recurringSchedule": null,
+        "recruitDeadlineRule": {
+          "mode": "none"
+        },
+        "recruitOpenRule": {
+          "mode": "none"
+        },
+        "recruitOpenAt": null,
+        "people": "0/20명",
+        "genderLimit": "all",
+        "genderCapacityMode": "unlimited",
+        "genderMode": "",
+        "maleCapacity": 0,
+        "femaleCapacity": 0,
+        "currentMaleCount": 0,
+        "currentFemaleCount": 0,
+        "revealParticipantGenderRatio": true,
+        "partyMinCapacity": 0,
+        "minCapacity": 0,
+        "maxCapacity": 20,
+        "minCapacityPolicy": "proceed",
+        "maxParticipants": 20,
+        "currentParticipants": 0,
+        "pricingType": "free",
+        "price": 0,
+        "malePrice": 0,
+        "femalePrice": 0,
+        "maleFee": 0,
+        "femaleFee": 0,
+        "earlyBirdEnabled": false,
+        "earlyBirdDiscountPercent": null,
+        "earlyBirdEndType": null,
+        "earlyBirdEndAt": null,
+        "earlyBirdDeadlineRule": null,
+        "refundPolicy": [
+          {
+            "daysBefore": 1,
+            "refundPercent": 100
+          }
+        ],
+        "ageRestrictionEnabled": true,
+        "maleAgeRestrictionEnabled": true,
+        "maleMinBirthYear": 1990,
+        "maleMaxBirthYear": 2000,
+        "femaleAgeRestrictionEnabled": true,
+        "femaleMinBirthYear": 1990,
+        "femaleMaxBirthYear": 2000,
+        "minBirthYear": 1990,
+        "maxBirthYear": 2000,
+        "category": "기타",
+        "partyTypes": [],
+        "vibes": [],
+        "tags": [],
+        "description": ""
+      }
+    },
+    {
+      "name": "참가자 성비 비공개 — 호스트가 끈 값이 그대로 저장된다",
+      "input": {
+        "title": "성비 비공개 파티",
+        "description": "",
+        "capacity": {
+          "genderLimit": "all",
+          "genderCapacityMode": "separate",
+          "maleCapacity": 10,
+          "femaleCapacity": 10,
+          "minCapacity": 0,
+          "minCapacityPolicy": "proceed",
+          "revealParticipantGenderRatio": false
+        },
+        "pricing": {
+          "male": 30000,
+          "female": 30000
+        },
+        "earlyBird": {
+          "enabled": false
+        },
+        "refundTiers": [
+          {
+            "daysBefore": 1,
+            "refundPercent": 100
+          }
+        ],
+        "paymentPolicy": null,
+        "age": {
+          "enabled": false
+        },
+        "taxonomy": {
+          "partyTypes": [],
+          "vibes": [],
+          "tags": []
+        },
+        "schedule": {
+          "type": "single",
+          "slots": [
+            {
+              "date": "2026-10-12",
+              "startTime": "19:00",
+              "endTime": "23:00"
+            }
+          ],
+          "deadlineRule": {
+            "mode": "none"
+          },
+          "openRule": {
+            "mode": "none"
+          }
+        }
+      },
+      "expected": {
+        "scheduleType": "single",
+        "singleSchedule": {
+          "date": {
+            "__date": "2026-10-11T15:00:00.000Z"
+          },
+          "startTime": "19:00",
+          "endTime": "23:00",
+          "registrationDeadline": null,
+          "registrationOpen": null
+        },
+        "recurringSchedule": null,
+        "recruitDeadlineRule": {
+          "mode": "none"
+        },
+        "recruitOpenRule": {
+          "mode": "none"
+        },
+        "recruitOpenAt": null,
+        "people": "0/20명",
+        "genderLimit": "all",
+        "genderCapacityMode": "separate",
+        "genderMode": "",
+        "maleCapacity": 10,
+        "femaleCapacity": 10,
+        "currentMaleCount": 0,
+        "currentFemaleCount": 0,
+        "revealParticipantGenderRatio": false,
+        "partyMinCapacity": 0,
+        "minCapacity": 0,
+        "maxCapacity": 20,
+        "minCapacityPolicy": "proceed",
+        "maxParticipants": 20,
+        "currentParticipants": 0,
+        "pricingType": "same",
+        "price": 30000,
+        "malePrice": null,
+        "femalePrice": null,
+        "maleFee": 30000,
+        "femaleFee": 30000,
+        "earlyBirdEnabled": false,
+        "earlyBirdDiscountPercent": null,
+        "earlyBirdEndType": null,
+        "earlyBirdEndAt": null,
+        "earlyBirdDeadlineRule": null,
+        "refundPolicy": [
+          {
+            "daysBefore": 1,
+            "refundPercent": 100
+          }
+        ],
+        "ageRestrictionEnabled": false,
+        "category": "기타",
+        "partyTypes": [],
+        "vibes": [],
+        "tags": [],
+        "description": ""
+      }
+    }
+  ]
+}

@@ -8,6 +8,9 @@
 
 const assert = require('assert');
 const {
+  COMPLETION_METHOD,
+  OVERDUE_MS,
+  isOverdue,
   requiresRefundAccount,
   normalizeRefundAccount,
   buildRefundRequest,
@@ -103,6 +106,40 @@ test('계좌는 **사본**으로 박힌다 — 원본을 나중에 고쳐도 요
   assert.strictEqual(req.account.bankName, '국민', '요청의 은행이 따라 바뀌었다');
   assert.strictEqual(req.account.accountNumber, '123', '요청의 계좌번호가 따라 바뀌었다');
 });
+
+// ── 장기 미처리 판정 ────────────────────────────────────────────────────────
+// 호스트가 방치하면 참가자는 돈을 못 받는다. 재촉 알림과 관리자 개입이 모두
+// 이 판정 하나를 보므로, 기준이 갈리지 않게 여기서 잠근다.
+{
+  const NOW = 1_700_000_000_000;
+  const req = (createdMs, status = 'requested') => ({ status, createdAt: createdMs });
+
+  assert.strictEqual(isOverdue(req(NOW - OVERDUE_MS), NOW), true, '3일이 지나면 미처리');
+  assert.strictEqual(isOverdue(req(NOW - OVERDUE_MS + 1000), NOW), false, '아직 3일 전');
+  assert.strictEqual(
+    isOverdue(req(NOW - OVERDUE_MS, 'completed'), NOW),
+    false,
+    '이미 처리된 건은 재촉 대상이 아니다',
+  );
+  assert.strictEqual(
+    isOverdue(req(NOW - OVERDUE_MS, 'rejected'), NOW),
+    false,
+    '반려된 건도 아니다',
+  );
+  assert.strictEqual(isOverdue({ status: 'requested' }, NOW), false, '접수 시각이 없으면 판단하지 않는다');
+  assert.strictEqual(isOverdue(null, NOW), false);
+
+  // Firestore Timestamp처럼 toMillis()를 가진 값도 그대로 읽는다.
+  assert.strictEqual(
+    isOverdue({ status: 'requested', createdAt: { toMillis: () => NOW - OVERDUE_MS } }, NOW),
+    true,
+  );
+
+  // 완료는 '자동 송금'이 아니라 **사람이 보냈다고 표시한 것**이다.
+  assert.deepStrictEqual(Object.keys(COMPLETION_METHOD), ['markedManually']);
+  assert.strictEqual(COMPLETION_METHOD.markedManually, 'marked_manually');
+  console.log('  ✓ 장기 미처리 판정과 완료 표기 의미');
+}
 
 let failed = 0;
 for (const [name, fn] of cases) {

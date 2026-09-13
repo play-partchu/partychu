@@ -115,5 +115,28 @@
         </intent>
         <package android:name="com.kakao.talk" />
         <package android:name="com.instagram.android" />
+
+        <!-- 길찾기(map_directions_service.dart) — Android 11+에서는 여기에
+             선언된 대상만 canLaunchUrl로 조회할 수 있다. 빠지면 앱이 깔려
+             있어도 "미설치"로 판정되어 길찾기 앱 선택 시트에서 사라진다.
+             지도 앱을 추가할 때 iOS Info.plist에도 같이 넣어야 한다. -->
+        <package android:name="com.nhn.android.nmap" />       <!-- 네이버지도 -->
+        <package android:name="net.daum.android.map" />       <!-- 카카오맵 -->
+        <package android:name="com.skt.tmap.ku" />            <!-- T맵 -->
+        <package android:name="com.google.android.apps.maps" /><!-- 구글지도 -->
+        <intent>
+            <action android:name="android.intent.action.VIEW" />
+            <data android:scheme="geo" />
+        </intent>
+        <!-- 구글지도 전용 스킴 — geo:는 다른 지도 앱도 받아서 설치 판정에
+             오탐이 나므로 구글지도는 이 스킴으로 조회·실행한다. -->
+        <intent>
+            <action android:name="android.intent.action.VIEW" />
+            <data android:scheme="google.navigation" />
+        </intent>
+        <intent>
+            <action android:name="android.intent.action.VIEW" />
+            <data android:scheme="https" />
+        </intent>
     </queries>
 </manifest>

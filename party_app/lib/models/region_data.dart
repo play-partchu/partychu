@@ -5,23 +5,225 @@ class RegionData {
   RegionData._();
 
   static const Map<String, List<String>> regionDistricts = {
-    '서울': ['강남구','강동구','강북구','강서구','관악구','광진구','구로구','금천구','노원구','도봉구','동대문구','동작구','마포구','서대문구','서초구','성동구','성북구','송파구','양천구','영등포구','용산구','은평구','종로구','중구','중랑구'],
-    '경기': ['가평군','고양시','과천시','광명시','광주시','구리시','군포시','김포시','남양주시','동두천시','부천시','성남시','수원시','시흥시','안산시','안성시','안양시','양주시','양평군','여주시','연천군','오산시','용인시','의왕시','의정부시','이천시','파주시','평택시','포천시','하남시','화성시'],
-    '인천': ['강화군','계양구','남동구','동구','미추홀구','부평구','서구','연수구','옹진군','중구'],
-    '부산': ['강서구','금정구','기장군','남구','동구','동래구','부산진구','북구','사상구','사하구','서구','수영구','연제구','영도구','중구','해운대구'],
-    '대구': ['군위군','달서구','달성군','동구','북구','서구','수성구','중구'],
-    '광주': ['광산구','남구','동구','북구','서구'],
-    '대전': ['대덕구','동구','서구','유성구','중구'],
-    '울산': ['남구','동구','북구','울주군','중구'],
+    '서울': [
+      '강남구',
+      '강동구',
+      '강북구',
+      '강서구',
+      '관악구',
+      '광진구',
+      '구로구',
+      '금천구',
+      '노원구',
+      '도봉구',
+      '동대문구',
+      '동작구',
+      '마포구',
+      '서대문구',
+      '서초구',
+      '성동구',
+      '성북구',
+      '송파구',
+      '양천구',
+      '영등포구',
+      '용산구',
+      '은평구',
+      '종로구',
+      '중구',
+      '중랑구',
+    ],
+    '경기': [
+      '가평군',
+      '고양시',
+      '과천시',
+      '광명시',
+      '광주시',
+      '구리시',
+      '군포시',
+      '김포시',
+      '남양주시',
+      '동두천시',
+      '부천시',
+      '성남시',
+      '수원시',
+      '시흥시',
+      '안산시',
+      '안성시',
+      '안양시',
+      '양주시',
+      '양평군',
+      '여주시',
+      '연천군',
+      '오산시',
+      '용인시',
+      '의왕시',
+      '의정부시',
+      '이천시',
+      '파주시',
+      '평택시',
+      '포천시',
+      '하남시',
+      '화성시',
+    ],
+    '인천': ['강화군', '계양구', '남동구', '동구', '미추홀구', '부평구', '서구', '연수구', '옹진군', '중구'],
+    '부산': [
+      '강서구',
+      '금정구',
+      '기장군',
+      '남구',
+      '동구',
+      '동래구',
+      '부산진구',
+      '북구',
+      '사상구',
+      '사하구',
+      '서구',
+      '수영구',
+      '연제구',
+      '영도구',
+      '중구',
+      '해운대구',
+    ],
+    '대구': ['군위군', '달서구', '달성군', '동구', '북구', '서구', '수성구', '중구'],
+    '광주': ['광산구', '남구', '동구', '북구', '서구'],
+    '대전': ['대덕구', '동구', '서구', '유성구', '중구'],
+    '울산': ['남구', '동구', '북구', '울주군', '중구'],
     '세종': ['세종시'],
-    '강원': ['강릉시','고성군','동해시','삼척시','속초시','양구군','양양군','영월군','원주시','인제군','정선군','철원군','춘천시','태백시','평창군','홍천군','화천군','횡성군'],
-    '충북': ['괴산군','단양군','보은군','영동군','옥천군','음성군','제천시','증평군','진천군','청주시','충주시'],
-    '충남': ['계룡시','공주시','금산군','논산시','당진시','보령시','부여군','서산시','서천군','아산시','예산군','천안시','청양군','태안군','홍성군'],
-    '전북': ['고창군','군산시','김제시','남원시','무주군','부안군','순창군','완주군','익산시','임실군','장수군','전주시','정읍시','진안군'],
-    '전남': ['강진군','고흥군','곡성군','광양시','구례군','나주시','담양군','목포시','무안군','보성군','순천시','신안군','여수시','영광군','영암군','완도군','장성군','장흥군','진도군','함평군','해남군','화순군'],
-    '경북': ['경산시','경주시','고령군','구미시','김천시','문경시','봉화군','상주시','성주군','안동시','영덕군','영양군','영주시','영천시','예천군','울릉군','울진군','의성군','청도군','청송군','칠곡군','포항시'],
-    '경남': ['거제시','거창군','고성군','김해시','남해군','밀양시','사천시','산청군','양산시','의령군','진주시','창녕군','창원시','통영시','하동군','함안군','함양군','합천군'],
-    '제주': ['서귀포시','제주시'],
+    '강원': [
+      '강릉시',
+      '고성군',
+      '동해시',
+      '삼척시',
+      '속초시',
+      '양구군',
+      '양양군',
+      '영월군',
+      '원주시',
+      '인제군',
+      '정선군',
+      '철원군',
+      '춘천시',
+      '태백시',
+      '평창군',
+      '홍천군',
+      '화천군',
+      '횡성군',
+    ],
+    '충북': [
+      '괴산군',
+      '단양군',
+      '보은군',
+      '영동군',
+      '옥천군',
+      '음성군',
+      '제천시',
+      '증평군',
+      '진천군',
+      '청주시',
+      '충주시',
+    ],
+    '충남': [
+      '계룡시',
+      '공주시',
+      '금산군',
+      '논산시',
+      '당진시',
+      '보령시',
+      '부여군',
+      '서산시',
+      '서천군',
+      '아산시',
+      '예산군',
+      '천안시',
+      '청양군',
+      '태안군',
+      '홍성군',
+    ],
+    '전북': [
+      '고창군',
+      '군산시',
+      '김제시',
+      '남원시',
+      '무주군',
+      '부안군',
+      '순창군',
+      '완주군',
+      '익산시',
+      '임실군',
+      '장수군',
+      '전주시',
+      '정읍시',
+      '진안군',
+    ],
+    '전남': [
+      '강진군',
+      '고흥군',
+      '곡성군',
+      '광양시',
+      '구례군',
+      '나주시',
+      '담양군',
+      '목포시',
+      '무안군',
+      '보성군',
+      '순천시',
+      '신안군',
+      '여수시',
+      '영광군',
+      '영암군',
+      '완도군',
+      '장성군',
+      '장흥군',
+      '진도군',
+      '함평군',
+      '해남군',
+      '화순군',
+    ],
+    '경북': [
+      '경산시',
+      '경주시',
+      '고령군',
+      '구미시',
+      '김천시',
+      '문경시',
+      '봉화군',
+      '상주시',
+      '성주군',
+      '안동시',
+      '영덕군',
+      '영양군',
+      '영주시',
+      '영천시',
+      '예천군',
+      '울릉군',
+      '울진군',
+      '의성군',
+      '청도군',
+      '청송군',
+      '칠곡군',
+      '포항시',
+    ],
+    '경남': [
+      '거제시',
+      '거창군',
+      '고성군',
+      '김해시',
+      '남해군',
+      '밀양시',
+      '사천시',
+      '산청군',
+      '양산시',
+      '의령군',
+      '진주시',
+      '창녕군',
+      '창원시',
+      '통영시',
+      '하동군',
+      '함안군',
+      '함양군',
+      '합천군',
+    ],
+    '제주': ['서귀포시', '제주시'],
   };
 
   static List<String> get regions => regionDistricts.keys.toList();
@@ -58,6 +260,115 @@ class RegionData {
       if (address.contains(district)) return district;
     }
     return null;
+  }
+
+  // ── 지역 필터의 '(전체)' 선택값 ─────────────────────────────────────────
+  //
+  // 상세검색 지역 필터는 구/시/군 이름을 그대로 골라 담는다. 여기에 "그 시/도
+  // 전체"라는 선택값 하나를 같은 자리에 얹는다 — '서울 (전체)'처럼 **꼬리표가
+  // 붙은 문자열**이고, 판정할 때만 시/도로 되돌려 읽는다.
+  //
+  // 특정 지역을 하드코딩하지 않는다. [regionDistricts]에 있는 시/도면 무엇이든
+  // 자동으로 '(전체)' 선택값을 갖는다(서울·경기·인천… 전부 같은 규칙).
+  //
+  // 왜 "그 지역의 구를 전부 담기"가 아닌가 — 지역 선택에는 개수 상한이 있어서
+  // (PartyFilter.maxDistricts) 서울 25개를 담는 순간 한도를 넘긴다. 그리고
+  // 담아 버리면 나중에 구가 하나 늘었을 때 옛 선택값이 그 구를 빠뜨린다.
+
+  /// '(전체)' 선택값의 꼬리표.
+  static const String allDistrictSuffix = ' (전체)';
+
+  /// 시/도 → '(전체)' 선택값. 예: '서울' → '서울 (전체)'.
+  static String allDistrictOf(String region) => '$region$allDistrictSuffix';
+
+  /// '(전체)' 선택값 → 시/도. 그 형태가 아니거나 모르는 시/도면 null.
+  static String? regionOfAllDistrict(String value) {
+    if (!value.endsWith(allDistrictSuffix)) return null;
+    final region = value.substring(0, value.length - allDistrictSuffix.length);
+    return regionDistricts.containsKey(region) ? region : null;
+  }
+
+  static bool isAllDistrict(String value) => regionOfAllDistrict(value) != null;
+
+  /// 주소 문자열 맨 앞에서 시/도를 읽는다. 모르면 **null**.
+  ///
+  /// [extractRegion]과 달리 모르는 주소를 '서울'로 떨어뜨리지 않는다 — 필터
+  /// 판정에서 그 폴백을 쓰면 지역을 못 읽은 문서가 전부 '서울'로 걸린다.
+  static String? regionOfAddress(String address) {
+    final a = address.trim();
+    if (a.isEmpty) return null;
+    // 정식 명칭('서울특별시')이 먼저다 — 축약형보다 길어서, 짧은 쪽을 먼저
+    // 보면 '충청북도'를 '충북'으로 못 읽는다.
+    for (final entry in regionLongToShort.entries) {
+      if (a.startsWith(entry.key)) return entry.value;
+    }
+    for (final region in regionDistricts.keys) {
+      if (a.startsWith(region)) return region;
+    }
+    return null;
+  }
+
+  /// 파티 문서 하나가 지역 필터를 통과하는가 — **목록·지도가 함께 쓰는 판정**.
+  ///
+  /// 예전에는 이 판정이 main_screen과 map_screen에 각각 복사돼 있었다. 같은
+  /// 파티가 목록에는 보이는데 지도에는 안 보이는 상태를 막으려면 규칙이 하나여야
+  /// 한다.
+  ///
+  /// 통과 조건은 둘 중 하나다.
+  ///  · 고른 구/시/군에 문서의 `district`가 들어 있다
+  ///  · 고른 '(전체)' 시/도에 이 문서가 속한다
+  ///
+  /// `district` 필드가 없는 **옛 문서**는 `region`으로 판정한다(하위호환).
+  static bool matchesDistrictFilter(
+    Map<String, dynamic> data,
+    Set<String> selected,
+  ) {
+    if (selected.isEmpty) return true;
+
+    final district = (data['district'] as String?) ?? '';
+    final region = (data['region'] as String?) ?? '';
+
+    // '(전체)'로 고른 시/도들을 먼저 본다 — 구를 몰라도 통과할 수 있다.
+    for (final value in selected) {
+      final allRegion = regionOfAllDistrict(value);
+      if (allRegion == null) continue;
+      if (region == allRegion) return true;
+      // region 필드가 없는 옛 문서: 구 이름으로 시/도를 되찾는다.
+      if (district.isNotEmpty &&
+          (regionDistricts[allRegion] ?? const []).contains(district)) {
+        return true;
+      }
+    }
+
+    final districts = selected.where((v) => !isAllDistrict(v)).toSet();
+    if (districts.isEmpty) return false;
+    if (district.isNotEmpty) return districts.contains(district);
+    if (region.isEmpty) return false;
+    return districts.expand(regionsOfDistrict).contains(region);
+  }
+
+  /// 주소 문자열만 가진 문서(플레이스·장소대여)용 지역 필터 판정.
+  ///
+  /// 파티와 달리 `district`/`region` 필드가 없어 주소를 직접 대조한다.
+  /// '(전체)'는 **주소 맨 앞의 시/도**로만 판정한다 — 그 시/도의 구 이름이
+  /// 들어 있는지로 보면 '중구'처럼 여러 시/도에 같은 이름이 있는 구 때문에
+  /// 부산 주소가 '서울 (전체)'에 걸린다.
+  static bool addressMatchesDistrictFilter(
+    String address,
+    Set<String> selected,
+  ) {
+    if (selected.isEmpty) return true;
+    if (address.isEmpty) return false;
+    final addressRegion = regionOfAddress(address);
+    for (final value in selected) {
+      final allRegion = regionOfAllDistrict(value);
+      if (allRegion == null) {
+        if (address.contains(value)) return true;
+      } else if (addressRegion == allRegion) {
+        return true;
+      }
+    }
+    return false;
   }
 
   /// 해당 구/시/군이 속한 시/도 목록 (동명 구가 여러 지역에 존재할 수 있어 List로 반환).
@@ -179,10 +490,14 @@ class RegionData {
         _extractDongToken(rawAddress) ??
         _extractDongToken(location);
     if (dong != null) {
-      return (district != null && district.isNotEmpty) ? '$district $dong' : dong;
+      return (district != null && district.isNotEmpty)
+          ? '$district $dong'
+          : dong;
     }
 
-    final roadName = _extractRoadNameToken(road.isNotEmpty ? road : bestAddress);
+    final roadName = _extractRoadNameToken(
+      road.isNotEmpty ? road : bestAddress,
+    );
     if (roadName != null) {
       return (district != null && district.isNotEmpty)
           ? '$district $roadName'
@@ -221,10 +536,14 @@ class RegionData {
 
     final region = storedRegion.isNotEmpty
         ? storedRegion
-        : (bestAddress.isEmpty ? '' : extractRegion(shortenRegionPrefix(bestAddress)));
+        : (bestAddress.isEmpty
+              ? ''
+              : extractRegion(shortenRegionPrefix(bestAddress)));
     final district = storedDistrict.isNotEmpty
         ? storedDistrict
-        : (bestAddress.isEmpty ? null : extractDistrict(bestAddress, region: region));
+        : (bestAddress.isEmpty
+              ? null
+              : extractDistrict(bestAddress, region: region));
 
     final dong =
         _extractDongToken(jibun) ??
@@ -265,7 +584,11 @@ class RegionData {
 
     for (var i = guIdx + 1; i < tokens.length; i++) {
       final t = tokens[i];
-      if (t.endsWith('동') || t.endsWith('읍') || t.endsWith('면') || t.endsWith('리') || t.endsWith('가')) {
+      if (t.endsWith('동') ||
+          t.endsWith('읍') ||
+          t.endsWith('면') ||
+          t.endsWith('리') ||
+          t.endsWith('가')) {
         return '${tokens[guIdx]} $t';
       }
     }

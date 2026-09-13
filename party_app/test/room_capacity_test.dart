@@ -2,16 +2,23 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:party_app/widgets/place_form/room_card.dart';
 
+import 'support/field_finders.dart';
+
 // 객실 유형: 기준인원 / 최대 수용 가능 인원 입력 UI·검증 확인.
 
-Future<RoomCardState> _pump(WidgetTester tester, GlobalKey<RoomCardState> key) async {
-  await tester.pumpWidget(MaterialApp(
-    home: Scaffold(
-      body: SingleChildScrollView(
-        child: RoomCard(key: key, index: 0, onRemove: () {}),
+Future<RoomCardState> _pump(
+  WidgetTester tester,
+  GlobalKey<RoomCardState> key,
+) async {
+  await tester.pumpWidget(
+    MaterialApp(
+      home: Scaffold(
+        body: SingleChildScrollView(
+          child: RoomCard(key: key, index: 0, onRemove: () {}),
+        ),
       ),
     ),
-  ));
+  );
   await tester.pump();
   return key.currentState!;
 }
@@ -45,7 +52,7 @@ void main() {
   testWidgets('기준 2 / 최대 4는 통과(용량 항목 기준)', (tester) async {
     final key = GlobalKey<RoomCardState>();
     await _pump(tester, key);
-    await tester.enterText(find.byType(TextField).at(0), '테스트 룸');
+    await tester.enterText(fieldWithHint(kRoomNameHint), '테스트 룸');
     await tester.enterText(find.widgetWithText(TextField, '예: 2'), '2');
     await tester.enterText(find.widgetWithText(TextField, '예: 4'), '4');
     await tester.pump();
@@ -59,7 +66,9 @@ void main() {
     await _pump(tester, key);
     await tester.enterText(find.widgetWithText(TextField, '예: 4'), '4명abc');
     await tester.pump();
-    final maxField = tester.widget<TextField>(find.widgetWithText(TextField, '예: 4'));
+    final maxField = tester.widget<TextField>(
+      find.widgetWithText(TextField, '예: 4'),
+    );
     expect(maxField.controller?.text, '4'); // digitsOnly로 숫자만 남음
   });
 }
