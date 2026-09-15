@@ -5,7 +5,9 @@ import 'package:shared_preferences/shared_preferences.dart';
 enum LastLoginMethod {
   google,
   kakao,
-  naver;
+  naver,
+  // iOS 전용 Sign in with Apple(utils/apple_sign_in.dart).
+  apple;
 
   static const _prefsKey = 'last_login_method';
 

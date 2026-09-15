@@ -1,6 +1,8 @@
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 
 import 'package:party_app/services/account_withdrawal_service.dart';
+import 'package:party_app/utils/apple_sign_in.dart';
 import 'package:party_app/utils/user_session.dart';
 import 'package:party_app/widgets/web_frame.dart';
 
@@ -79,6 +81,22 @@ class _AccountWithdrawalScreenState extends State<AccountWithdrawalScreen> {
 
     setState(() => _submitting = true);
     try {
+      // Apple로 가입한 계정은 탈퇴 신청 **전에** Apple 토큰을 폐기한다
+      // (App Review 5.1.1(v)). 폐기에 실패하면 신청을 보내지 않는다 — 계정만
+      // 탈퇴 처리되고 Apple 쪽 연결이 남는 상태를 만들지 않기 위해서다.
+      // Google·카카오·네이버 계정은 이 블록을 통째로 건너뛴다.
+      if (AppleSignIn.usesApple(FirebaseAuth.instance.currentUser)) {
+        // 화면을 연 뒤 새 거래가 생겼으면 토큰부터 폐기하지 않도록 먼저 다시 본다.
+        final latest = await AccountWithdrawalService.fetchStatus();
+        if (!mounted) return;
+        if (!latest.canRequest) {
+          setState(() => _status = latest);
+          return;
+        }
+        if (!await _revokeAppleToken()) return;
+        if (!mounted) return;
+      }
+
       final result = await AccountWithdrawalService.request(
         reason: _reasonCtrl.text,
         reasonCode: _reasonCode,
@@ -127,6 +145,62 @@ class _AccountWithdrawalScreenState extends State<AccountWithdrawalScreen> {
       // 성공 경로에서는 이 화면이 곧 사라지지만, 실패·차단 어느 쪽으로 빠지든
       // 버튼이 스피너로 굳지 않도록 한 곳에서 확실히 푼다.
       if (mounted) setState(() => _submitting = false);
+    }
+  }
+
+  /// Apple 계정 탈퇴 전 토큰 폐기 — 재인증으로 새 authorization code를 받아
+  /// `revokeTokenWithAuthorizationCode`를 부른다. 성공해야만 true.
+  ///
+  /// 실패·취소를 무시하고 탈퇴를 이어가지 않는다. 사용자에게 다시 시도하라고
+  /// 안내하고 신청은 보내지 않는다.
+  Future<bool> _revokeAppleToken() async {
+    final messenger = ScaffoldMessenger.of(context);
+    void notify(String message) =>
+        messenger.showSnackBar(SnackBar(content: Text(message)));
+
+    // Apple 로그인은 iOS에만 있다 — 다른 기기에서는 재인증 창을 띄울 수 없다.
+    if (!AppleSignIn.isAvailable) {
+      notify('Apple로 가입한 계정은 iPhone의 파티츄 앱에서 탈퇴를 진행해주세요.');
+      return false;
+    }
+
+    final proceed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
+        title: const Text('Apple 계정 확인이 필요해요'),
+        content: const Text(
+          'Apple로 가입한 계정은 탈퇴 전에 Apple 계정 연결을 해제합니다.\n'
+          '다음 화면에서 Apple 계정을 한 번 더 확인해주세요.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('취소'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('계속'),
+          ),
+        ],
+      ),
+    );
+    if (proceed != true) return false;
+
+    try {
+      await AppleSignIn.revokeForAccountDeletion();
+      return true;
+    } catch (e) {
+      debugPrint(
+        '[Withdrawal] Apple 토큰 폐기 실패: '
+        '${e is FirebaseAuthException ? e.code : e.runtimeType}',
+      );
+      notify(
+        AppleSignIn.isCancellation(e)
+            ? 'Apple 계정 확인이 취소되어 탈퇴를 진행하지 않았어요.'
+            : 'Apple 계정 연결 해제에 실패해 탈퇴를 진행하지 않았어요. 잠시 후 다시 시도해주세요.',
+      );
+      return false;
     }
   }
 

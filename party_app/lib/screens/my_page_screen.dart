@@ -1419,6 +1419,11 @@ class _ProviderMark extends StatelessWidget {
           ),
         ),
       ),
+      LoginProvider.apple => (
+        Colors.black,
+        null,
+        const Icon(Icons.apple, size: 18, color: Colors.white),
+      ),
       LoginProvider.email => (
         const Color(0xFFF1F1F1),
         null,

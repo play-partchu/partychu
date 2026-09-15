@@ -6,6 +6,8 @@ enum LoginProvider {
   google('Google'),
   kakao('카카오'),
   naver('네이버'),
+  // iOS 전용 Sign in with Apple(utils/apple_sign_in.dart).
+  apple('Apple'),
   // Debug 전용 QA 이메일 로그인(login.dart) — 운영 가입 경로는 아니다.
   email('이메일');
 
@@ -38,7 +40,7 @@ class LoginAccount {
 ///  1. uid 접두어 `kakao:` / `naver:` — functions/socialAuth.js가 커스텀 토큰
 ///     계정을 이 형태로만 만든다. 커스텀 토큰 로그인은 Firebase providerData에
 ///     제공자가 남지 않아서, 이게 가장 확실한 근거다.
-///  2. providerData의 `google.com` — Firebase가 직접 붙이는 값.
+///  2. providerData의 `google.com` / `apple.com` — Firebase가 직접 붙이는 값.
 ///  3. users 문서의 `signupProvider` — 앱이 최초 로그인 때 한 번 기록한다
 ///     (login.dart). 도입 이전 가입자에게는 없어서 폴백으로만 쓴다.
 ///  4. providerData의 `password` — 이메일 로그인.
@@ -49,7 +51,8 @@ class LoginAccount {
 ///   (socialAuth.js). Auth email은 계정 생성 때 한 번만 들어가서 기존 가입자는
 ///   비어 있다. 네이버는 로그인 아이디를 API로 주지 않아 이메일이 식별값이다.
 ///   socialAccount는 판정한 제공자와 같을 때만 믿는다.
-/// Google·이메일: Auth email → providerData email → users.email.
+/// Google·Apple·이메일: Auth email → providerData email → users.email.
+///   Apple은 "나의 이메일 가리기"를 고르면 privaterelay 주소가 그대로 이메일이다.
 /// `@`가 없는 값은 이메일로 보지 않는다.
 LoginAccount? resolveLoginAccount({
   required String uid,
@@ -70,12 +73,16 @@ LoginAccount? resolveLoginAccount({
     provider = LoginProvider.naver;
   } else if (providerIds.contains('google.com')) {
     provider = LoginProvider.google;
+  } else if (providerIds.contains('apple.com')) {
+    provider = LoginProvider.apple;
   } else if (signupProvider == 'google') {
     provider = LoginProvider.google;
   } else if (signupProvider == 'kakao') {
     provider = LoginProvider.kakao;
   } else if (signupProvider == 'naver') {
     provider = LoginProvider.naver;
+  } else if (signupProvider == 'apple') {
+    provider = LoginProvider.apple;
   } else if (providerIds.contains('password')) {
     provider = LoginProvider.email;
   } else {
@@ -91,6 +98,7 @@ LoginAccount? resolveLoginAccount({
       storedEmail,
     ],
     LoginProvider.google ||
+    LoginProvider.apple ||
     LoginProvider.email => [authEmail, ...providerEmails, storedEmail],
   };
   final email = candidates

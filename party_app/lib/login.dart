@@ -14,6 +14,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:cloud_functions/cloud_functions.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:party_app/utils/user_session.dart';
+import 'package:party_app/utils/apple_sign_in.dart';
 import 'package:party_app/utils/last_login_method.dart';
 import 'package:party_app/utils/social_session.dart';
 import 'package:party_app/utils/root_gate.dart' show socialLoginTestMode;
@@ -209,6 +210,60 @@ class _LoginPageState extends State<LoginPage> {
     } catch (error, st) {
       debugPrint('[Login] Google error: $error\n$st');
       if (context.mounted) _showError(context, '구글 로그인에 실패했습니다.');
+    }
+  }
+
+  // ─── Apple (iOS 전용) ────────────────────────────────────────────────────
+  // App Store 심사 4.8 — 서드파티 로그인을 제공하므로 Sign in with Apple을 함께
+  // 둔다. nonce·자격증명 생성은 firebase_auth 플러그인이 네이티브로 처리한다
+  // (utils/apple_sign_in.dart 주석). 로그인 뒤 처리는 다른 수단과 똑같이
+  // _onLoginSuccess를 탄다 — users 문서는 onUserCreated가 만들고, 본인확인 등
+  // 첫 화면은 루트 게이트가 고른다.
+  Future<void> signInWithApple(BuildContext context) async {
+    if (!AppleSignIn.isAvailable) return;
+    try {
+      await AppleSignIn.signIn();
+
+      final uid = FirebaseAuth.instance.currentUser?.uid;
+      debugPrint('[Login] Apple signIn done. uid=$uid');
+      if (uid == null) {
+        if (context.mounted) _showError(context, 'Apple 로그인에 실패했습니다.');
+        return;
+      }
+      UserSession.beginSession(uid);
+      await LastLoginMethod.apple.save();
+
+      if (context.mounted) await _onLoginSuccess(context, provider: 'apple');
+    } on FirebaseAuthException catch (error, st) {
+      // 사용자가 Apple 창을 닫은 것은 실패가 아니다 — 구글·네이버와 같이 조용히 끝낸다.
+      if (AppleSignIn.isCancellation(error)) {
+        debugPrint('[Login] Apple signIn cancelled by user');
+        return;
+      }
+      // 이메일은 로그에 남기지 않는다(가리기 주소도 계정 식별값이다).
+      debugPrint(
+        '[Login] Apple FirebaseAuth 실패 code=${error.code} '
+        'message=${error.message}\n$st',
+      );
+      if (!context.mounted) return;
+      // 같은 이메일이 이미 다른 로그인 수단의 계정에 묶여 있다. 구글과 같은 원칙으로
+      // **자동으로 합치거나(link) 지우지 않는다** — 안내만 한다.
+      if (error.code == 'account-exists-with-different-credential') {
+        _showError(
+          context,
+          '이미 다른 로그인 방식으로 가입된 이메일입니다. 기존 로그인 방식으로 로그인해 주세요.',
+        );
+        return;
+      }
+      _showError(
+        context,
+        socialLoginTestMode
+            ? 'Apple 로그인에 실패했습니다. (${error.code})'
+            : 'Apple 로그인에 실패했습니다.',
+      );
+    } catch (error, st) {
+      debugPrint('[Login] Apple error: $error\n$st');
+      if (context.mounted) _showError(context, 'Apple 로그인에 실패했습니다.');
     }
   }
 
@@ -533,6 +588,9 @@ class _LoginPageState extends State<LoginPage> {
   Widget _kakaoIcon() =>
       const Icon(Icons.chat_bubble_rounded, size: 18, color: Colors.black);
 
+  // Apple 로고(Material Icons의 apple 글리프) — Apple 버튼 가이드의 검정 배경·흰 로고.
+  Widget _appleIcon() => const Icon(Icons.apple, size: 21, color: Colors.white);
+
   Widget _naverIcon() => Container(
     width: 20,
     height: 20,
@@ -751,6 +809,24 @@ class _LoginPageState extends State<LoginPage> {
                                   ),
                                   child: Column(
                                     children: [
+                                      // Sign in with Apple — iOS에서만 노출한다
+                                      // (Android·웹 화면은 그대로). 심사 4.8의
+                                      // "동등한 선택지"라 다른 버튼과 같은 크기로
+                                      // 맨 위에 둔다. 검정 배경·흰 Apple 로고·
+                                      // "Apple로 계속하기"는 Apple 버튼 가이드의
+                                      // 기본 스타일이다.
+                                      if (AppleSignIn.isAvailable) ...[
+                                        _providerButton(
+                                          method: LastLoginMethod.apple,
+                                          onPressed: () =>
+                                              signInWithApple(context),
+                                          label: 'Apple로 계속하기',
+                                          icon: _appleIcon(),
+                                          background: Colors.black,
+                                          textColor: Colors.white,
+                                        ),
+                                        const SizedBox(height: 11),
+                                      ],
                                       _providerButton(
                                         method: LastLoginMethod.google,
                                         onPressed: () =>
