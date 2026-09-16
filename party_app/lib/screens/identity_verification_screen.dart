@@ -94,6 +94,12 @@ class _IdentityVerificationScreenState
       return;
     }
 
+    // 인증 화면이 실패로 닫혔더라도 서버에는 인증이 저장됐을 수 있다 — 결과
+    // 조회가 중복되면 NICE가 "기 인증결과 제공"으로 답해 취소처럼 보인다.
+    // 실패 문구를 띄우기 전에 서버 상태를 한 번 강제로 다시 읽는다.
+    final verifiedAfterFailure = await _refreshSession();
+    if (!mounted || verifiedAfterFailure) return; // 인증됐으면 게이트가 화면을 바꾼다.
+
     setState(() {
       _isLoading = false;
       _statusMessage = '본인확인이 취소되었거나 실패했습니다. 다시 시도해주세요.';

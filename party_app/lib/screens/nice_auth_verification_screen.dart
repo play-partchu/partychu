@@ -22,14 +22,22 @@ const _kRegion = 'asia-northeast3';
 // 한 번으로 기다리지 않고 "즉시 → 1초 후 → 2초 후 → 3초 후" 총 4회까지
 // 짧게 재조회한다. 전체 대기시간은 하드 데드라인(_kOverallDeadline)으로
 // 강제 종료되어 어떤 경우에도 무한 로딩이 발생하지 않는다.
+//
+// 첫 시도만 예산을 길게 준다(_kFirstAttemptTimeout). 결과 조회 함수가 콜드
+// 스타트면 응답까지 4초를 넘기는 일이 잦은데, 그때 재시도가 나가면 **같은
+// 인증 건을 두 번 조회**하게 되고 NICE는 두 번째 요청에 3033(기 인증결과
+// 제공 건)을 돌려준다 — 먼저 간 조회는 성공해서 인증이 저장됐는데도 화면은
+// 실패로 끝나는 원인이었다. 첫 시도를 넉넉히 기다려 중복 조회 자체를 줄인다.
 const _kRetryDelays = <Duration>[
   Duration.zero,
   Duration(seconds: 1),
   Duration(seconds: 2),
   Duration(seconds: 3),
 ];
+const _kFirstAttemptTimeout = Duration(seconds: 10);
 const _kAttemptTimeout = Duration(seconds: 4);
-const _kOverallDeadline = Duration(seconds: 10);
+// 첫 시도(최대 10초) 뒤에도 재시도가 남아 있도록 전체 예산을 함께 늘린다.
+const _kOverallDeadline = Duration(seconds: 20);
 
 enum _Step {
   requestUrl('인증 URL 요청 중'),
@@ -324,9 +332,13 @@ class _NiceAuthVerificationScreenState
 
       final remainingBudget = _kOverallDeadline - overallStopwatch.elapsed;
       if (remainingBudget <= Duration.zero) break;
-      final attemptTimeout = remainingBudget < _kAttemptTimeout
-          ? remainingBudget
+      // 첫 시도만 길게 기다린다(콜드 스타트). 이후 재시도 간격·횟수는 그대로.
+      final attemptBudget = attempt == 0
+          ? _kFirstAttemptTimeout
           : _kAttemptTimeout;
+      final attemptTimeout = remainingBudget < attemptBudget
+          ? remainingBudget
+          : attemptBudget;
 
       debugPrint('[NiceAuth APP] result request attempt ${attempt + 1}');
       final attemptStopwatch = Stopwatch()..start();
@@ -366,6 +378,15 @@ class _NiceAuthVerificationScreenState
 
       if (outcome.failureKind == _FailureKind.permanent) {
         debugPrint('[NiceAuth APP] failure (permanent)');
+        // 실패로 끝내기 전에 서버 상태를 한 번 확인한다 — 중복 조회로 받은
+        // 3033은 "취소"로 내려오지만, 먼저 간 조회가 이미 인증을 저장했을 수
+        // 있다. 서버가 인증 완료라고 답하면 성공으로 닫는다.
+        if (await _serverSaysVerified()) {
+          debugPrint('[NiceAuth APP] 서버 기준 이미 인증 완료 — 성공 처리');
+          if (mounted) Navigator.pop(context, true);
+          return;
+        }
+        if (_disposed) return;
         // permanent 실패 중 "취소"는 별도 안내 없이 화면을 닫는다(기존 동작 유지).
         if (outcome.logTag == 'cancelled') {
           if (mounted) Navigator.pop(context, false);
@@ -379,10 +400,33 @@ class _NiceAuthVerificationScreenState
 
     // 예산 소진 또는 permanent 실패 — 무한 로딩 금지, 명확한 재시도 화면으로 전환
     if (_disposed) return;
+    // 재시도 화면을 띄우기 전에도 서버 상태를 한 번 확인한다(위와 같은 이유).
+    if (await _serverSaysVerified()) {
+      debugPrint('[NiceAuth APP] 서버 기준 이미 인증 완료 — 성공 처리');
+      if (mounted) Navigator.pop(context, true);
+      return;
+    }
+    if (_disposed) return;
     _safeSetState(() {
       _completing = false;
       _resultCheckFailed = true;
     });
+  }
+
+  /// 서버(users 문서)가 이미 본인확인 완료로 보고 있는지 강제로 다시 읽는다.
+  ///
+  /// 결과 조회가 실패로 끝나도 인증 자체는 저장돼 있을 수 있다 — 같은 인증
+  /// 건을 두 번 조회하면 NICE가 3033을 돌려주는데, 먼저 간 조회가 저장을
+  /// 마쳤을 수 있기 때문이다. 판단은 **서버 값만** 믿는다. 미인증이거나
+  /// 확인 자체에 실패하면 false를 돌려 기존 실패 처리를 그대로 따른다.
+  Future<bool> _serverSaysVerified() async {
+    try {
+      final verified = await UserSession.resolveIdentityVerified(force: true);
+      return verified == true;
+    } catch (e) {
+      debugPrint('[NiceAuth APP] 인증 상태 재확인 실패(무시): $e');
+      return false;
+    }
   }
 
   Future<_AttemptOutcome> _fetchResultOnce(
