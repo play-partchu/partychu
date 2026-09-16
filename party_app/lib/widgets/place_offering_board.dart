@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 
 import 'package:party_app/models/host_offering.dart';
 import 'package:party_app/models/place_promotion.dart';
+import 'package:party_app/services/listing_sources.dart';
 import 'package:party_app/services/place_promotion_service.dart';
 import 'package:party_app/widgets/linked_party_card.dart';
 import 'package:party_app/widgets/offering_card_shell.dart';
@@ -405,15 +406,20 @@ class _PlaceOfferingBoardState extends State<PlaceOfferingBoard> {
     );
   }
 
-  /// 지금 노출 가능한 파티만 — 삭제된 문서와 [excludedPartyIds]는 뺀다
-  /// (기존 목록과 같은 규칙).
+  /// 지금 노출 가능한 파티만 — 목록·검색과 **같은 판정**을 그대로 쓰고
+  /// ([ListingSources.isPartyVisible]), 거기에 [excludedPartyIds]만 더 뺀다.
+  ///
+  /// 예전에는 `isDeleted`만 봤다. 그러면 이미 끝난 파티와 남은 회차가 없는
+  /// 정기 파티가 이 열에 계속 남아, 같은 화면 위쪽의 'With파티' 배지
+  /// ([PlacePartyIndex] → 같은 판정 함수)와 개수가 어긋났다. 판정을 한 곳으로
+  /// 모아 두 자리가 같은 파티 집합을 보게 한다.
   /// 다가오는 파티가 위로 오도록 시작 시각순 정렬(정기 파티는 다음 회차).
   List<QueryDocumentSnapshot<Map<String, dynamic>>> _visibleParties(
     QuerySnapshot<Map<String, dynamic>>? snap,
   ) {
     final docs =
         snap?.docs
-            .where((d) => d.data()['isDeleted'] != true)
+            .where((d) => ListingSources.isPartyVisible(d.data()))
             .where((d) => !widget.excludedPartyIds.contains(d.id))
             .toList() ??
         <QueryDocumentSnapshot<Map<String, dynamic>>>[];

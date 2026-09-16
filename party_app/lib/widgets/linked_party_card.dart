@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import 'package:party_app/models/party_pricing.dart';
+import 'package:party_app/models/party_schedule.dart';
 import 'package:party_app/screens/party_detail_screen.dart';
 import 'package:party_app/utils/card_media_frame.dart';
 import 'package:party_app/utils/feed_video_manager.dart';
@@ -53,10 +54,26 @@ class LinkedPartyCard extends StatelessWidget {
     required this.party,
   });
 
+  /// 정기 파티의 반복 규칙 한 줄('매주 수요일 오후 8:00').
+  ///
+  /// 켜진 요일이 하나도 없는 이상 데이터에서는 빈 문자열이 오는데, 그때 일정
+  /// 줄이 통째로 사라지지 않도록 기존 회차 문구([fallback])를 그대로 쓴다.
+  String _recurringLabelOr(String fallback) {
+    final label = PartySchedule.cardSummaryLabel(party);
+    return label.isEmpty ? fallback : label;
+  }
+
   @override
   Widget build(BuildContext context) {
     final title = party['title'] as String? ?? '파티';
-    final date = PartyCard.formatDate(party);
+    // 정기 파티는 회차 하루가 아니라 **반복 규칙**을 적는다('매주 수요일 오후
+    // 8:00'). 장소를 보러 온 사람에게는 "언제마다 열리는 곳인가"가 그 장소를
+    // 판단하는 정보이기 때문이다 — 목록 카드가 회차 하나만 적는 이유
+    // (party_card_widget.dart의 formatDate 주석)와는 자리가 다르다.
+    // 문구는 기존 PartySchedule.cardSummaryLabel을 그대로 쓴다.
+    final date = PartySchedule.isRecurring(party)
+        ? _recurringLabelOr(PartyCard.formatDate(party))
+        : PartyCard.formatDate(party);
     // 대표 참가비(남녀가 다르면 낮은 쪽) — 목록 카드와 동일한 규칙.
     final fee = PartyPricing.fromMap(party).displayPrice;
 
