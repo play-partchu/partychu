@@ -76,3 +76,5 @@ coverVideoUid: null, coverVideoUrl: null
 | 날짜 | 파일 | 대상 문서 | 바꾼 필드 | R2 URL |
 | --- | --- | --- | --- | --- |
 | 2026-09-18 | `partyshop/partyshop-cakeshop-cover.png` | `partyShops/b9P0ewJo4vKrtVg235ZX` (케익샵) | `mainImageUrl`, `coverMediaType`, `coverImageUrl`, `coverThumbnailUrl`, `coverVideoUid`, `coverVideoUrl` | `https://pub-c00f710b36c24bdbbea4bb02247c9c5b.r2.dev/party_images/ws3COMBLLXPlI4IyhLnwtGF1evS2/1789718682896-8edddf9b6974.png` |
+| 2026-09-18 | `place/place-chicken-cover.png` | `events/FnM1hXKiO6jcTy9rdMqz` (파티츄 치킨집, 신규 생성) | `mainImageUrl`, `coverImageUrl`, `coverThumbnailUrl` (`coverMediaType: image`) | `https://pub-c00f710b36c24bdbbea4bb02247c9c5b.r2.dev/party_images/ws3COMBLLXPlI4IyhLnwtGF1evS2/1789725207876-b02a6b52bd2a.png` |
+| 2026-09-18 | `event/event-chicken-sports-cover.png` | `placePromotions/pzL5357vq4tZ1FshkQCn` (파티츄 치킨집 축구·야구 대형스크린 응원전, 신규 생성) | `imageUrl`, `coverImageUrl`, `coverThumbnailUrl` (`coverMediaType: image`) | `https://pub-c00f710b36c24bdbbea4bb02247c9c5b.r2.dev/party_images/ws3COMBLLXPlI4IyhLnwtGF1evS2/1789725209578-67adc11f81af.png` |
