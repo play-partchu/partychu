@@ -102,7 +102,7 @@ mark { background: linear-gradient(transparent 58%, #ffc6da 58%); color: inherit
 .ask { margin-top: 28px; padding: 26px 20px 24px; border-radius: 24px; background: var(--dark); color: #fff; }
 .bubbles { display: flex; flex-direction: column; gap: 10px; margin-bottom: 22px; }
 .bubble { align-self: flex-start; max-width: 88%; font-size: 17px; font-weight: 700; padding: 12px 16px; border-radius: 20px 20px 20px 6px; background: #2b2330; }
-.bubble:nth-child(2) { align-self: flex-end; border-radius: 20px 20px 6px 20px; background: var(--pink); }
+.bubble:nth-child(even) { align-self: flex-end; border-radius: 20px 20px 6px 20px; background: var(--pink); }
 .ask-line { font-size: 17px; line-height: 1.6; color: rgba(255, 255, 255, .72); }
 .ask-line strong { display: block; font-size: 20px; line-height: 1.45; color: #fff; margin-top: 2px; }
 
