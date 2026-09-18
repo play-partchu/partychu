@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:party_app/login.dart';
 import 'package:party_app/utils/party_utils.dart';
 import 'package:party_app/services/chat_service.dart';
 import 'package:party_app/models/made_to_order.dart';
@@ -723,6 +724,17 @@ class _ProductSheetState extends State<_ProductSheet> {
 
   // ── 결제 처리 ────────────────────────────────────────────────────
   Future<void> _onPay() async {
+    // 로그인은 **가장 먼저** 본다 — 옵션·수령 방식 안내가 먼저 나오면 비로그인
+    // 사용자는 결제 버튼이 반응하지 않는 것처럼 느낀다. 로그인 화면은 성공하면
+    // 스스로 닫히므로(LoginPage) 이 시트와 고른 옵션·수령 방식이 그대로 남는다.
+    if (!UserSession.isLoggedIn) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('구매하려면 로그인이 필요합니다.')),
+      );
+      await Navigator.push(context, webFramedRoute((_) => LoginPage()));
+      if (mounted) setState(() {});
+      return;
+    }
     final options = (widget.productData['options'] as List?)?.cast<Map>() ?? [];
     if (options.isNotEmpty && _selectedOptionIdx == null) {
       ScaffoldMessenger.of(
@@ -742,13 +754,6 @@ class _ProductSheetState extends State<_ProductSheet> {
       ).showSnackBar(const SnackBar(content: Text('수령 날짜를 선택해주세요.')));
       return;
     }
-    if (UserSession.userId.isEmpty) {
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(const SnackBar(content: Text('로그인이 필요합니다.')));
-      return;
-    }
-
     // ── 결제수단 ──────────────────────────────────────────────────────────
     // PG 계약 전이라 실제로 고를 수 있는 수단은 무통장입금·현장(수령 시)
     // 결제뿐이고, 카드·간편결제·실시간계좌이체·가상계좌는 이 화면에서
