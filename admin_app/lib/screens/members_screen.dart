@@ -9,6 +9,7 @@ import '../models/business_info.dart';
 import '../services/admin_firestore_service.dart';
 import '../theme/admin_theme.dart';
 import '../utils/masking.dart';
+import '../utils/responsive.dart';
 
 typedef OpenMember = void Function(String uid);
 
@@ -367,10 +368,11 @@ class _MembersScreenState extends State<MembersScreen> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Row(
+        Wrap(
+          spacing: 12,
+          crossAxisAlignment: WrapCrossAlignment.center,
           children: [
             const Text('회원 관리', style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
-            const SizedBox(width: 12),
             if (_filteredTotal != null)
               Text('전체 ${NumberFormat('#,###').format(_filteredTotal)}명',
                   style: const TextStyle(fontSize: 13, color: AdminTheme.textSecondary)),
@@ -433,7 +435,7 @@ class _MembersScreenState extends State<MembersScreen> {
       crossAxisAlignment: WrapCrossAlignment.center,
       children: [
         SizedBox(
-          width: 260,
+          width: context.fluid(260),
           child: TextField(
             controller: _searchCtrl,
             decoration: const InputDecoration(

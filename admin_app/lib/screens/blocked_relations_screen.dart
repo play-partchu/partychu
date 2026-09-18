@@ -4,6 +4,7 @@ import 'package:intl/intl.dart';
 
 import '../services/admin_firestore_service.dart';
 import '../theme/admin_theme.dart';
+import '../utils/responsive.dart';
 import 'members_screen.dart' show OpenMember;
 
 // 사용자 차단 내역 — Firestore `userBlocks`.
@@ -197,7 +198,7 @@ class _BlockedRelationsScreenState extends State<BlockedRelationsScreen> {
     crossAxisAlignment: WrapCrossAlignment.center,
     children: [
       SizedBox(
-        width: 260,
+        width: context.fluid(260),
         child: TextField(
           controller: _searchCtrl,
           onChanged: (v) => setState(() => _search = v),

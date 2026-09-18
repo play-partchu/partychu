@@ -45,9 +45,11 @@ class _SystemErrorsScreenState extends State<SystemErrorsScreen> {
           children: [
             const Text('시스템 오류', style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
             const SizedBox(width: 12),
-            const Text('스케줄 함수(만료 처리, 자동 삭제 등) 실패 기록 — 최근 100건',
-                style: TextStyle(fontSize: 12.5, color: AdminTheme.textSecondary)),
-            const Spacer(),
+            // 설명글이 길어 좁은 화면에서는 남는 폭 안에서만 그린다.
+            const Expanded(
+              child: Text('스케줄 함수(만료 처리, 자동 삭제 등) 실패 기록 — 최근 100건',
+                  style: TextStyle(fontSize: 12.5, color: AdminTheme.textSecondary)),
+            ),
             IconButton(
               onPressed: _refresh,
               icon: const Icon(Icons.refresh, size: 20),

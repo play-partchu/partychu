@@ -5,6 +5,7 @@ import 'package:flutter/services.dart';
 import 'package:intl/intl.dart';
 
 import '../theme/admin_theme.dart';
+import '../utils/responsive.dart';
 
 /// 환불 요청 **감시·개입** 화면.
 ///
@@ -78,7 +79,7 @@ class _RefundRequestsScreenState extends State<RefundRequestsScreen> {
         builder: (ctx, setLocal) => AlertDialog(
           title: Text('$label 처리'),
           content: SizedBox(
-            width: 420,
+            width: context.dialogWidth(420),
             child: Column(
               mainAxisSize: MainAxisSize.min,
               crossAxisAlignment: CrossAxisAlignment.start,
@@ -183,11 +184,13 @@ class _RefundRequestsScreenState extends State<RefundRequestsScreen> {
               style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
             ),
             const SizedBox(width: 12),
-            const Text(
-              '무통장입금 취소 건 — 송금 주체는 호스트, 여기서는 감시·개입만 (처리 대기)',
-              style: TextStyle(fontSize: 12.5, color: AdminTheme.textSecondary),
+            // 설명글이 길어 좁은 화면에서는 남는 폭 안에서만 그린다.
+            const Expanded(
+              child: Text(
+                '무통장입금 취소 건 — 송금 주체는 호스트, 여기서는 감시·개입만 (처리 대기)',
+                style: TextStyle(fontSize: 12.5, color: AdminTheme.textSecondary),
+              ),
             ),
-            const Spacer(),
             IconButton(
               onPressed: () => setState(() {}),
               icon: const Icon(Icons.refresh, size: 20),

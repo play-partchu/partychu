@@ -4,6 +4,7 @@ import 'package:intl/intl.dart';
 
 import '../services/admin_chat_service.dart';
 import '../theme/admin_theme.dart';
+import '../utils/responsive.dart';
 
 /// 채팅방 상세 — **관리자용 읽기 전용 대화 기록**.
 ///
@@ -182,6 +183,18 @@ class _ChatRoomDetailScreenState extends State<ChatRoomDetailScreen> {
     }
 
     final room = _room!;
+    // 좁은 화면에서는 방 정보(320) + 대화를 좌우로 두면 대화가 짓눌린다 —
+    // 방 정보를 위로 올리고 대화가 남은 높이를 쓰게 한다.
+    if (context.isMobileLayout) {
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          SizedBox(height: 180, child: _buildRoomCard(room)),
+          const SizedBox(height: 12),
+          Expanded(child: _buildTranscript(room)),
+        ],
+      );
+    }
     return Row(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [

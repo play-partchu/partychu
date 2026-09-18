@@ -872,6 +872,33 @@ service cloud.firestore {
       allow read, write: if false;
     }
 
+    // ── hostPreRegistrations 컬렉션 (호스트 사전등록 신청서) ──────────
+    // FormHug 신청서 원장 — 업체명·사업자번호·호스트/대표자 연락처가 들어 있다
+    // (functions/hostPreRegistration.js).
+    //
+    //   · 읽기: 관리자만. 신청자 본인에게도 열지 않는다(로그인 계정과 신청서의
+    //     연결은 관리자가 확인하기 전까지 근거가 없다).
+    //   · 쓰기: 전면 차단. 생성은 웹훅, 상태 전이·계정 연결은 관리자 콜러블
+    //     (Admin SDK)만 한다 — 이력(history)과 한 번에 기록하기 위해서다.
+    //
+    // ⚠️ 이 문서의 status는 **권한의 근거가 아니다.** 사업자 권한은 여전히
+    //    users.businessVerification(isBusinessVerified)만 본다.
+    match /hostPreRegistrations/{preRegistrationId} {
+      allow read: if isAdmin();
+      allow write: if false;
+
+      match /history/{historyId} {
+        allow read: if isAdmin();
+        allow write: if false;
+      }
+    }
+
+    // FormHug 폼 필드 ↔ 신청서 항목 연결 설정. 관리자 콜러블만 쓴다.
+    match /hostPreRegistrationConfig/{configId} {
+      allow read: if isAdmin();
+      allow write: if false;
+    }
+
     // ── places 컬렉션 ─────────────────────────────────────────────────
     // [읽기] 비로그인 사용자도 목록·상세 조회 가능 (공개 컬렉션)
     // [생성] **사업자 인증을 마친** 사용자가 자신의 hostId로만 등록 가능
@@ -1513,6 +1540,37 @@ service cloud.firestore {
 
       // 생성은 서버 전용(Admin SDK는 규칙을 우회한다).
       allow create: if false;
+    }
+
+    // ── adminNotifications (관리자 업무 알림) ───────────────────────────────
+    // 운영자가 처리해야 할 일이 생겼을 때 서버가 남기는 알림. 지금은 호스트
+    // 사전등록 신청 접수가 쌓인다(functions/adminNotifications.js).
+    //
+    // ⚠️ 위의 `notifications`와 **일부러 분리했다.** 거기에 관리자 uid로 쓰면
+    //    ① onNotificationCreated 트리거가 관리자 개인 폰으로 FCM을 쏘고
+    //    ② 관리자가 사용자 앱을 켰을 때 홈 종에 운영 전용 내용이 섞여 보인다.
+    //
+    // 읽음은 `readBy` 배열에 자기 uid를 넣는 것으로 표시한다 — 관리자가 여럿일
+    // 때 한 사람이 읽어도 다른 사람의 안 읽음이 그대로 남아야 하기 때문이다.
+    match /adminNotifications/{notificationId} {
+      // 관리자만 읽는다. 일반 사용자는 문서의 존재조차 알 수 없다.
+      allow read: if isAdmin();
+
+      // 본문은 서버(Admin SDK)만 만든다. 지우지도 못한다 — 처리해야 할 일이
+      // 알림째 사라지면 무엇을 놓쳤는지 알 방법이 없다.
+      allow create, delete: if false;
+
+      // 읽음 표시만. 세 줄이 각각 다른 것을 막는다.
+      //   1) readBy 말고 다른 칸(title·body·refId…)은 건드릴 수 없다.
+      //   2) 이미 들어 있던 uid를 뺄 수 없다 — 남의 읽음을 되돌리지 못한다.
+      //   3) 새로 넣을 수 있는 값은 자기 uid 하나뿐이다 — 남을 대신해
+      //      읽음 처리할 수 없다.
+      allow update: if isAdmin() &&
+        request.resource.data.diff(resource.data).affectedKeys()
+          .hasOnly(['readBy']) &&
+        resource.data.readBy.hasOnly(request.resource.data.readBy) &&
+        request.resource.data.readBy
+          .hasOnly(resource.data.readBy.concat([uid()]));
     }
 
     // ── chatRooms (1:1 문의 채팅) ───────────────────────────────────────────

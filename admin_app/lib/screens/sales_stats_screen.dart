@@ -19,6 +19,7 @@ import 'package:partychu_sales/partychu_sales.dart';
 
 import '../services/admin_sales_service.dart';
 import '../theme/admin_theme.dart';
+import '../utils/responsive.dart';
 
 final _won = NumberFormat.decimalPattern('ko_KR');
 
@@ -557,9 +558,10 @@ class _DayRowState extends State<_DayRow> {
                 ),
                 const SizedBox(width: 8),
                 SizedBox(
-                  width: 130,
+                  width: context.isCompact ? 84 : 130,
                   child: Text(
                     d.label,
+                    overflow: TextOverflow.ellipsis,
                     style: const TextStyle(
                       fontWeight: FontWeight.w600,
                       fontSize: 13.5,
@@ -582,14 +584,19 @@ class _DayRowState extends State<_DayRow> {
                   ),
                 ),
                 const Spacer(),
+                // 금액이 길어도 행이 넘치지 않게 남는 폭 안에서 줄어든다.
                 if (d.pendingRevenue > 0)
-                  Padding(
-                    padding: const EdgeInsets.only(right: 14),
-                    child: Text(
-                      '미확정 ${_money(d.pendingRevenue)}',
-                      style: const TextStyle(
-                        fontSize: 12,
-                        color: Color(0xFF9AA1AE),
+                  Flexible(
+                    child: Padding(
+                      padding: const EdgeInsets.only(right: 14),
+                      child: Text(
+                        '미확정 ${_money(d.pendingRevenue)}',
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(
+                          fontSize: 12,
+                          color: Color(0xFF9AA1AE),
+                        ),
                       ),
                     ),
                   ),
@@ -764,7 +771,7 @@ class _SellerTable extends StatelessWidget {
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         SizedBox(
-          width: 420,
+          width: context.fluid(420),
           child: TextField(
             decoration: const InputDecoration(
               hintText: '닉네임 · 실명 · UID · 콘텐츠명으로 검색',

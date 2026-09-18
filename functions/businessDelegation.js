@@ -160,7 +160,13 @@ const APPROVAL_CLOSE_URL = `${APPROVAL_BASE}/closed`;
 
 /// 세션 손잡이를 담는 쿠키. HttpOnly라 페이지 스크립트가 읽지 못하고,
 /// SameSite=Lax라 NICE에서 돌아오는 최상위 GET 이동에는 그대로 실린다.
-const SESSION_COOKIE = 'bizApprovalSid';
+///
+/// ⚠️ **이름은 반드시 `__session`이어야 한다.** 이 페이지는 Hosting rewrite
+///    (/biz-approval → 함수)로만 열리는데, Firebase Hosting은 함수로 넘기는
+///    요청에서 `__session` 외의 쿠키를 전부 지운다. 다른 이름을 쓰면
+///    /callback이 세션을 영영 찾지 못해 모든 승인이 "본인확인을 완료하지
+///    못했어요"로 끝난다(가짜 DB를 쓰는 셀프체크로는 잡히지 않는다).
+const SESSION_COOKIE = '__session';
 
 // ══════════════════════════════════════════════════════════════════════════
 // 순수 헬퍼 — 네트워크·Firestore 없이 셀프체크할 수 있다
@@ -169,6 +175,12 @@ const SESSION_COOKIE = 'bizApprovalSid';
 /// 승인/관리 링크 토큰. 256비트 CSPRNG.
 function newToken() {
   return crypto.randomBytes(32).toString('base64url');
+}
+
+/// 승인 링크. 앱(requestBusinessDelegation)과 관리자 사전등록
+/// (hostPreRegistration.js)이 **같은 모양의 링크**를 내보내도록 한 곳에 둔다.
+function approvalUrlOf(token) {
+  return `${APPROVAL_BASE}?t=${encodeURIComponent(token)}`;
 }
 
 /// **토큰 원문은 어디에도 저장하지 않는다.** 문서에 남는 것은 이 해시뿐이다 —
@@ -926,7 +938,7 @@ exports.requestBusinessDelegation = onCall(
 
     return {
       delegationId: result.delegationId,
-      approvalUrl: `${APPROVAL_BASE}?t=${encodeURIComponent(result.token)}`,
+      approvalUrl: approvalUrlOf(result.token),
       expiresAtMs: result.expiresAtMs,
       businessNumberMasked: result.businessNumberMasked,
     };
@@ -1198,6 +1210,8 @@ module.exports.MAX_NICE_ATTEMPTS = MAX_NICE_ATTEMPTS;
 module.exports.MAX_REQUESTS_PER_DAY = MAX_REQUESTS_PER_DAY;
 module.exports.MAX_ACTIVE_DELEGATES = MAX_ACTIVE_DELEGATES;
 module.exports.newToken = newToken;
+module.exports.approvalUrlOf = approvalUrlOf;
+module.exports.SESSION_COOKIE = SESSION_COOKIE;
 module.exports.hashToken = hashToken;
 module.exports.hashCi = hashCi;
 module.exports.subjectFingerprint = subjectFingerprint;

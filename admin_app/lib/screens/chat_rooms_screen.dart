@@ -4,6 +4,7 @@ import 'package:intl/intl.dart';
 
 import '../services/admin_chat_service.dart';
 import '../theme/admin_theme.dart';
+import '../utils/responsive.dart';
 
 /// 채팅 관리 — 전체 채팅방 목록(최근 메시지순).
 ///
@@ -176,7 +177,7 @@ class _ChatRoomsScreenState extends State<ChatRoomsScreen> {
           onChanged: (v) => setState(() => _searchField = v ?? _searchField),
         ),
         SizedBox(
-          width: 300,
+          width: context.fluid(300),
           child: TextField(
             controller: _searchCtrl,
             decoration: InputDecoration(

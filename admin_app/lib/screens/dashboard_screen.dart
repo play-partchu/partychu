@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../services/admin_firestore_service.dart';
 import '../services/crm_export_service.dart';
 import '../theme/admin_theme.dart';
+import '../utils/responsive.dart';
 import '../widgets/stat_card.dart';
 
 class DashboardScreen extends StatelessWidget {
@@ -93,13 +94,19 @@ class DashboardScreen extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Row(
-            children: [
-              const Text('대시보드', style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
-              const Spacer(),
-              const _CrmExportButton(),
-            ],
-          ),
+          // 좁은 화면에서는 제목 옆에 버튼을 두면 버튼이 잘린다 — 줄을 나눈다.
+          if (context.isCompact) ...[
+            const Text('대시보드', style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
+            const SizedBox(height: 10),
+            const _CrmExportButton(),
+          ] else
+            Row(
+              children: [
+                const Text('대시보드', style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
+                const Spacer(),
+                const _CrmExportButton(),
+              ],
+            ),
           const SizedBox(height: 20),
           for (final entry in sections.entries) ...[
             Text(entry.key,
@@ -181,8 +188,11 @@ class _CrmExportButtonState extends State<_CrmExportButton> {
 
   @override
   Widget build(BuildContext context) {
-    return Row(
-      mainAxisSize: MainAxisSize.min,
+    // 버튼 둘을 합치면 360px을 넘으므로 좁은 화면에서는 줄바꿈시킨다.
+    return Wrap(
+      spacing: 8,
+      runSpacing: 8,
+      crossAxisAlignment: WrapCrossAlignment.center,
       children: [
         ElevatedButton.icon(
           onPressed: _generating ? null : _generate,
@@ -191,7 +201,6 @@ class _CrmExportButtonState extends State<_CrmExportButton> {
               : const Icon(Icons.table_chart_outlined, size: 18),
           label: Text(_generating ? '생성 중...' : 'Google Sheets 생성'),
         ),
-        const SizedBox(width: 8),
         TextButton.icon(
           onPressed: _downloadingExcel ? null : _downloadExcel,
           icon: _downloadingExcel

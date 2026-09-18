@@ -4,6 +4,7 @@ import 'package:intl/intl.dart';
 
 import '../services/admin_firestore_service.dart';
 import '../theme/admin_theme.dart';
+import '../utils/responsive.dart';
 import 'members_screen.dart' show OpenMember;
 
 // 사용자·콘텐츠 신고를 보는 화면 — Firestore `reports`.
@@ -285,7 +286,7 @@ class _ReportsScreenState extends State<ReportsScreen> {
     crossAxisAlignment: WrapCrossAlignment.center,
     children: [
       SizedBox(
-        width: 260,
+        width: context.fluid(260),
         child: TextField(
           controller: _searchCtrl,
           onChanged: (v) => setState(() => _search = v),

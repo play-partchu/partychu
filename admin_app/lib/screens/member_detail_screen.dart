@@ -68,6 +68,11 @@ const _activityTypeLabels = {
   // 열람도 개인정보 접근이라 상태 변경과 같은 자리에 남긴다 — 대화 양쪽
   // 참여자의 타임라인에 각각 한 줄씩 찍힌다.
   'admin_chat_viewed': '관리자 채팅 열람',
+  // 호스트 사전등록(functions/hostPreRegistration.js). 계정 연결·링크 생성은
+  // 권한을 열지 않는다 — 권한은 사업자 인증·대표자 승인이 연다.
+  'admin_host_preregistration_linked': '관리자 사전등록 계정 연결',
+  'admin_business_delegation_link_created': '관리자 대표자 인증 링크 생성',
+  'host_preregistration_verified': '호스트 사전등록 인증 완료',
 };
 
 class MemberDetailScreen extends StatefulWidget {

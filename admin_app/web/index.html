@@ -18,6 +18,11 @@
 
   <meta charset="UTF-8">
   <meta content="IE=Edge" http-equiv="X-UA-Compatible">
+  <!-- 이 태그가 없으면 모바일 브라우저·Android WebView가 뷰포트를 약 980px로
+       가정해 화면을 축소하거나 잘라서 보여준다(PC에서만 멀쩡해 보이던 이유).
+       viewport-fit=cover는 노치 기기에서 배경이 가장자리까지 차게 한다. -->
+  <meta name="viewport"
+        content="width=device-width, initial-scale=1.0, maximum-scale=5.0, user-scalable=yes, viewport-fit=cover">
   <meta name="description" content="PartyChu 관리자 웹">
 
   <!-- iOS meta tags & icons -->

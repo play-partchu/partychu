@@ -4,6 +4,7 @@ import 'package:intl/intl.dart';
 
 import '../services/admin_firestore_service.dart';
 import '../theme/admin_theme.dart';
+import '../utils/responsive.dart';
 import '../widgets/stat_card.dart';
 import 'members_screen.dart' show OpenMember;
 
@@ -128,43 +129,25 @@ class _UsageStatsScreenState extends State<UsageStatsScreen> {
             ],
           ),
           const SizedBox(height: 28),
-          Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Expanded(child: _topRegionsCard()),
-              const SizedBox(width: 16),
-              Expanded(child: _hourlyStatsCard()),
-            ],
-          ),
+          ResponsiveRow(children: [_topRegionsCard(), _hourlyStatsCard()]),
           const SizedBox(height: 28),
           const Text('회원 통계 보강',
               style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: AdminTheme.textSecondary)),
           const SizedBox(height: 10),
-          Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Expanded(child: _countBreakdownCard('성별 비율', AdminFirestoreService.genderCounts())),
-              const SizedBox(width: 16),
-              Expanded(child: _countBreakdownCard('연령대 분포', AdminFirestoreService.ageBucketCounts())),
-              const SizedBox(width: 16),
-              Expanded(child: _countBreakdownCard('가입 경로', AdminFirestoreService.signupProviderCounts())),
-            ],
-          ),
+          ResponsiveRow(children: [
+            _countBreakdownCard('성별 비율', AdminFirestoreService.genderCounts()),
+            _countBreakdownCard('연령대 분포', AdminFirestoreService.ageBucketCounts()),
+            _countBreakdownCard('가입 경로', AdminFirestoreService.signupProviderCounts()),
+          ]),
           const SizedBox(height: 16),
-          Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Expanded(child: _signupTrendCard()),
-              const SizedBox(width: 16),
-              Expanded(child: _regionMemberCountCard()),
-            ],
-          ),
+          ResponsiveRow(children: [_signupTrendCard(), _regionMemberCountCard()]),
           const SizedBox(height: 28),
-          Row(
+          Wrap(
+            spacing: 12,
+            crossAxisAlignment: WrapCrossAlignment.center,
             children: [
               const Text('사용자별 이용 현황',
                   style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: AdminTheme.textSecondary)),
-              const SizedBox(width: 12),
               if (_totalCount != null)
                 Text('전체 ${NumberFormat('#,###').format(_totalCount)}명(활동 기록 있는 회원만)',
                     style: const TextStyle(fontSize: 12, color: AdminTheme.textSecondary)),

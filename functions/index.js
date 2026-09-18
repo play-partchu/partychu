@@ -221,6 +221,20 @@ exports.requestBusinessDelegation = businessDelegation.requestBusinessDelegation
 exports.getBusinessDelegationStatus = businessDelegation.getBusinessDelegationStatus;
 exports.businessApprovalPage = businessDelegation.businessApprovalPage;
 
+// 호스트 사전등록(FormHug 신청서 → 관리자 처리). 권한은 만들지 않는다 —
+// 사업자 권한은 위 verifyBusinessRegistration / 대표자 위임 흐름이 그대로
+// 정하고, 관리자 대표자 링크도 createDelegationRequest를 그대로 부른다.
+// hostPreRegistration.js 상단 주석 참고.
+const hostPreRegistration = require('./hostPreRegistration');
+exports.hostPreRegistrationWebhook = hostPreRegistration.hostPreRegistrationWebhook;
+exports.adminGetHostPreRegistration = hostPreRegistration.adminGetHostPreRegistration;
+exports.adminUpdateHostPreRegistration = hostPreRegistration.adminUpdateHostPreRegistration;
+exports.adminCreateBusinessDelegationForPreregistration =
+  hostPreRegistration.adminCreateBusinessDelegationForPreregistration;
+exports.adminHostPreRegistrationFormSetup = hostPreRegistration.adminHostPreRegistrationFormSetup;
+exports.onBusinessDelegationWriteSyncPreRegistration =
+  hostPreRegistration.onBusinessDelegationWriteSyncPreRegistration;
+
 // 호스트 수취계좌 인증(팝빌 예금주조회) — 참가자가 무통장입금할 계좌가
 // 실제 그 호스트의 계좌인지 확인한다. 인증 상태는 서버만 기록한다
 // (클라이언트 쓰기는 firestore.rules가 막는다). payoutAccounts.js 참고.
@@ -301,6 +315,13 @@ Object.assign(exports, require('./pushTokens'));
 // 호출을 심지 않고 문서 생성 트리거로 받는 이유(트랜잭션 재시도 중복 발송)는
 // pushDispatch.js 상단 주석 참고.
 Object.assign(exports, require('./pushDispatch'));
+
+// 관리자 업무 알림(adminNotifications) — 호스트 사전등록 신청이 접수되면
+// 관리자 웹 상단 종에 뜨게 한다. 사용자 알림(notifications)과 컬렉션부터
+// 분리한 이유, 기존 신청서에 소급 알림이 생기지 않게 막는 두 겹은
+// adminNotifications.js 상단 주석 참고.
+exports.onHostPreRegistrationWriteNotifyAdmin =
+  require('./adminNotifications').onHostPreRegistrationWriteNotifyAdmin;
 
 // 회원 탈퇴 — 신청(7일 대기) · 취소 · 상태 조회 · 만료분 자동 완전탈퇴.
 // 완전 탈퇴는 순서가 고정이고(CI 링크 해제 → 개인정보 삭제 → … → Auth 삭제),
