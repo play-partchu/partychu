@@ -45,6 +45,7 @@ dependencies:
   intl: ^0.20.0
   # 호스트 사전등록 — FormHug 신청폼·Google Play Console을 새 탭으로 연다.
   url_launcher: ^6.3.2
+  crypto: ^3.0.7
 
 dev_dependencies:
   flutter_test:

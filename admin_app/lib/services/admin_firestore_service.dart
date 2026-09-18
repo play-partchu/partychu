@@ -268,6 +268,63 @@ class AdminFirestoreService {
     );
   }
 
+  /// [usersBaseQuery]와 **같은 조건**을 이미 받아 온 문서 하나에 건다.
+  ///
+  /// 필터가 걸린 목록의 '전체 N명'을 사람 수로 바꿀 때, 조건 안에 든 동일인
+  /// 계정만 골라 빼기 위해 쓴다. 쿼리와 어긋나면 숫자가 틀리므로 한 줄씩
+  /// 대응시켜 둔다 — Firestore 등호·범위 필터는 필드가 없는 문서를 매칭하지
+  /// 않고, orderBy는 정렬 필드가 없는 문서를 뺀다.
+  static bool matchesUsersFilter(
+    Map<String, dynamic> d, {
+    bool? identityVerified,
+    String? gender,
+    DateTime? joinedFrom,
+    DateTime? joinedTo,
+    int? ageMin,
+    int? ageMax,
+    DateTime? lastLoginSince,
+    String? activityRole,
+    String? accountStatus,
+    String? signupProvider,
+    MemberSortField sortField = MemberSortField.createdAt,
+  }) {
+    if (identityVerified != null && d['identityVerified'] != identityVerified) return false;
+    if (gender != null && gender.isNotEmpty && d['gender'] != gender) return false;
+    if (activityRole != null && activityRole.isNotEmpty) {
+      final roles = d['activityRoles'];
+      if (roles is! List || !roles.contains(activityRole)) return false;
+    }
+    if (accountStatus != null && accountStatus.isNotEmpty && d['accountStatus'] != accountStatus) {
+      return false;
+    }
+    if (signupProvider != null && signupProvider.isNotEmpty && d['signupProvider'] != signupProvider) {
+      return false;
+    }
+
+    DateTime? ts(String k) => d[k] is Timestamp ? (d[k] as Timestamp).toDate() : null;
+
+    var effectiveSort = sortField;
+    if (joinedFrom != null || joinedTo != null) {
+      final t = ts('createdAt');
+      if (t == null) return false;
+      if (joinedFrom != null && t.isBefore(joinedFrom)) return false;
+      if (joinedTo != null && t.isAfter(joinedTo)) return false;
+      effectiveSort = MemberSortField.createdAt;
+    } else if (ageMin != null || ageMax != null) {
+      final y = d['birthYear'];
+      if (y is! num) return false;
+      final thisYear = DateTime.now().year;
+      if (ageMax != null && y < thisYear - ageMax) return false;
+      if (ageMin != null && y > thisYear - ageMin) return false;
+      effectiveSort = MemberSortField.birthYear;
+    } else if (lastLoginSince != null) {
+      final t = ts('lastLoginAt');
+      if (t == null || t.isBefore(lastLoginSince)) return false;
+      effectiveSort = MemberSortField.lastLoginAt;
+    }
+    return d.containsKey(effectiveSort.fieldPath);
+  }
+
   /// 필터가 적용된 상태에서 "조건에 맞는 전체 회원 수" — 머리줄의 '전체 N명'.
   ///
   /// **목록과 똑같은 쿼리를 세어야 한다.** 그래서 [usersBaseQuery]를 그대로

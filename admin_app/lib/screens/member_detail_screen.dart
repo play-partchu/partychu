@@ -5,8 +5,11 @@ import 'package:intl/intl.dart';
 
 import '../models/business_info.dart';
 import '../services/admin_firestore_service.dart';
+import '../services/person_identity_service.dart';
 import '../theme/admin_theme.dart';
 import '../utils/masking.dart';
+import '../utils/person_identity.dart';
+import '../widgets/person_accounts_card.dart';
 
 // Firebase Functions 리전 — functions/index.js/memberManagement.js와 일치해야 함.
 const _functionsRegion = 'asia-northeast3';
@@ -78,7 +81,16 @@ const _activityTypeLabels = {
 class MemberDetailScreen extends StatefulWidget {
   final String uid;
   final VoidCallback onBack;
-  const MemberDetailScreen({super.key, required this.uid, required this.onBack});
+
+  /// '보유 계정'에서 같은 사람의 다른 계정을 눌렀을 때 — 그 계정의 상세로 간다.
+  final ValueChanged<String>? onOpenMember;
+
+  const MemberDetailScreen({
+    super.key,
+    required this.uid,
+    required this.onBack,
+    this.onOpenMember,
+  });
 
   @override
   State<MemberDetailScreen> createState() => _MemberDetailScreenState();
@@ -143,6 +155,15 @@ class _MemberDetailScreenState extends State<MemberDetailScreen> {
 
   Future<_MemberDetailData> _load() async {
     final userDoc = await FirebaseFirestore.instance.collection('users').doc(widget.uid).get();
+    final user = userDoc.data() ?? <String, dynamic>{};
+    // 같은 사람의 다른 계정 — 실패해도 나머지 상세는 그대로 보여 준다.
+    PersonGroup? person;
+    Object? personError;
+    try {
+      person = await PersonIdentityService.accountsOfPerson(widget.uid, user);
+    } catch (e) {
+      personError = e;
+    }
     final applications = await AdminFirestoreService.applicationsForUser(widget.uid);
     final favorites = await AdminFirestoreService.favoritesForUser(widget.uid);
     final userStats = await AdminFirestoreService.userStatsForUser(widget.uid);
@@ -156,7 +177,9 @@ class _MemberDetailScreenState extends State<MemberDetailScreen> {
       linkHistory = {'error': '$e'};
     }
     return _MemberDetailData(
-      user: userDoc.data() ?? {},
+      user: user,
+      person: person,
+      personError: personError,
       applications: applications,
       favorites: favorites,
       userStats: userStats,
@@ -204,6 +227,8 @@ class _MemberDetailScreenState extends State<MemberDetailScreen> {
         children: [
           _section('기본 프로필', _profileGrid(d)),
           const SizedBox(height: 20),
+          _section('보유 계정', _personAccountsSection(data)),
+          const SizedBox(height: 20),
           _section('계정 연결 이력', _accountLinkSection(data.linkHistory)),
           const SizedBox(height: 20),
           _section('계정 상태 · 관리자 메모', _accountStatusForm()),
@@ -225,6 +250,28 @@ class _MemberDetailScreenState extends State<MemberDetailScreen> {
           _section('통합 활동 타임라인', _timelineList(data.activityLogs)),
         ],
       ),
+    );
+  }
+
+  /// 실제 회원 1명이 가진 로그인 계정 전부(동일 CI 기준).
+  Widget _personAccountsSection(_MemberDetailData data) {
+    final person = data.person;
+    if (person == null) {
+      return Text(
+        '보유 계정을 불러오지 못했습니다: ${data.personError}',
+        style: const TextStyle(fontSize: 12.5, color: AdminTheme.textSecondary),
+      );
+    }
+    final d = data.user;
+    final name = (d['name'] as String?)?.trim();
+    final nickname = (d['nickname'] as String?)?.trim();
+    return PersonAccountsCard(
+      person: person,
+      currentUid: widget.uid,
+      displayName: name != null && name.isNotEmpty
+          ? name
+          : (nickname != null && nickname.isNotEmpty ? nickname : '(이름 없음)'),
+      onOpenAccount: widget.onOpenMember,
     );
   }
 
@@ -266,7 +313,7 @@ class _MemberDetailScreenState extends State<MemberDetailScreen> {
     final signupProvider = d['signupProvider'] as String?;
     final isTestAccount = d['isTestAccount'] as bool? ?? false;
     final signupProviderLabel = signupProvider != null
-        ? const {'google': '구글', 'kakao': '카카오', 'naver': '네이버'}[signupProvider] ?? signupProvider
+        ? memberProviderLabels[signupProvider] ?? signupProvider
         : (isTestAccount ? '이메일(테스트)' : '-');
     final roles = (d['activityRoles'] as List?)?.cast<String>() ?? const [];
 
@@ -369,7 +416,10 @@ class _MemberDetailScreenState extends State<MemberDetailScreen> {
               value: _isTestAccount,
               onChanged: (v) => setState(() => _isTestAccount = v ?? false),
             ),
-            const Text('회원 관리 기본 목록·대시보드 통계에서 제외', style: TextStyle(color: AdminTheme.textSecondary, fontSize: 12)),
+            // 좁은 화면에서 줄바꿈되도록 남은 폭만 쓴다.
+            const Expanded(
+              child: Text('회원 관리 기본 목록·대시보드 통계에서 제외', style: TextStyle(color: AdminTheme.textSecondary, fontSize: 12)),
+            ),
           ],
         ),
         const SizedBox(height: 12),
@@ -785,6 +835,10 @@ class _MemberDetailScreenState extends State<MemberDetailScreen> {
 
 class _MemberDetailData {
   final Map<String, dynamic> user;
+
+  /// 이 계정의 주인이 가진 계정 전부 — 조회에 실패하면 null.
+  final PersonGroup? person;
+  final Object? personError;
   final List<Map<String, dynamic>> applications;
   final List<QueryDocumentSnapshot<Map<String, dynamic>>> favorites;
   final Map<String, dynamic>? userStats;
@@ -795,6 +849,8 @@ class _MemberDetailData {
 
   _MemberDetailData({
     required this.user,
+    required this.person,
+    required this.personError,
     required this.applications,
     required this.favorites,
     required this.userStats,

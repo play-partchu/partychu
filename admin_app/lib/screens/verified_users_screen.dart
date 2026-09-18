@@ -4,6 +4,7 @@ import 'package:intl/intl.dart';
 
 import '../services/admin_firestore_service.dart';
 import '../theme/admin_theme.dart';
+import '../utils/person_identity.dart';
 import 'members_screen.dart' show OpenMember;
 
 class VerifiedUsersScreen extends StatelessWidget {
@@ -30,7 +31,8 @@ class VerifiedUsersScreen extends StatelessWidget {
         // 테스트 계정을 걸러내지 않아 두 화면의 사람 수가 다르게 보인다.
         // 숨기는 대신 어느 줄이 테스트 계정인지 맨 오른쪽에 표시한다.
         const Text(
-          '본인확인을 마친 계정 전체입니다 — 회원 관리와 달리 테스트 계정도 함께 나옵니다.',
+          '본인확인을 마친 회원입니다 — 같은 본인확인(CI)으로 묶인 여러 계정은 한 줄로 합쳐 보여 줍니다. '
+          '회원 관리와 달리 테스트 계정도 함께 나옵니다.',
           style: TextStyle(fontSize: 12, color: AdminTheme.textSecondary),
         ),
         const SizedBox(height: 16),
@@ -50,7 +52,18 @@ class VerifiedUsersScreen extends StatelessWidget {
                 if (snap.hasError) {
                   return Center(child: Text('불러오지 못했습니다: ${snap.error}'));
                 }
-                final docs = snap.data?.docs ?? [];
+                final allDocs = snap.data?.docs ?? [];
+                // 사람 1명당 한 줄 — 가장 최근에 인증한 계정이 대표로 남는다.
+                final people = {
+                  for (final g in groupAccountsByPerson(allDocs.map((d) => (d.id, d.data()))))
+                    if (g.key != null) g.key!: g,
+                };
+                final collapsed = collapsePageByPerson(
+                  allDocs,
+                  read: (d) => (d.id, d.data()),
+                  peopleByKey: people,
+                );
+                final docs = collapsed.rows;
                 if (docs.isEmpty) {
                   return const Center(
                       child: Text('본인확인을 완료한 사용자가 없습니다.', style: TextStyle(color: AdminTheme.textSecondary)));
@@ -59,6 +72,7 @@ class VerifiedUsersScreen extends StatelessWidget {
                   child: SingleChildScrollView(
                     scrollDirection: Axis.horizontal,
                     child: DataTable(
+                      dataRowMaxHeight: 58,
                       columns: const [
                         DataColumn(label: Text('이름')),
                         DataColumn(label: Text('생년월일')),
@@ -74,7 +88,10 @@ class VerifiedUsersScreen extends StatelessWidget {
                           DataRow(
                             onSelectChanged: (_) => onOpenMember(doc.id),
                             cells: [
-                              DataCell(Text(doc.data()['name'] as String? ?? '-')),
+                              DataCell(_nameCell(
+                                doc.data()['name'] as String? ?? '-',
+                                collapsed.groups[doc],
+                              )),
                               DataCell(Text(_formatBirth(doc.data()))),
                               DataCell(Text(doc.data()['gender'] == 'male'
                                   ? '남성'
@@ -97,6 +114,22 @@ class VerifiedUsersScreen extends StatelessWidget {
               },
             ),
           ),
+        ),
+      ],
+    );
+  }
+
+  /// 여러 계정을 가진 회원이면 이름 아래에 계정 수와 로그인 수단을 붙인다.
+  Widget _nameCell(String name, PersonGroup? person) {
+    if (person == null || !person.hasMultipleAccounts) return Text(name);
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(name),
+        Text(
+          '계정 ${person.accountCount}개 · ${person.providersLabel}',
+          style: const TextStyle(fontSize: 11, color: AdminTheme.accent, fontWeight: FontWeight.w600),
         ),
       ],
     );

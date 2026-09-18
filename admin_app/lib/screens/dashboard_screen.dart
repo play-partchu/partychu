@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../services/admin_firestore_service.dart';
 import '../services/crm_export_service.dart';
+import '../services/person_identity_service.dart';
 import '../theme/admin_theme.dart';
 import '../utils/responsive.dart';
 import '../widgets/stat_card.dart';
@@ -28,8 +29,17 @@ class DashboardScreen extends StatelessWidget {
   Widget build(BuildContext context) {
     final sections = <String, List<Widget>>{
       '회원': [
-        StatCard(label: '전체 가입자', future: AdminFirestoreService.totalUsers()),
-        StatCard(label: '본인확인 완료', future: AdminFirestoreService.verifiedUsers()),
+        // 계정 수가 아니라 실제 회원 수 — 같은 CI(본인확인)로 묶인 계정은 1명.
+        StatCard(
+          label: '전체 가입자',
+          future: PersonIdentityService.totalPersons(),
+          caption: '실제 회원 기준 · 동일인 계정 합산',
+        ),
+        StatCard(
+          label: '본인확인 완료',
+          future: PersonIdentityService.verifiedPersons(),
+          caption: '실제 회원 기준',
+        ),
         StatCard(
           label: '오늘 활성 사용자',
           future: AdminFirestoreService.activeUsersSince(_startOfToday()),

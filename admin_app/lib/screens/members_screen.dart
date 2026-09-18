@@ -7,8 +7,10 @@ import 'package:intl/intl.dart';
 
 import '../models/business_info.dart';
 import '../services/admin_firestore_service.dart';
+import '../services/person_identity_service.dart';
 import '../theme/admin_theme.dart';
 import '../utils/masking.dart';
+import '../utils/person_identity.dart';
 import '../utils/responsive.dart';
 
 typedef OpenMember = void Function(String uid);
@@ -91,6 +93,7 @@ const _signupProviderLabels = {
   'google': '구글',
   'kakao': '카카오',
   'naver': '네이버',
+  'apple': 'Apple',
 };
 
 class MembersScreen extends StatefulWidget {
@@ -131,7 +134,40 @@ class _MembersScreenState extends State<MembersScreen> {
   bool _searchMode = false;
   String? _searchNotice;
 
+  /// 머리줄 '전체 N명' — **실제 회원 수**(동일인 계정은 1명).
   int? _filteredTotal;
+
+  /// 같은 조건의 계정 수 — 사람 수와 다를 때만 곁에 적는다.
+  int? _filteredAccountTotal;
+
+  /// 동일인 키 → 그 사람의 계정 전부(본인확인 계정 기준). 행에 '계정 N개'를
+  /// 붙이는 데 쓴다. 불러오기 전이나 실패하면 비어 있고, 그때도 같은 페이지
+  /// 안의 동일인은 CI 키만으로 묶인다.
+  Map<String, PersonGroup> _people = const {};
+
+  /// 페이지별로 이미 그린 사람들 — 다음 페이지에 같은 사람의 다른 계정이
+  /// 또 나오면 감추기 위해 남긴다. 페이지는 첫 페이지부터 차례로만 넘어가므로
+  /// 앞 페이지 기록이 항상 먼저 채워져 있다.
+  final Map<int, Set<String>> _shownKeysByPage = {};
+
+  Set<String> _keysShownBefore(int pageIndex) => {
+        for (final e in _shownKeysByPage.entries)
+          if (e.key < pageIndex) ...e.value,
+      };
+
+  /// 화면에 그리는 행 — 사람 1명당 한 줄. 같은 사람의 다른 계정은 먼저 나온
+  /// 줄에 '계정 N개'로 붙고, 상세에서 모두 보인다.
+  ({
+    List<QueryDocumentSnapshot<Map<String, dynamic>>> rows,
+    Map<QueryDocumentSnapshot<Map<String, dynamic>>, PersonGroup> groups,
+    int collapsed,
+    Set<String> shownKeys,
+  }) get _personRows => collapsePageByPerson(
+        _visibleDocs,
+        read: (d) => (d.id, d.data()),
+        peopleByKey: _people,
+        alreadyShownKeys: _searchMode ? const {} : _keysShownBefore(_pageIndex),
+      );
 
 
   /// 화면에 실제로 그리는 행 — 받아온 페이지에서 **명시적으로 테스트로 표시된
@@ -171,6 +207,28 @@ class _MembersScreenState extends State<MembersScreen> {
     super.initState();
     _loadPage();
     _loadFilteredTotal();
+    _loadPeople();
+  }
+
+  Future<void> _loadPeople() async {
+    try {
+      final people = await PersonIdentityService.peopleByKey();
+      if (!mounted) return;
+      setState(() {
+        _people = people;
+        _recordShownKeys();
+      });
+    } catch (e) {
+      // 묶음 정보가 없어도 목록은 그대로 쓸 수 있다 — 같은 페이지 안의
+      // 동일인은 여전히 CI 키로 묶인다.
+      // ignore: avoid_print
+      print('[MembersScreen] 동일인 묶음 조회 실패: $e');
+    }
+  }
+
+  void _recordShownKeys() {
+    if (_searchMode) return;
+    _shownKeysByPage[_pageIndex] = _personRows.shownKeys;
   }
 
   @override
@@ -195,7 +253,7 @@ class _MembersScreenState extends State<MembersScreen> {
       );
 
   Future<void> _loadFilteredTotal() async {
-    final total = await AdminFirestoreService.usersCountForFilter(
+    final accounts = await AdminFirestoreService.usersCountForFilter(
       identityVerified: _identityVerifiedFilter,
       gender: _genderFilter,
       activityRole: _activityRoleFilter,
@@ -209,8 +267,37 @@ class _MembersScreenState extends State<MembersScreen> {
       lastLoginSince: _activeSinceThreshold,
       sortField: _sortField,
     );
+    // 같은 조건 안에 든 동일인 계정만 뺀다 — 조건 밖 계정까지 빼면 한 계정만
+    // 조건에 걸린 사람이 사라진다.
+    var duplicates = 0;
+    try {
+      duplicates = await PersonIdentityService.duplicateAccounts(
+        where: (d) =>
+            (_showTestAccounts || !AdminFirestoreService.isTestAccountDoc(d)) &&
+            AdminFirestoreService.matchesUsersFilter(
+              d,
+              identityVerified: _identityVerifiedFilter,
+              gender: _genderFilter,
+              activityRole: _activityRoleFilter,
+              accountStatus: _accountStatusFilter,
+              signupProvider: _signupProviderFilter,
+              joinedFrom: _rangeFilterType == _RangeFilterType.joined ? _joinedRange?.start : null,
+              joinedTo: _rangeFilterType == _RangeFilterType.joined ? _joinedRange?.end : null,
+              ageMin: _rangeFilterType == _RangeFilterType.age ? _ageBucket?.minAge : null,
+              ageMax: _rangeFilterType == _RangeFilterType.age ? _ageBucket?.maxAge : null,
+              lastLoginSince: _activeSinceThreshold,
+              sortField: _sortField,
+            ),
+      );
+    } catch (e) {
+      // ignore: avoid_print
+      print('[MembersScreen] 동일인 중복 집계 실패 — 계정 수로 표시: $e');
+    }
     if (!mounted) return;
-    setState(() => _filteredTotal = total);
+    setState(() {
+      _filteredAccountTotal = accounts;
+      _filteredTotal = accounts - duplicates;
+    });
   }
 
   Future<void> _loadPage() async {
@@ -229,6 +316,7 @@ class _MembersScreenState extends State<MembersScreen> {
       _docs = pageDocs;
       _hasNextPage = hasNext;
       _loading = false;
+      _recordShownKeys();
     });
   }
 
@@ -260,6 +348,7 @@ class _MembersScreenState extends State<MembersScreen> {
       ..clear()
       ..add(null);
     _pageIndex = 0;
+    _shownKeysByPage.clear();
   }
 
   void _onSearchChanged(String value) {
@@ -374,7 +463,9 @@ class _MembersScreenState extends State<MembersScreen> {
           children: [
             const Text('회원 관리', style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
             if (_filteredTotal != null)
-              Text('전체 ${NumberFormat('#,###').format(_filteredTotal)}명',
+              Text(
+                  '전체 ${NumberFormat('#,###').format(_filteredTotal)}명'
+                  '${_filteredAccountTotal != null && _filteredAccountTotal != _filteredTotal ? ' (계정 ${NumberFormat('#,###').format(_filteredAccountTotal)}개)' : ''}',
                   style: const TextStyle(fontSize: 13, color: AdminTheme.textSecondary)),
           ],
         ),
@@ -401,12 +492,14 @@ class _MembersScreenState extends State<MembersScreen> {
             ),
             child: _loading
                 ? const Center(child: CircularProgressIndicator(color: AdminTheme.accent))
-                : _visibleDocs.isEmpty
+                : _visibleDocs.isEmpty || (!_isWithdrawnView && _personRows.rows.isEmpty)
                     ? Center(
                         child: Text(
                           _docs.isEmpty
                               ? '회원이 없습니다.'
-                              : '이 페이지는 모두 테스트 계정입니다. 다음 페이지를 확인하세요.',
+                              : _visibleDocs.isEmpty
+                                  ? '이 페이지는 모두 테스트 계정입니다. 다음 페이지를 확인하세요.'
+                                  : '이 페이지는 앞에서 보여 준 회원의 다른 계정뿐입니다. 다음 페이지를 확인하세요.',
                           style: const TextStyle(color: AdminTheme.textSecondary),
                         ),
                       )
@@ -629,6 +722,7 @@ class _MembersScreenState extends State<MembersScreen> {
 
   Widget _buildTable() {
     if (_isWithdrawnView) return _buildWithdrawnTable();
+    final people = _personRows;
     return _ScrollableTable(
       child: DataTable(
         // 생년월일 칸이 두 줄(생년월일 + 나이)이라 기본 행 높이(48)로는 넘친다.
@@ -657,7 +751,7 @@ class _MembersScreenState extends State<MembersScreen> {
           // (본인확인 목록과 회원 관리가 달라 보였던 원인이 이 구분이다).
           if (_showTestColumn) const DataColumn(label: Text('테스트')),
         ],
-        rows: [for (final doc in _visibleDocs) _buildRow(doc)],
+        rows: [for (final doc in people.rows) _buildRow(doc, people.groups[doc])],
       ),
     );
   }
@@ -739,7 +833,9 @@ class _MembersScreenState extends State<MembersScreen> {
     );
   }
 
-  DataRow _buildRow(QueryDocumentSnapshot<Map<String, dynamic>> doc) {
+  /// [person]은 이 계정의 주인이 가진 계정 전부 — 동일인 판별 근거(CI)가
+  /// 없으면 null이다.
+  DataRow _buildRow(QueryDocumentSnapshot<Map<String, dynamic>> doc, PersonGroup? person) {
     final d = doc.data();
     final nickname = d['nickname'] as String? ?? '-';
     final name = d['name'] as String? ?? '-';
@@ -753,16 +849,20 @@ class _MembersScreenState extends State<MembersScreen> {
     // isTestAccount만 true인 경우를 이렇게 구분해 표시한다.
     final signupProvider = d['signupProvider'] as String?;
     final isTestAccount = d['isTestAccount'] as bool? ?? false;
-    final signupProviderLabel = signupProvider != null
-        ? (_signupProviderLabels[signupProvider] ?? signupProvider)
-        : (isTestAccount ? '이메일(테스트)' : '-');
+    final multi = person != null && person.hasMultipleAccounts;
+    // 여러 계정을 가진 회원은 그 사람의 로그인 수단을 모두 적는다.
+    final signupProviderLabel = multi
+        ? person.providersLabel
+        : signupProvider != null
+            ? (_signupProviderLabels[signupProvider] ?? signupProvider)
+            : (isTestAccount ? '이메일(테스트)' : '-');
     // 사업자 정보는 이 회원 문서 안에 이미 들어 있다 — 추가 조회가 없다.
     final biz = BusinessInfo.fromUserDoc(d);
 
     return DataRow(
       onSelectChanged: (_) => widget.onOpenMember(doc.id),
       cells: [
-        DataCell(Text(name)),
+        DataCell(multi ? _NameWithAccounts(name: name, count: person.accountCount) : Text(name)),
         // 생년월일·성별은 본인확인(NICE)이 저장한 값이 유일한 출처다 —
         // 인증 전 회원에게는 이 칸에 채울 근거가 없어 '-'로 둔다.
         DataCell(_BirthCell(
@@ -800,15 +900,20 @@ class _MembersScreenState extends State<MembersScreen> {
     // 화면에서만 빼기 때문에, 감춘 수를 따로 밝혀야 "50명씩인데 왜 47줄"이
     // 설명된다.
     final hidden = _hiddenTestCount;
+    // 같은 사람의 다른 계정이라 한 줄로 합친 수 — "50명씩인데 왜 48줄"의 나머지 이유.
+    final collapsed = _isWithdrawnView ? 0 : _personRows.collapsed;
     final rangeLabel = _docs.isEmpty
         ? '0건'
         : '$start–$end / 전체 ${_filteredTotal == null ? '-' : NumberFormat('#,###').format(_filteredTotal)}명'
-            '${hidden == 0 ? '' : ' · 테스트 계정 $hidden명 숨김'}';
+            '${hidden == 0 ? '' : ' · 테스트 계정 $hidden명 숨김'}'
+            '${collapsed == 0 ? '' : ' · 동일인 계정 $collapsed개 합침'}';
 
     return Padding(
       padding: const EdgeInsets.only(top: 12),
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.center,
+      // 숨김·합침 안내가 붙으면 폰 폭을 넘는다 — 넘치면 다음 줄로 내린다.
+      child: Wrap(
+        alignment: WrapAlignment.center,
+        crossAxisAlignment: WrapCrossAlignment.center,
         children: [
           TextButton.icon(
             onPressed: _pageIndex == 0 ? null : _goFirst,
@@ -831,6 +936,36 @@ class _MembersScreenState extends State<MembersScreen> {
           ),
         ],
       ),
+    );
+  }
+}
+
+/// 이름 아래 '계정 N개' — 한 사람이 여러 로그인 계정을 가졌다는 표시.
+class _NameWithAccounts extends StatelessWidget {
+  final String name;
+  final int count;
+  const _NameWithAccounts({required this.name, required this.count});
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(name),
+        const SizedBox(height: 2),
+        Container(
+          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1),
+          decoration: BoxDecoration(
+            color: AdminTheme.accentLight,
+            borderRadius: BorderRadius.circular(10),
+          ),
+          child: Text(
+            '계정 $count개',
+            style: const TextStyle(fontSize: 10.5, fontWeight: FontWeight.bold, color: AdminTheme.accent),
+          ),
+        ),
+      ],
     );
   }
 }

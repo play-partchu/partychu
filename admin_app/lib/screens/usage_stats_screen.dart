@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 
 import '../services/admin_firestore_service.dart';
+import '../services/person_identity_service.dart';
 import '../theme/admin_theme.dart';
 import '../utils/responsive.dart';
 import '../widgets/stat_card.dart';
@@ -115,8 +116,8 @@ class _UsageStatsScreenState extends State<UsageStatsScreen> {
             spacing: 14,
             runSpacing: 14,
             children: [
-              SizedBox(width: 220, child: StatCard(label: '전체 가입자', future: AdminFirestoreService.totalUsers())),
-              SizedBox(width: 220, child: StatCard(label: '본인확인 사용자', future: AdminFirestoreService.verifiedUsers())),
+              SizedBox(width: 220, child: StatCard(label: '전체 가입자', future: PersonIdentityService.totalPersons(), caption: '실제 회원 기준')),
+              SizedBox(width: 220, child: StatCard(label: '본인확인 사용자', future: PersonIdentityService.verifiedPersons(), caption: '실제 회원 기준')),
               SizedBox(width: 220, child: StatCard(label: '오늘 활성 사용자', future: AdminFirestoreService.activeUsersSince(startOfToday))),
               SizedBox(width: 220, child: StatCard(label: '이번 주 활성 사용자', future: AdminFirestoreService.activeUsersSince(startOfWeek))),
               SizedBox(width: 220, child: StatCard(label: '이번 달 활성 사용자', future: AdminFirestoreService.activeUsersSince(startOfMonth))),

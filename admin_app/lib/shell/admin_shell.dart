@@ -180,8 +180,11 @@ class _AdminShellState extends State<AdminShell> {
         return _selectedMemberUid == null
             ? MembersScreen(onOpenMember: _openMember)
             : MemberDetailScreen(
+                // 같은 사람의 다른 계정으로 건너갈 때 상세를 새로 불러오게 한다.
+                key: ValueKey(_selectedMemberUid),
                 uid: _selectedMemberUid!,
                 onBack: _backToMemberList,
+                onOpenMember: _openMember,
               );
       case 2:
         return _selectedPreRegistrationId == null

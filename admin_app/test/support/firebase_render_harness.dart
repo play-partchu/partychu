@@ -66,6 +66,13 @@ class FakeFirestoreStore {
   /// 앱이 보낸 쓰기 기록 — `(컬렉션/문서, 데이터)`.
   final List<(String, Map<String, dynamic>)> writes = [];
 
+  /// 등호(`==`) 조건을 **실제로 걸러서** 돌려줄 컬렉션.
+  ///
+  /// 기본은 비어 있다 — 레이아웃 테스트는 조건과 상관없이 같은 문서를 받는
+  /// 편이 편해서, 예전부터 where를 무시해 왔다. 개수 집계처럼 조건이 결과를
+  /// 바꾸는 화면을 볼 때만 테스트가 여기에 컬렉션을 넣는다. [reset]이 비운다.
+  final Set<String> equalityFiltered = {};
+
   final Map<String, List<void Function()>> _listeners = {};
 
   void _notify(String collection) {
@@ -96,6 +103,7 @@ class FakeFirestoreStore {
       ];
     }
     writes.clear();
+    equalityFiltered.clear();
     for (final c in touched) {
       _notify(c);
     }
@@ -184,14 +192,37 @@ PigeonSnapshotMetadata get _docMeta =>
 class _MockQuery extends QueryPlatform with MockPlatformInterfaceMixin {
   // params에 null을 넘겨야 where/orderBy 같은 기본 파라미터가 채워진다
   // (실제 MethodChannelQuery와 같은 방식).
-  _MockQuery(this.db, this.path) : super(db, null);
+  _MockQuery(this.db, this.path, [this.conditions = const []]) : super(db, null);
 
   /// 상위 [QueryPlatform.firestore]와 이름이 겹치지 않게 따로 들고 있는다.
   final _MockFirestore db;
   final String path;
 
-  List<(String, Map<String, dynamic>)> get _rows =>
-      db.collections[path] ?? const [];
+  /// 걸러 낼 등호 조건 — [FakeFirestoreStore.equalityFiltered]에 든 컬렉션만.
+  final List<List<dynamic>> conditions;
+
+  List<(String, Map<String, dynamic>)> get _rows {
+    final all = db.collections[path] ?? const [];
+    if (conditions.isEmpty) return all;
+    return [
+      for (final row in all)
+        if (conditions.every((c) => _matches(row, c))) row,
+    ];
+  }
+
+  static bool _matches((String, Map<String, dynamic>) row, List<dynamic> c) {
+    if (c.length < 3 || c[1] != '==') return true; // 등호 외 조건은 거르지 않는다.
+    final field = c[0];
+    final components = field is FieldPath ? field.components : ['$field'];
+    if (components.length == 1 && components.single == '__name__') {
+      return row.$1 == c[2];
+    }
+    Object? v = row.$2;
+    for (final k in components) {
+      v = v is Map ? v[k] : null;
+    }
+    return v == c[2];
+  }
 
   // 정렬·제한은 레이아웃과 무관하므로 같은 결과를 그대로 돌려준다.
   @override
@@ -204,7 +235,27 @@ class _MockQuery extends QueryPlatform with MockPlatformInterfaceMixin {
   QueryPlatform limitToLast(int limit) => this;
 
   @override
-  QueryPlatform where(Object filter) => this;
+  QueryPlatform where(Object filter) {
+    if (filter is List && db.store.equalityFiltered.contains(path)) {
+      return _MockQuery(db, path, [
+        ...conditions,
+        for (final c in filter)
+          if (c is List) c,
+      ]);
+    }
+    return this;
+  }
+
+  // Filter.or/and 같은 복합 조건은 거르지 않는다(레이아웃·개수 테스트 범위 밖).
+  @override
+  QueryPlatform whereFilter(FilterPlatformInterface filter) => this;
+
+  @override
+  Future<QuerySnapshotPlatform> get([GetOptions options = const GetOptions()]) async =>
+      _snapshot();
+
+  @override
+  AggregateQueryPlatform count() => _MockCount(this);
 
   QuerySnapshotPlatform _snapshot() => QuerySnapshotPlatform(
         [
@@ -236,6 +287,18 @@ class _MockQuery extends QueryPlatform with MockPlatformInterfaceMixin {
     );
     return controller.stream;
   }
+}
+
+class _MockCount extends AggregateQueryPlatform with MockPlatformInterfaceMixin {
+  _MockCount(_MockQuery super.query);
+
+  @override
+  Future<AggregateQuerySnapshotPlatform> get({required AggregateSource source}) async =>
+      AggregateQuerySnapshotPlatform(
+        count: (query as _MockQuery)._rows.length,
+        sum: const [],
+        average: const [],
+      );
 }
 
 /// 실제 구현(MethodChannelCollectionReference)과 같은 모양 — 컬렉션은
@@ -286,6 +349,10 @@ class _MockDoc extends DocumentReferencePlatform with MockPlatformInterfaceMixin
     ListenSource listenSource = ListenSource.defaultSource,
   }) =>
       Stream.value(DocumentSnapshotPlatform(_firestore, path, _data, _docMeta));
+
+  @override
+  Future<DocumentSnapshotPlatform> get([GetOptions options = const GetOptions()]) async =>
+      DocumentSnapshotPlatform(_firestore, path, _data, _docMeta);
 
   /// 앱이 보낸 쓰기를 **기록만** 한다. 성공으로 돌려주므로 화면 쪽 흐름은
   /// 그대로 이어지고, 무엇을 보냈는지는 [FakeFirestoreStore.writes]로 본다.
