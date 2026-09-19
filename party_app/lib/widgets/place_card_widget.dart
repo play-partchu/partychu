@@ -10,6 +10,7 @@ import 'package:party_app/models/place_promotion.dart';
 import 'package:party_app/models/place_taxonomy.dart';
 import 'package:party_app/models/pet_policy.dart';
 import 'package:party_app/models/region_data.dart';
+import 'package:party_app/models/room_price_type.dart';
 import 'package:party_app/screens/event_detail_screen.dart';
 import 'package:party_app/screens/place_detail_screen.dart';
 import 'package:party_app/utils/favorites_service.dart';
@@ -24,6 +25,7 @@ import 'package:party_app/widgets/list_card_shell.dart';
 import 'package:party_app/widgets/partychu_perk.dart';
 import 'package:party_app/widgets/partychu_perk_plaque.dart';
 import 'package:party_app/widgets/party_card_widget.dart';
+import 'package:party_app/widgets/feed_photo_story.dart';
 import 'package:party_app/widgets/video_seek_bar.dart';
 import 'package:party_app/widgets/web_frame.dart';
 
@@ -102,6 +104,10 @@ class PlaceCardInfo {
 
   final PartyCoverMedia? cover;
 
+  /// 대표가가 없고 **가격 문의** 룸만 있는 장소대여인지 — 요금 줄을 '무료'가
+  /// 아니라 '가격 문의'로 적는다([RoomPriceType]).
+  final bool priceInquiry;
+
   PlaceCardInfo._({
     required this.name,
     required this.type,
@@ -116,6 +122,7 @@ class PlaceCardInfo {
     required this.hasPartychuPerk,
     required this.facilitySummary,
     required this.cover,
+    this.priceInquiry = false,
   });
 
   /// [withParty] — 🎉 With파티 배지를 붙일지. 이 값은 **문서에서 읽지 않는다**.
@@ -225,12 +232,17 @@ class PlaceCardInfo {
             })()
           : facilities.summaryText(),
       cover: getPartyCoverMedia(data, tag: tag),
+      priceInquiry:
+          source == PlaceCardSource.rental &&
+          RoomPriceType.of(data) == RoomPriceType.inquiry,
     );
   }
 
   /// 이용요금 — 파티 참가비와 동일하게 로그인해야만 금액을 노출한다.
   /// 가격 개념이 없는 데이터(플레이스)는 null이라 호출부가 줄을 생략한다.
   String? get priceLabel {
+    // 문의로 받는 가격은 금액이 아니라 숨길 것도 없다 — 로그인 전에도 그대로.
+    if (priceInquiry) return kInquiryPriceLabel;
     final price = pricePerHour;
     if (price == null) return null;
     if (!UserSession.isLoggedIn) return '🔒 로그인 필요';
@@ -968,6 +980,12 @@ class _PlaceLargeCardState extends State<PlaceLargeCard> {
     final hasVideo = cover?.isVideo ?? false;
     final videoUrl = cover?.videoUrl;
     final thumbnailUrl = cover?.imageUrl ?? cover?.thumbnailUrl;
+    // 사진·영상을 순서대로 자동으로 넘긴다(상세 화면 갤러리와 같은 규칙).
+    // 영상 하나뿐이면 예전처럼 그 영상을 반복 재생한다.
+    final storyItems = feedMediaItems(widget.place, cover);
+    final useStory =
+        storyItems.length > 1 ||
+        (storyItems.length == 1 && !storyItems.first.isVideo);
     final priceLabel = info.priceLabel;
     final badges = placeCardBadges(info);
 
@@ -984,7 +1002,33 @@ class _PlaceLargeCardState extends State<PlaceLargeCard> {
     return largeCardBody(
       // 대표 미디어 — 동영상은 등록 시 지정한 크롭 위치를 그대로 반영하고,
       // 사진은 원본 비율이 잘리지 않게 contain으로 둔다(파티 큰 카드와 동일).
-      media: (hasVideo && videoUrl != null && videoUrl.isNotEmpty)
+      media: useStory
+          ? FeedPhotoStory(
+              items: storyItems,
+              placeholder: _placeThumbPlaceholder(),
+              videoBuilder: (context, item, {
+                required onCompleted,
+                required onLoadFailed,
+                required onControllerChanged,
+              }) => VideoThumbnail(
+                videoUrl: item.url,
+                thumbnailUrl: item.thumbnailUrl,
+                // 크롭 위치는 대표 영상에 지정한 값이다.
+                cropX: hasVideo ? cover?.videoCropX ?? 0.5 : 0.5,
+                cropY: hasVideo ? cover?.videoCropY ?? 0.5 : 0.5,
+                cropScale: hasVideo ? cover?.videoCropScale ?? 1.0 : 1.0,
+                onTap: _pulseSeekBar,
+                onControllerChanged: (c) {
+                  onControllerChanged(c);
+                  _onControllerChanged(c);
+                },
+                letterboxLandscape: true,
+                loop: false,
+                onCompleted: onCompleted,
+                onLoadFailed: onLoadFailed,
+              ),
+            )
+          : (hasVideo && videoUrl != null && videoUrl.isNotEmpty)
           ? VideoThumbnail(
               videoUrl: videoUrl,
               thumbnailUrl: cover?.thumbnailUrl,
@@ -993,6 +1037,7 @@ class _PlaceLargeCardState extends State<PlaceLargeCard> {
               cropScale: cover?.videoCropScale ?? 1.0,
               onTap: _pulseSeekBar,
               onControllerChanged: _onControllerChanged,
+              letterboxLandscape: true,
             )
           : (thumbnailUrl != null && thumbnailUrl.isNotEmpty
                 ? Image.network(
@@ -1024,10 +1069,7 @@ class _PlaceLargeCardState extends State<PlaceLargeCard> {
                 ],
                 if (info.facilitySummary.isNotEmpty) ...[
                   const SizedBox(height: 6),
-                  largeCardInfoLine(
-                    Icons.chair_outlined,
-                    info.facilitySummary,
-                  ),
+                  largeCardInfoLine(Icons.chair_outlined, info.facilitySummary),
                 ],
               ],
             ),
@@ -1043,10 +1085,7 @@ class _PlaceLargeCardState extends State<PlaceLargeCard> {
                 if (info.capacityMax > 0)
                   Text(
                     '최대 ${info.capacityMax}명',
-                    style: const TextStyle(
-                      fontSize: 13,
-                      color: Colors.white70,
-                    ),
+                    style: const TextStyle(fontSize: 13, color: Colors.white70),
                   ),
                 if (priceLabel != null) ...[
                   if (info.capacityMax > 0) const SizedBox(height: 6),

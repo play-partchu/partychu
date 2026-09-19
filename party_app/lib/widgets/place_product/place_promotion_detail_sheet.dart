@@ -167,6 +167,8 @@ class _PromotionDetailSheet extends StatelessWidget {
                       // RangeError로 상세가 열리지 않았다(MediaGallery가 이제
                       // 그 조합도 막지만, 여기서도 사실대로 말해 둔다).
                       videoFirst: p.coverIsVideo,
+                      // 큰 화면 보기와 같은 사진·영상 자동 넘김.
+                      autoAdvance: true,
                     ),
                   ),
                 ],

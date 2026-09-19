@@ -1,7 +1,8 @@
 import 'dart:convert';
-import 'dart:html' as html;
 
 import 'package:cloud_functions/cloud_functions.dart';
+
+import 'file_download.dart';
 
 const _functionsRegion = 'asia-northeast3';
 
@@ -22,24 +23,14 @@ class CrmExportService {
     final csvBytes = base64Decode(data['csvBase64'] as String);
 
     final stamp = DateTime.now().toIso8601String().replaceAll(RegExp(r'[:.]'), '-');
-    _downloadBytes(
+    await saveBytesAsFile(
       xlsxBytes,
       'partychu_crm_$stamp.xlsx',
       'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
     );
-    _downloadBytes(csvBytes, 'partychu_crm_$stamp.csv', 'text/csv;charset=utf-8');
+    await saveBytesAsFile(csvBytes, 'partychu_crm_$stamp.csv', 'text/csv;charset=utf-8');
 
     return (data['rowCount'] as num?)?.toInt() ?? 0;
-  }
-
-  static void _downloadBytes(List<int> bytes, String filename, String mimeType) {
-    final blob = html.Blob([bytes], mimeType);
-    final url = html.Url.createObjectUrlFromBlob(blob);
-    final anchor = html.AnchorElement(href: url)
-      ..setAttribute('download', filename)
-      ..click();
-    html.Url.revokeObjectUrl(url);
-    anchor.remove();
   }
 
   /// partychu-crm-sheets 서비스 계정으로 실행되는 Cloud Function이
@@ -54,5 +45,5 @@ class CrmExportService {
     return Map<String, dynamic>.from(result.data as Map);
   }
 
-  static void openUrl(String url) => html.window.open(url, '_blank');
+  static void openUrl(String url) => openUrlInNewWindow(url);
 }

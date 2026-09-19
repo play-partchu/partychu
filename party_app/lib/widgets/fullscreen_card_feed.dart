@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
@@ -44,6 +45,39 @@ Widget feedRoundIconButton(
   );
 }
 
+/// 피드 안의 카드 한 장이 **자기 위치와 이웃 콘텐츠**를 아는 통로.
+///
+/// 사진 숏폼(`FeedPhotoStory`)이 쓴다 — 지금 이 카드가 현재 페이지인지 보고
+/// 타이머를 돌리거나 멈추고, 마지막 사진이 끝나면 다음 콘텐츠로 넘긴다.
+/// 동영상 카드는 이것을 읽지 않는다(가시성 기반 자동재생 그대로).
+class FeedPager extends InheritedWidget {
+  /// 이 카드의 페이지 번호.
+  final int index;
+
+  /// 지금 화면의 페이지 번호 — 스와이프가 절반을 넘는 순간 바뀐다.
+  final ValueListenable<int> current;
+
+  /// 이웃 콘텐츠로 넘긴다. 넘길 곳이 없으면 false.
+  final bool Function() next;
+  final bool Function() previous;
+
+  const FeedPager({
+    super.key,
+    required this.index,
+    required this.current,
+    required this.next,
+    required this.previous,
+    required super.child,
+  });
+
+  static FeedPager? maybeOf(BuildContext context) =>
+      context.dependOnInheritedWidgetOfExactType<FeedPager>();
+
+  @override
+  bool updateShouldNotify(FeedPager oldWidget) =>
+      index != oldWidget.index || current != oldWidget.current;
+}
+
 class FullscreenCardFeed extends StatefulWidget {
   final int itemCount;
   final int initialIndex;
@@ -69,11 +103,25 @@ class FullscreenCardFeed extends StatefulWidget {
 
 class _FullscreenCardFeedState extends State<FullscreenCardFeed> {
   late final PageController _pageController;
+  late final ValueNotifier<int> _currentPage;
+
+  /// [target] 페이지로 넘긴다 — 사진 숏폼이 마지막/첫 사진에서 부른다.
+  bool _goTo(int target) {
+    if (target < 0 || target >= widget.itemCount) return false;
+    if (!_pageController.hasClients) return false;
+    _pageController.animateToPage(
+      target,
+      duration: const Duration(milliseconds: 320),
+      curve: Curves.easeOutCubic,
+    );
+    return true;
+  }
 
   @override
   void initState() {
     super.initState();
     _pageController = PageController(initialPage: widget.initialIndex);
+    _currentPage = ValueNotifier(widget.initialIndex);
     // 상태바/내비게이션 바까지 숨겨 카드 한 장이 화면 전체를 쓰게 한다.
     SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersiveSticky);
     // 목록에 섞인 작은 미리보기와 달리 이 화면은 몰입해서 보는 전체화면
@@ -85,6 +133,7 @@ class _FullscreenCardFeedState extends State<FullscreenCardFeed> {
   void dispose() {
     SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
     _pageController.dispose();
+    _currentPage.dispose();
     super.dispose();
   }
 
@@ -106,7 +155,14 @@ class _FullscreenCardFeedState extends State<FullscreenCardFeed> {
             controller: _pageController,
             scrollDirection: Axis.vertical,
             itemCount: widget.itemCount,
-            itemBuilder: widget.itemBuilder,
+            onPageChanged: (i) => _currentPage.value = i,
+            itemBuilder: (context, index) => FeedPager(
+              index: index,
+              current: _currentPage,
+              next: () => _goTo(index + 1),
+              previous: () => _goTo(index - 1),
+              child: widget.itemBuilder(context, index),
+            ),
           ),
           Positioned(
             top: topInset,

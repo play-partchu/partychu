@@ -21,8 +21,10 @@ import 'package:party_app/models/party_occurrence_recruit.dart';
 import 'package:party_app/models/party_open_state.dart';
 import 'package:party_app/services/party_create_eligibility.dart';
 import 'package:party_app/services/party_open_alert_service.dart';
+import 'package:party_app/services/pre_registration_visibility.dart';
 import 'package:party_app/models/region_data.dart';
 import 'package:party_app/models/reservation_modes.dart';
+import 'package:party_app/models/room_price_type.dart';
 import 'package:party_app/models/party_constants.dart';
 import 'package:party_app/models/party_application_form.dart';
 import 'package:party_app/models/party_pricing.dart';
@@ -1814,7 +1816,9 @@ class _PartyDetailScreenState extends State<PartyDetailScreen> {
       final db = FirebaseFirestore.instance;
       final placeSnap = await db.collection('places').doc(placeId).get();
       final place = placeSnap.data();
-      if (place == null) return null;
+      if (place == null || PreRegistrationVisibility.isHidden(place)) {
+        return null;
+      }
       // 룸을 못 읽어도 카드 자체는 보여준다 — 그때는 장소 문서만으로 유형을
       // 판단한다(placeSupportsStay가 그 경로를 갖고 있다).
       var rooms = const <Map<String, dynamic>>[];
@@ -1907,6 +1911,15 @@ class _PartyDetailScreenState extends State<PartyDetailScreen> {
                       isStay
                           ? '숙박 가격 ${formatPrice(price)}~'
                           : '대관 가격 시간당 ${formatPrice(price)}~',
+                      style: const TextStyle(
+                        fontSize: 12,
+                        color: Colors.black54,
+                      ),
+                    )
+                  // 룸이 전부 가격 문의인 공간 — 숫자 대신 문의로 적는다.
+                  else if (RoomPriceType.of(placeData) == RoomPriceType.inquiry)
+                    Text(
+                      '${isStay ? '숙박' : '대관'} $kInquiryPriceLabel',
                       style: const TextStyle(
                         fontSize: 12,
                         color: Colors.black54,
@@ -2005,6 +2018,12 @@ class _PartyDetailScreenState extends State<PartyDetailScreen> {
         final eventData = snapshot.data?.data();
         // 스냅샷이 있으면 플레이스 문서를 아직 못 읽었어도 카드를 그린다.
         if (eventData == null && placeSnapshot.isEmpty) {
+          return const SizedBox.shrink();
+        }
+        // 사전등록 비공개 플레이스는 연결 카드로도 내보내지 않는다.
+        if ((eventData != null &&
+                PreRegistrationVisibility.isHidden(eventData)) ||
+            PreRegistrationVisibility.isHidden(placeSnapshot)) {
           return const SizedBox.shrink();
         }
         final source = placeSnapshot.isNotEmpty ? placeSnapshot : eventData!;
@@ -2813,6 +2832,8 @@ class _PartyDetailScreenState extends State<PartyDetailScreen> {
                               videoBackgroundColor: const Color(0xFFFFF7FA),
                               // 우측 상단 "1/2" 카운터도 파티추 핑크 톤으로.
                               counterAccentColor: const Color(0xFFFF6FA0),
+                              // 큰 화면 보기와 같은 사진·영상 자동 넘김.
+                              autoAdvance: true,
                             )
                           else
                             Container(

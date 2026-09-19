@@ -1,4 +1,5 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:cloud_functions/cloud_functions.dart';
 import 'package:url_launcher/url_launcher.dart';
 
@@ -94,7 +95,13 @@ class HostPreRegistrationService {
   static Future<void> openInNewTab(String url) async {
     final uri = Uri.tryParse(url);
     if (uri == null || !(uri.scheme == 'https' || uri.scheme == 'http')) return;
-    await launchUrl(uri, webOnlyWindowName: '_blank');
+    // 웹은 예전 그대로 새 탭. Android는 설치된 아무 브라우저로(특정 브라우저·
+    // Custom Tab에 기대지 않는다).
+    await launchUrl(
+      uri,
+      mode: kIsWeb ? LaunchMode.platformDefault : LaunchMode.externalApplication,
+      webOnlyWindowName: '_blank',
+    );
   }
 }
 

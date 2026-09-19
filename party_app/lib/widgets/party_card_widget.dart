@@ -27,6 +27,8 @@ import 'package:party_app/widgets/list_card_shell.dart';
 import 'package:party_app/widgets/party_type_vibe_icon.dart';
 import 'package:party_app/widgets/partychu_perk.dart';
 import 'package:party_app/widgets/partychu_perk_plaque.dart';
+import 'package:party_app/widgets/feed_landscape_video.dart';
+import 'package:party_app/widgets/feed_photo_story.dart';
 import 'package:party_app/widgets/video_seek_bar.dart';
 import 'package:party_app/widgets/web_frame.dart';
 
@@ -170,6 +172,20 @@ class VideoThumbnail extends StatefulWidget {
   // 컨트롤러가 준비되거나(재생 시작) 해제될 때(화면을 벗어남/미디어 교체)
   // 호출된다 — 큰 카드가 이 컨트롤러를 그대로 받아 진행바를 그린다.
   final ValueChanged<VideoPlayerController?>? onControllerChanged;
+  // 큰 화면 보기 전용 — 불러온 영상이 **실제로** 가로형이면 잘라 채우지 않고
+  // 원본 전체를 가운데에 두고 위/아래에 같은 영상의 블러 배경을 깐다
+  // ([FeedLandscapeVideo]). 세로 영상과 목록 카드는 이 값과 무관하게 예전 그대로.
+  final bool letterboxLandscape;
+
+  /// 반복 재생 — 기본은 예전처럼 반복한다. 사진·영상 자동 넘김
+  /// ([FeedPhotoStory])은 끄고, 끝까지 재생되면 [onCompleted]로 다음 칸에 넘긴다.
+  final bool loop;
+
+  /// [loop]가 false일 때 영상이 끝까지 재생되면 한 번 불린다.
+  final VoidCallback? onCompleted;
+
+  /// 자동 재시도까지 모두 실패해 영상을 보여줄 수 없게 됐을 때 한 번 불린다.
+  final VoidCallback? onLoadFailed;
 
   const VideoThumbnail({
     super.key,
@@ -182,6 +198,10 @@ class VideoThumbnail extends StatefulWidget {
     this.cropScale = 1.0,
     this.onTap,
     this.onControllerChanged,
+    this.letterboxLandscape = false,
+    this.loop = true,
+    this.onCompleted,
+    this.onLoadFailed,
   });
 
   @override
@@ -261,7 +281,21 @@ class _VideoThumbnailState extends State<VideoThumbnail> {
     _ctrl?.setVolume(m ? 0 : 1);
   }
 
-  void _onCtrlUpdate() => setState(() {});
+  /// 이번 재생에서 [VideoThumbnail.onCompleted]를 이미 불렀는지.
+  bool _completedFired = false;
+
+  void _onCtrlUpdate() {
+    setState(() {});
+    final c = _ctrl;
+    if (c == null) return;
+    if (videoPlaybackFinished(c.value)) {
+      if (_completedFired) return;
+      _completedFired = true;
+      widget.onCompleted?.call();
+    } else {
+      _completedFired = false;
+    }
+  }
 
   Future<void> _initAndPlay({required bool forcePlay}) async {
     if (_loading) return;
@@ -286,7 +320,7 @@ class _VideoThumbnailState extends State<VideoThumbnail> {
         ctrl.dispose();
         return;
       }
-      ctrl.setLooping(true);
+      ctrl.setLooping(widget.loop);
       ctrl.setVolume(_muted ? 0 : 1);
       ctrl.addListener(_onCtrlUpdate);
       _ctrl = ctrl;
@@ -317,7 +351,10 @@ class _VideoThumbnailState extends State<VideoThumbnail> {
   // 재생 경로가 다시는 트리거되지 않고 정지 썸네일에 영원히 머문다. 짧은
   // 간격으로 몇 차례 자동 재시도해 이 상태를 벗어난다.
   void _scheduleAutoRetry() {
-    if (_retryCount >= _maxAutoRetries) return;
+    if (_retryCount >= _maxAutoRetries) {
+      widget.onLoadFailed?.call();
+      return;
+    }
     _retryCount++;
     _retryTimer?.cancel();
     _retryTimer = Timer(Duration(seconds: 2 * _retryCount), () {
@@ -431,24 +468,40 @@ class _VideoThumbnailState extends State<VideoThumbnail> {
 
     // ── 재생/일시정지 상태 ────────────────────────────────────────
     if (_initialized && c != null) {
+      final landscape =
+          widget.letterboxLandscape && isLandscapeVideoSize(c.value.size);
       return Stack(
         fit: StackFit.expand,
         children: [
-          CroppedMedia(
-            cropX: widget.cropX,
-            cropY: widget.cropY,
-            cropScale: widget.cropScale,
-            child: FittedBox(
-              fit: widget.fit,
-              alignment: videoCropAlignment(widget.cropX, widget.cropY),
-              clipBehavior: Clip.hardEdge,
-              child: SizedBox(
-                width: c.value.size.width > 0 ? c.value.size.width : 1,
-                height: c.value.size.height > 0 ? c.value.size.height : 1,
-                child: VideoPlayer(c),
+          if (landscape)
+            FeedLandscapeVideo(
+              aspectRatio: c.value.size.width / c.value.size.height,
+              player: () => VideoPlayer(c),
+              webBackdrop:
+                  widget.thumbnailUrl != null && widget.thumbnailUrl!.isNotEmpty
+                  ? Image.network(
+                      widget.thumbnailUrl!,
+                      fit: BoxFit.cover,
+                      errorBuilder: (_, _, _) => const SizedBox.shrink(),
+                    )
+                  : null,
+            )
+          else
+            CroppedMedia(
+              cropX: widget.cropX,
+              cropY: widget.cropY,
+              cropScale: widget.cropScale,
+              child: FittedBox(
+                fit: widget.fit,
+                alignment: videoCropAlignment(widget.cropX, widget.cropY),
+                clipBehavior: Clip.hardEdge,
+                child: SizedBox(
+                  width: c.value.size.width > 0 ? c.value.size.width : 1,
+                  height: c.value.size.height > 0 ? c.value.size.height : 1,
+                  child: VideoPlayer(c),
+                ),
               ),
             ),
-          ),
           if (!c.value.isPlaying)
             Container(
               color: Colors.black26,
@@ -2290,6 +2343,12 @@ class _PartyVideoFeedCardState extends State<PartyVideoFeedCard> {
     final hasVideo = cover?.isVideo ?? false;
     final videoUrl = cover?.videoUrl;
     final thumbnailUrl = cover?.imageUrl ?? cover?.thumbnailUrl;
+    // 사진·영상을 순서대로 자동으로 넘긴다(상세 화면 갤러리와 같은 규칙).
+    // 영상 하나뿐이면 예전처럼 그 영상을 반복 재생한다.
+    final storyItems = feedMediaItems(data, cover);
+    final useStory =
+        storyItems.length > 1 ||
+        (storyItems.length == 1 && !storyItems.first.isVideo);
     final title = data['title'] as String? ?? '';
     // 기본 카드(PartyStandardCard)와 동일하게 날짜/시간을 별도 줄로 나눈다.
     final dateOnly = PartyCard.formatDateOnly(data);
@@ -2316,7 +2375,33 @@ class _PartyVideoFeedCardState extends State<PartyVideoFeedCard> {
         children: [
           // 전체화면 큰 카드도 기본/작은 카드와 동일하게 cover + 크롭 위치를
           // 적용한다(호스트가 등록 시 고른 노출 위치를 그대로 반영).
-          if (hasVideo)
+          if (useStory)
+            FeedPhotoStory(
+              items: storyItems,
+              placeholder: _partyCardPlaceholder(),
+              videoBuilder: (context, item, {
+                required onCompleted,
+                required onLoadFailed,
+                required onControllerChanged,
+              }) => VideoThumbnail(
+                videoUrl: item.url,
+                thumbnailUrl: item.thumbnailUrl,
+                // 크롭 위치는 대표 영상에 지정한 값이다.
+                cropX: hasVideo ? cover?.videoCropX ?? 0.5 : 0.5,
+                cropY: hasVideo ? cover?.videoCropY ?? 0.5 : 0.5,
+                cropScale: hasVideo ? cover?.videoCropScale ?? 1.0 : 1.0,
+                onTap: _pulseSeekBar,
+                onControllerChanged: (c) {
+                  onControllerChanged(c);
+                  _onControllerChanged(c);
+                },
+                letterboxLandscape: true,
+                loop: false,
+                onCompleted: onCompleted,
+                onLoadFailed: onLoadFailed,
+              ),
+            )
+          else if (hasVideo)
             VideoThumbnail(
               videoUrl: videoUrl!,
               thumbnailUrl: cover?.thumbnailUrl,
@@ -2325,6 +2410,7 @@ class _PartyVideoFeedCardState extends State<PartyVideoFeedCard> {
               cropScale: cover?.videoCropScale ?? 1.0,
               onTap: _pulseSeekBar,
               onControllerChanged: _onControllerChanged,
+              letterboxLandscape: true,
             )
           else if (thumbnailUrl != null && thumbnailUrl.isNotEmpty)
             Image.network(

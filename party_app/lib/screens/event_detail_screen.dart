@@ -458,6 +458,8 @@ class _EventDetailScreenState extends State<EventDetailScreen> {
                     videoFit: BoxFit.contain,
                     videoBackgroundColor: const Color(0xFFFFF4F8),
                     counterAccentColor: const Color(0xFFFF6FA0),
+                    // 큰 화면 보기와 같은 사진·영상 자동 넘김.
+                    autoAdvance: true,
                   )
                 : Container(
                     width: double.infinity,

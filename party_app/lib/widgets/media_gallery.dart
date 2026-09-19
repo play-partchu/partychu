@@ -3,7 +3,9 @@ import 'dart:ui' show ImageFilter;
 
 import 'package:flutter/material.dart';
 import 'package:video_player/video_player.dart';
+import 'package:visibility_detector/visibility_detector.dart';
 import 'package:party_app/utils/feed_video_manager.dart';
+import 'package:party_app/widgets/media_auto_advance.dart';
 import 'package:party_app/widgets/video_seek_bar.dart';
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -135,6 +137,12 @@ class MediaGallery extends StatefulWidget {
   /// 흰 글씨로 바뀐다(예: 파티 상세페이지의 핑크 톤).
   final Color? counterAccentColor;
 
+  /// 사진·영상 자동 넘김 — 큰 화면 보기와 **같은 규칙**([MediaAutoAdvancer]):
+  /// 사진은 [photoDuration] 뒤, 영상은 끝까지 재생된 뒤 다음으로 넘기고,
+  /// 마지막 다음은 처음으로 돌아간다. 좌우로 넘기기는 그대로다. 기본은 꺼져
+  /// 있어 켜지 않은 화면은 예전 그대로다.
+  final bool autoAdvance;
+
   const MediaGallery({
     super.key,
     required this.images,
@@ -145,23 +153,37 @@ class MediaGallery extends StatefulWidget {
     this.videoFit = BoxFit.cover,
     this.videoBackgroundColor,
     this.counterAccentColor,
+    this.autoAdvance = false,
   });
 
   @override
   State<MediaGallery> createState() => _MediaGalleryState();
 }
 
-class _MediaGalleryState extends State<MediaGallery> {
+class _MediaGalleryState extends State<MediaGallery>
+    with SingleTickerProviderStateMixin, WidgetsBindingObserver {
   late int _current = widget.initialPage;
+
+  /// 자동 넘김이면 페이지가 끝없이 이어진다 — 마지막 다음 칸(왼쪽으로 넘기기
+  /// 포함)이 첫 칸이고, 첫 칸의 이전 칸이 마지막 칸이다. 실제 칸 번호는
+  /// [_realIndex]로 구한다. 시작 위치를 한가운데 쯤에 둬 양쪽 모두 넉넉하다.
+  late final int _loopBase = _autoOn ? _totalCount * 1000 : 0;
   late final PageController _pageController = PageController(
-    initialPage: widget.initialPage,
+    initialPage: _loopBase + widget.initialPage,
   );
   final Map<int, double> _ratios = {};
 
+  int _realIndex(int page) => _autoOn ? page % _totalCount : page;
+
   bool get _hasVideo => widget.videoUrl != null && widget.videoUrl!.isNotEmpty;
   int get _totalCount => widget.images.length + (_hasVideo ? 1 : 0);
-  // 동영상이 대표면 index 0, 아니면 기존처럼 항상 마지막 페이지.
-  int get _videoPageIndex => widget.videoFirst ? 0 : widget.images.length;
+
+  /// 동영상을 맨 앞에 두는가 — 자동 넘김이면 대표 여부와 관계없이 **영상이
+  /// 항상 첫 칸**이다(큰 화면 보기와 같은 순서, [autoMediaSequence]).
+  bool get _videoFirst => widget.videoFirst || widget.autoAdvance;
+
+  // 동영상이 앞이면 index 0, 아니면 기존처럼 항상 마지막 페이지.
+  int get _videoPageIndex => _videoFirst ? 0 : widget.images.length;
   bool get _isVideoPage => _hasVideo && _current == _videoPageIndex;
 
   /// 동영상이 **실제로 페이지를 차지하는가.**
@@ -171,10 +193,64 @@ class _MediaGalleryState extends State<MediaGallery> {
   /// `RangeError (length): Invalid value: Only valid value is 0: -1`로 죽는다
   /// (사진만 있는 이벤트 상세가 이것 때문에 열리지 않았다). 자리를 만드는
   /// 조건은 "앞세우기로 했는가"가 아니라 "앞세울 동영상이 있는가"다.
-  bool get _videoTakesFirstPage => widget.videoFirst && _hasVideo;
+  bool get _videoTakesFirstPage => _videoFirst && _hasVideo;
 
   // 사진 목록의 j번째 항목이 실제로 표시되는 페이지 인덱스.
   int _imagePageIndex(int j) => _videoTakesFirstPage ? j + 1 : j;
+
+  // ── 자동 넘김(autoAdvance) ────────────────────────────────────────────
+  // autoAdvance를 켠 화면에서만 만들어진다.
+  MediaAutoAdvancer? _autoCtl;
+  MediaAutoAdvancer get _auto =>
+      _autoCtl ??= MediaAutoAdvancer(vsync: this, onAdvance: _advance);
+
+  /// 불러오기가 끝난(또는 실패한) 사진 페이지 — 사진 시간은 이때부터 잰다.
+  final Set<int> _loadedPages = {};
+
+  bool _visible = false;
+  bool _tickerOn = true;
+  bool _backgrounded = false;
+
+  /// 한 칸뿐이면 넘길 곳이 없다 — 영상 하나면 그 영상을 반복한다.
+  bool get _autoOn => widget.autoAdvance && _totalCount > 1;
+
+  /// 화면에 보이고 앱이 앞에 있다 — 영상 자동 재생의 조건(누르고 있는
+  /// 것과는 무관하다: 진행바를 만지는 동안 영상이 멈추면 안 된다).
+  bool get _onScreen => _visible && _tickerOn && !_backgrounded;
+
+  AutoMediaKind _kindAt(int i) => _hasVideo && i == _videoPageIndex
+      ? AutoMediaKind.video
+      : AutoMediaKind.photo;
+
+  void _showPage(int i) {
+    if (!_autoOn) return;
+    final kind = _kindAt(i);
+    _auto.show(
+      kind,
+      ready: kind == AutoMediaKind.video || _loadedPages.contains(i),
+    );
+  }
+
+  void _syncActive() {
+    if (!widget.autoAdvance) return;
+    if (_autoOn) {
+      _auto
+        ..active = _visible && _tickerOn
+        ..backgrounded = _backgrounded;
+    }
+    // 영상 페이지의 자동 재생/정지(_onScreen)도 이 값을 따른다.
+    if (mounted) setState(() {});
+  }
+
+  /// 다음 칸으로 — 페이지가 끝없이 이어져 있어 마지막 다음은 자연스럽게 첫
+  /// 칸이다([_loopBase]).
+  void _advance() {
+    if (!mounted || !_pageController.hasClients || _totalCount < 2) return;
+    _pageController.nextPage(
+      duration: const Duration(milliseconds: 400),
+      curve: Curves.easeInOut,
+    );
+  }
 
   @override
   void initState() {
@@ -182,10 +258,35 @@ class _MediaGalleryState extends State<MediaGallery> {
     for (var i = 0; i < widget.images.length; i++) {
       _preloadRatio(_imagePageIndex(i), widget.images[i]);
     }
+    if (widget.autoAdvance) {
+      WidgetsBinding.instance.addObserver(this);
+      _showPage(_current);
+    }
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    // 다른 화면이 위에 덮이면(TickerMode 꺼짐) 멈춘다.
+    final tickerOn = TickerMode.valuesOf(context).enabled;
+    if (tickerOn != _tickerOn) {
+      _tickerOn = tickerOn;
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) _syncActive();
+      });
+    }
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    _backgrounded = state != AppLifecycleState.resumed;
+    _syncActive();
   }
 
   @override
   void dispose() {
+    if (widget.autoAdvance) WidgetsBinding.instance.removeObserver(this);
+    _autoCtl?.dispose();
     _pageController.dispose();
     super.dispose();
   }
@@ -194,12 +295,24 @@ class _MediaGalleryState extends State<MediaGallery> {
     NetworkImage(url)
         .resolve(const ImageConfiguration())
         .addListener(
-          ImageStreamListener((info, _) {
-            if (!mounted) return;
-            final r = info.image.width / info.image.height;
-            if (_ratios[index] != r) setState(() => _ratios[index] = r);
-          }),
+          ImageStreamListener(
+            (info, _) {
+              if (!mounted) return;
+              final r = info.image.width / info.image.height;
+              if (_ratios[index] != r) setState(() => _ratios[index] = r);
+              _onPhotoLoaded(index);
+            },
+            // 깨진 사진에서 멈춰 있지 않도록 실패도 "불러오기 끝"으로 본다.
+            onError: (_, _) {
+              if (mounted) _onPhotoLoaded(index);
+            },
+          ),
         );
+  }
+
+  void _onPhotoLoaded(int index) {
+    if (!_loadedPages.add(index)) return;
+    if (_autoOn && index == _current) _auto.markReady();
   }
 
   @override
@@ -224,7 +337,7 @@ class _MediaGalleryState extends State<MediaGallery> {
               ? (screenWidth / (9 / 16)).clamp(180.0, maxHeight)
               : 280.0);
 
-    return Stack(
+    final gallery = Stack(
       children: [
         AnimatedContainer(
           duration: const Duration(milliseconds: 250),
@@ -238,9 +351,15 @@ class _MediaGalleryState extends State<MediaGallery> {
               : const BoxDecoration(color: Color(0xFFFF6FA0)),
           child: PageView.builder(
             controller: _pageController,
-            itemCount: _totalCount,
-            onPageChanged: (i) => setState(() => _current = i),
-            itemBuilder: (_, i) {
+            // 자동 넘김이면 끝이 없다(마지막 → 첫 칸으로 이어짐).
+            itemCount: _autoOn ? null : _totalCount,
+            onPageChanged: (page) {
+              final i = _realIndex(page);
+              setState(() => _current = i);
+              _showPage(i);
+            },
+            itemBuilder: (_, page) {
+              final i = _realIndex(page);
               // 동영상 페이지
               if (_hasVideo && i == _videoPageIndex) {
                 return GalleryVideoItem(
@@ -251,6 +370,21 @@ class _MediaGalleryState extends State<MediaGallery> {
                   onAspectRatioResolved: (r) {
                     if (_ratios[i] != r) setState(() => _ratios[i] = r);
                   },
+                  // 자동 넘김이면 이 페이지가 보이는 동안 저절로 재생하고,
+                  // 끝까지 재생되면 다음 칸으로 넘어간다. 영상 하나뿐이면
+                  // 그 영상을 반복한다.
+                  autoPlay: widget.autoAdvance && _current == i && _onScreen,
+                  loop: widget.autoAdvance && _totalCount == 1,
+                  onCompleted: _autoOn
+                      ? () {
+                          if (_current == i) _auto.videoFinished();
+                        }
+                      : null,
+                  onLoadFailed: _autoOn
+                      ? () {
+                          if (_current == i) _auto.videoFailed();
+                        }
+                      : null,
                 );
               }
               // 이미지 페이지 — 동영상과 똑같이 원본 비율 그대로(contain)
@@ -347,6 +481,25 @@ class _MediaGalleryState extends State<MediaGallery> {
           ),
       ],
     );
+    if (!widget.autoAdvance) return gallery;
+    // 화면에 반 이상 보일 때만 넘기고, 손가락을 대고 있는 동안은 멈춘다
+    // (넘기려고 끌거나 진행바를 만지는 중에 저절로 넘어가지 않게).
+    return VisibilityDetector(
+      key: ValueKey(this),
+      onVisibilityChanged: (info) {
+        if (!mounted) return;
+        final visible = info.visibleFraction >= 0.5;
+        if (visible == _visible) return;
+        _visible = visible;
+        _syncActive();
+      },
+      child: Listener(
+        onPointerDown: (_) => _auto.held = true,
+        onPointerUp: (_) => _auto.held = false,
+        onPointerCancel: (_) => _auto.held = false,
+        child: gallery,
+      ),
+    );
   }
 }
 
@@ -373,6 +526,19 @@ class GalleryVideoItem extends StatefulWidget {
   /// null이면 기존 핑크·보라 그라데이션을 그대로 쓴다.
   final Color? backgroundColor;
 
+  /// true인 동안 저절로 재생하고, false가 되면 멈춘다([MediaGallery.autoAdvance]).
+  /// 기본은 예전처럼 ▶를 눌러야 재생한다.
+  final bool autoPlay;
+
+  /// 반복 재생 — 기본은 예전처럼 한 번 재생.
+  final bool loop;
+
+  /// 끝까지 재생되면 한 번 불린다(반복 재생 중에는 불리지 않는다).
+  final VoidCallback? onCompleted;
+
+  /// 재시도까지 모두 실패해 영상을 보여줄 수 없게 됐을 때 한 번 불린다.
+  final VoidCallback? onLoadFailed;
+
   const GalleryVideoItem({
     super.key,
     required this.videoUrl,
@@ -380,6 +546,10 @@ class GalleryVideoItem extends StatefulWidget {
     this.onAspectRatioResolved,
     this.fit = BoxFit.cover,
     this.backgroundColor,
+    this.autoPlay = false,
+    this.loop = false,
+    this.onCompleted,
+    this.onLoadFailed,
   });
 
   @override
@@ -431,6 +601,43 @@ class _GalleryVideoItemState extends State<GalleryVideoItem> {
     _muted = FeedVideoManager.instance.muted;
     FeedVideoManager.instance.mutedNotifier.addListener(_onGlobalMuteChanged);
     _prepareFuture = _prepareController();
+    if (widget.autoPlay) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted && widget.autoPlay) _startPlay();
+      });
+    }
+  }
+
+  @override
+  void didUpdateWidget(covariant GalleryVideoItem oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (widget.loop != oldWidget.loop) _ctrl?.setLooping(widget.loop);
+    if (widget.autoPlay == oldWidget.autoPlay) return;
+    if (widget.autoPlay) {
+      final c = _ctrl;
+      if (!_initialized) {
+        _startPlay();
+      } else if (c != null && !c.value.isPlaying) {
+        c.play();
+      }
+    } else if (_ctrl?.value.isPlaying ?? false) {
+      _ctrl!.pause();
+    }
+  }
+
+  /// 이번 재생에서 [GalleryVideoItem.onCompleted]를 이미 불렀는지.
+  bool _completedFired = false;
+
+  void _checkCompleted() {
+    final c = _ctrl;
+    if (c == null) return;
+    if (videoPlaybackFinished(c.value)) {
+      if (_completedFired) return;
+      _completedFired = true;
+      widget.onCompleted?.call();
+    } else {
+      _completedFired = false;
+    }
   }
 
   Future<void> _prepareController() async {
@@ -442,6 +649,7 @@ class _GalleryVideoItemState extends State<GalleryVideoItem> {
         return;
       }
       ctrl.setVolume(_muted ? 0 : 1);
+      ctrl.setLooping(widget.loop);
       _ctrl = ctrl;
       ctrl.addListener(_onControllerValueChanged);
       _onControllerValueChanged(); // 초기화 직후 값도 같은 경로로 1회 반영
@@ -466,6 +674,7 @@ class _GalleryVideoItemState extends State<GalleryVideoItem> {
     setState(() {});
     final ratio = _displayAspectRatio();
     if (ratio != null) widget.onAspectRatioResolved?.call(ratio);
+    _checkCompleted();
   }
 
   Size? _displaySize() {
@@ -553,6 +762,7 @@ class _GalleryVideoItemState extends State<GalleryVideoItem> {
         }
         _ctrl?.dispose();
         ctrl.setVolume(_muted ? 0 : 1);
+        ctrl.setLooping(widget.loop);
         _ctrl = ctrl;
         ctrl.addListener(_onControllerValueChanged);
         ctrl.play();
@@ -572,6 +782,7 @@ class _GalleryVideoItemState extends State<GalleryVideoItem> {
         _hasError = true;
         _loading = false;
       });
+      widget.onLoadFailed?.call();
     }
   }
 

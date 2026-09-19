@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:url_launcher/url_launcher.dart';
@@ -12,6 +14,14 @@ class AppUpdateGate extends StatefulWidget {
   final Widget child;
   const AppUpdateGate({super.key, required this.child});
 
+  /// 실행 시 확인이 끝났고, 띄운 업데이트 안내가 있었다면 그것까지 닫혔다.
+  ///
+  /// 앱 실행 때 뜨는 다른 안내(사전등록 안내 등)가 업데이트 다이얼로그와
+  /// 겹쳐 쌓이지 않도록 이걸 기다린 뒤 띄운다. **필수 업데이트**면 영영
+  /// 완료되지 않는다 — 그 위에 다른 안내를 올릴 이유가 없다.
+  static Future<void> get settled => _settled.future;
+  static final Completer<void> _settled = Completer<void>();
+
   @override
   State<AppUpdateGate> createState() => _AppUpdateGateState();
 }
@@ -20,16 +30,22 @@ class _AppUpdateGateState extends State<AppUpdateGate> {
   @override
   void initState() {
     super.initState();
-    WidgetsBinding.instance.addPostFrameCallback((_) => _runCheck());
+    WidgetsBinding.instance.addPostFrameCallback((_) async {
+      final blocking = await _runCheck();
+      if (!blocking && !AppUpdateGate._settled.isCompleted) {
+        AppUpdateGate._settled.complete();
+      }
+    });
   }
 
-  Future<void> _runCheck() async {
+  /// 필수 업데이트 다이얼로그를 띄웠으면 true — 앱이 거기서 멈춘다.
+  Future<bool> _runCheck() async {
     final info = await AppUpdateService.check();
-    if (!mounted) return;
+    if (!mounted) return false;
 
     if (info.status == AppUpdateStatus.force) {
       _showDialog(info, dismissible: false);
-      return;
+      return true;
     }
 
     if (info.status == AppUpdateStatus.optional) {
@@ -37,14 +53,15 @@ class _AppUpdateGateState extends State<AppUpdateGate> {
       final dismissedVersion = prefs.getString(_kDismissedVersionPrefsKey);
       // 이미 "나중에"로 넘긴 버전이면, latestVersion이 그 사이에 더 올라가지
       // 않은 한 매번 재실행 때마다 다시 띄우지 않는다.
-      if (dismissedVersion == info.latestVersion) return;
-      if (!mounted) return;
-      _showDialog(info, dismissible: true);
+      if (dismissedVersion == info.latestVersion) return false;
+      if (!mounted) return false;
+      await _showDialog(info, dismissible: true);
     }
+    return false;
   }
 
-  void _showDialog(AppUpdateInfo info, {required bool dismissible}) {
-    showDialog<void>(
+  Future<void> _showDialog(AppUpdateInfo info, {required bool dismissible}) {
+    return showDialog<void>(
       context: context,
       barrierDismissible: dismissible,
       builder: (dialogContext) => PopScope(

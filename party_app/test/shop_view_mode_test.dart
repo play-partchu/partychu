@@ -218,7 +218,14 @@ void main() {
 
     test('거르기·정렬·상세 이동은 세 방식이 공유한다', () {
       // 필터는 목록을 만들 때 한 번만 걸린다(보기 방식과 무관).
-      expect(main.contains('final docs = _applyShopFilter(allDocs);'), isTrue);
+      // (차단·사전등록 비공개를 거른 뒤 한 번이다.)
+      expect(
+        main.contains(
+          'final docs = _applyShopFilter( PreRegistrationVisibility.withoutHidden( '
+          'BlockService.withoutBlocked(allDocs), ), );',
+        ),
+        isTrue,
+      );
       // 이동도 한 곳에서만 정해진다.
       expect(
         main.contains(

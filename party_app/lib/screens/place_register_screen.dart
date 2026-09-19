@@ -7,6 +7,7 @@ import 'package:party_app/models/address_result.dart';
 import 'package:party_app/models/listing_constants.dart';
 import 'package:party_app/models/pet_policy.dart';
 import 'package:party_app/models/reservation_modes.dart';
+import 'package:party_app/models/room_price_type.dart';
 import 'package:party_app/models/place_facility_options.dart';
 import 'package:party_app/models/place_product.dart';
 import 'package:party_app/models/product_refund_feature.dart';
@@ -241,7 +242,7 @@ class _PlaceRegisterScreenState extends State<PlaceRegisterScreen>
               'newImageOrdinal': _mediaCoverPick!.newImageOrdinal,
               'isNewVideo': _mediaCoverPick!.isNewVideo,
             },
-      ListingInquiry.field: _inquiryEnabled,
+      ListingInquiry.field: _inquiryEffective,
       ListingInquiry.guideField: _inquiryGuideCtrl.text,
       // 룸 — 마운트돼 있으면 현재 상태를, 아직 안 그려졌으면 복원 데이터를 쓴다.
       'rooms': [
@@ -369,6 +370,7 @@ class _PlaceRegisterScreenState extends State<PlaceRegisterScreen>
       _roomKeys.add(GlobalKey<RoomCardState>());
       _roomInitialData.add(m);
     }
+    _forceInquiryIfPriceInquiry();
     draftMediaNeedsReselect = anyMissing;
   }
 
@@ -538,6 +540,8 @@ class _PlaceRegisterScreenState extends State<PlaceRegisterScreen>
         _originalRoomIds.add(doc.id);
         _roomDataById[doc.id] = doc.data();
       }
+      // 가격 문의 룸이 있으면 진입 시점부터 채팅 문의 ON으로 고정한다.
+      _forceInquiryIfPriceInquiry();
       _loadingRooms = false;
     });
   }
@@ -725,6 +729,35 @@ class _PlaceRegisterScreenState extends State<PlaceRegisterScreen>
   /// 게스트 문의 받기 — 파티·플레이스와 **같은 필드**(inquiryEnabled) 하나다.
   /// 등록 기본값은 ON([ListingInquiry.defaultEnabled]).
   bool _inquiryEnabled = ListingInquiry.defaultEnabled;
+
+  /// 가격 문의 룸이 하나라도 있는가 — 있으면 게스트 문의(채팅)가 **필수**다.
+  /// 가격 문의는 채팅으로만 진행되므로 문의를 끄면 그 옵션은 누구도 이용할 수
+  /// 없다. 아직 그려지지 않은 카드는 초기 데이터로 판정한다.
+  bool get _hasInquiryRoom {
+    for (int i = 0; i < _roomKeys.length; i++) {
+      final state = _roomKeys[i].currentState;
+      final inquiry = state != null
+          ? state.isPriceInquiry
+          : isInquiryRoom(
+              i < _roomInitialData.length ? _roomInitialData[i] : null,
+            );
+      if (inquiry) return true;
+    }
+    return false;
+  }
+
+  /// 화면·임시저장에 쓰는 실제 문의 설정 — 가격 문의 룸이 있으면 언제나 ON.
+  bool get _inquiryEffective => _inquiryEnabled || _hasInquiryRoom;
+
+  /// 가격 문의가 생기면 문의 설정 자체를 ON으로 바꿔 둔다 — 가격 문의를 모두
+  /// 해제해 잠금이 풀린 뒤에도 스위치가 저절로 꺼지지 않고, 호스트가 직접
+  /// 끄기 전까지 ON으로 남는다.
+  void _forceInquiryIfPriceInquiry() {
+    if (_hasInquiryRoom) _inquiryEnabled = true;
+  }
+
+  static const _priceInquiryNeedsChatNote =
+      '가격 문의 옵션은 채팅을 통해 문의가 진행되므로 채팅 문의 사용이 필수입니다.';
 
   /// 문의 전 안내문 — 문의 받기가 ON일 때만 입력란이 보인다.
   final _inquiryGuideCtrl = TextEditingController();
@@ -1214,6 +1247,11 @@ class _PlaceRegisterScreenState extends State<PlaceRegisterScreen>
         // 위 대표가가 시간당('hour')인지 1박당('night')인지 — 카드 요금 표기에
         // 쓰인다(숙박 전용 장소가 "₩0 / 시간"으로 보이지 않도록).
         'priceUnit': priceSummary.unit,
+        // 숫자 요금 룸이 하나도 없고 가격 문의 룸만 있으면 카드 대표가를
+        // '무료'가 아니라 '가격 문의'로 적는다([RoomPriceType]).
+        RoomPriceType.field: minPrice <= 0 && roomDataList.any(isInquiryRoom)
+            ? RoomPriceType.inquiry.key
+            : RoomPriceType.fixed.key,
         'capacityMax': maxCapacity,
         // ⚠ payoutAccount는 더 이상 여기 저장하지 않는다.
         //   places 문서는 누구나 읽을 수 있어(rules) 계좌번호가 공개로
@@ -1246,7 +1284,13 @@ class _PlaceRegisterScreenState extends State<PlaceRegisterScreen>
         // 게스트 문의 받기는 **언제나 쓴다.** 값이 없는 문서는 어차피 ON으로
         // 읽히므로(ListingInquiry.defaultEnabled) true를 적어도 뜻이 달라지지
         // 않고, 호스트가 OFF로 바꾼 순간에는 반드시 적혀 있어야 한다.
-        ...ListingInquiry.toMap(_inquiryEnabled, _inquiryGuideCtrl.text),
+        // 가격 문의 룸이 하나라도 있으면 저장 직전에 한 번 더 ON으로 보정한다 —
+        // 화면 상태와 무관하게 '가격 문의 존재 → 채팅 문의 ON'이 문서에서
+        // 항상 성립해야 한다(일반 가격·무료 룸만 있으면 호스트 선택 그대로).
+        ...ListingInquiry.toMap(
+          _inquiryEnabled || roomDataList.any(isInquiryRoom),
+          _inquiryGuideCtrl.text,
+        ),
         // 연락처 · 숙박 이용 안내 — 등록은 입력한 값이 있을 때만 필드를 만들고,
         // 수정은 "원래 문서에 있었거나 이번에 실제로 건드린" 경우에만 쓴다
         // (이 필드가 없던 문서에 빈 값/기본값이 새로 생기지 않게).
@@ -1654,9 +1698,7 @@ class _PlaceRegisterScreenState extends State<PlaceRegisterScreen>
                         tooltip: 'QR 체크인',
                         onPressed: () => Navigator.push(
                           context,
-                          webFramedRoute(
-                            (_) => const CheckInScanScreen(),
-                          ),
+                          webFramedRoute((_) => const CheckInScanScreen()),
                         ),
                       ),
                     ]
@@ -1760,9 +1802,13 @@ class _PlaceRegisterScreenState extends State<PlaceRegisterScreen>
                   // 문의 받기는 "게스트와 어떻게 연락할지"라 연락처 안내 바로
                   // 아래에 둔다.
                   GuestInquirySection(
-                    enabled: _inquiryEnabled,
+                    enabled: _inquiryEffective,
                     onChanged: (v) => setState(() => _inquiryEnabled = v),
                     guideController: _inquiryGuideCtrl,
+                    // 가격 문의 룸이 있으면 끌 수 없게 잠그고 이유를 보여준다.
+                    lockedNote: _hasInquiryRoom
+                        ? _priceInquiryNeedsChatNote
+                        : null,
                   ),
                   _buildPayoutAccount(),
                   _buildAutoMessageSection(),
@@ -2520,6 +2566,8 @@ class _PlaceRegisterScreenState extends State<PlaceRegisterScreen>
             key: _roomKeys[i],
             index: i,
             onRemove: () => _removeRoom(i),
+            onPriceTypeChanged: () =>
+                setState(_forceInquiryIfPriceInquiry),
             getPreviousData: i > 0
                 ? () => _roomKeys[i - 1].currentState?.getRoomData()
                 : null,

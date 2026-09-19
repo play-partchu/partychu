@@ -14,6 +14,7 @@ import 'package:party_app/models/place_facility_options.dart';
 import 'package:party_app/widgets/custom_amenity_view.dart';
 import 'package:party_app/models/place_rental_reservation.dart';
 import 'package:party_app/models/reservation_modes.dart';
+import 'package:party_app/models/room_price_type.dart';
 import 'package:party_app/screens/payment_method_screen.dart';
 import 'package:party_app/utils/user_session.dart';
 import 'package:party_app/utils/favorites_service.dart';
@@ -32,6 +33,7 @@ import 'package:party_app/widgets/linked_party_card.dart';
 import 'package:party_app/widgets/media_gallery.dart';
 import 'package:party_app/widgets/place_facility_options_view.dart';
 import 'package:party_app/services/chat_service.dart';
+import 'package:party_app/services/pre_registration_visibility.dart';
 import 'package:party_app/services/analytics_service.dart';
 import 'package:party_app/screens/chat_room_screen.dart';
 import 'package:party_app/widgets/place_product/place_product_list_section.dart';
@@ -43,6 +45,7 @@ import 'package:party_app/models/place_weekly_hours.dart';
 import 'package:party_app/widgets/party_card_widget.dart';
 import 'package:party_app/widgets/place_weekly_hours_view.dart';
 import 'package:party_app/widgets/web_frame.dart';
+import 'package:party_app/widgets/room_photo_cover.dart';
 
 /// 룸 조회의 진행 상태 — 화면이 **어떤 스키마인지 판정되기 전에** 한쪽
 /// 스키마의 UI를 먼저 그렸다가 갈아끼우지 않도록, 세 가지를 서로 다른 값으로
@@ -727,6 +730,9 @@ class _PlaceDetailScreenState extends State<PlaceDetailScreen> {
   // ── 예약 제출 ─────────────────────────────────────────────────────────────
 
   Future<void> _submit() async {
+    // 가격 문의 룸은 예약하지 않는다 — 버튼이 문의하기로 바뀌어 여기 오지
+    // 않지만, 어떤 경로로든 들어오면 막는다.
+    if (_selectedRoomIsInquiry) return;
     if (_hasRooms && _selectedRoom == null) {
       _msg('먼저 룸을 선택해주세요.');
       return;
@@ -1143,6 +1149,8 @@ class _PlaceDetailScreenState extends State<PlaceDetailScreen> {
                     videoUrl: videoUrl,
                     videoThumbnailUrl: videoThumbnailUrl,
                     videoFirst: videoIsCover,
+                    // 큰 화면 보기와 같은 사진·영상 자동 넘김.
+                    autoAdvance: true,
                   )
                 : Container(
                     width: double.infinity,
@@ -1251,7 +1259,11 @@ class _PlaceDetailScreenState extends State<PlaceDetailScreen> {
                   // 룸 조회 전에는 어느 쪽인지 모르므로 아무것도 그리지 않는다 —
                   // 예전에는 여기서 구 스키마 예약 카드가 기본 운영시간·요금으로
                   // 한 번 그려졌다가 사라졌다.
-                  if (_isLegacyPlace || _selectedRoom != null)
+                  // 가격 문의 룸은 예약·결제 대상이 아니다 — 달력·결제 대신
+                  // 문의로 안내한다(하단 버튼도 문의하기로 바뀐다).
+                  if (_selectedRoomIsInquiry)
+                    _inquiryRoomCard()
+                  else if (_isLegacyPlace || _selectedRoom != null)
                     _reservationCard(),
                 ],
               ),
@@ -1620,7 +1632,10 @@ class _PlaceDetailScreenState extends State<PlaceDetailScreen> {
           .get(),
       builder: (context, snapshot) {
         final partyData = snapshot.data?.data();
-        if (partyData == null) return const SizedBox.shrink();
+        if (partyData == null ||
+            PreRegistrationVisibility.isHidden(partyData)) {
+          return const SizedBox.shrink();
+        }
         // 파티 카드·상세와 같은 판정 — 호스트가 남/여 모집을 따로 닫아 둘 수
         // 있어서 모집 상태는 보는 사람 성별 기준이다(PartyGenderRecruit).
         final status = PartyCard.effectiveStatusFor(
@@ -1862,7 +1877,10 @@ class _PlaceDetailScreenState extends State<PlaceDetailScreen> {
     // 룸이 받는 예약 방식 — 요금 표기(1박/시간당)와 방식 배지에 함께 쓴다.
     final roomModes = sortedModes(roomReservationModes(room));
     final roomStay = StayConfig.fromMap(room);
-    final priceLabel = roomModes.contains(ReservationMode.stay)
+    // 가격 문의 룸은 숫자를 보이지 않는다(RoomPriceType) — 기존 룸은 그대로.
+    final priceLabel = isInquiryRoom(room)
+        ? kInquiryPriceLabel
+        : roomModes.contains(ReservationMode.stay)
         ? '${_fmtPrice(roomStay.pricePerNight)} / 박'
         : '${_fmtPrice(price)} / 시간';
 
@@ -1885,25 +1903,15 @@ class _PlaceDetailScreenState extends State<PlaceDetailScreen> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
+            // 룸 사진 — 카드 폭 전체. 누르면 전체화면 뷰어(룸 선택은 아님).
+            if (images.isNotEmpty) ...[
+              RoomPhotoCover(images: images),
+              const SizedBox(height: 12),
+            ],
             Row(
               children: [
-                // 룸 썸네일
-                if (images.isNotEmpty)
-                  ClipRRect(
-                    borderRadius: BorderRadius.circular(8),
-                    child: Image.network(
-                      images[0],
-                      width: 56,
-                      height: 56,
-                      fit: BoxFit.cover,
-                      errorBuilder: (_, e, st) => Container(
-                        width: 56,
-                        height: 56,
-                        color: const Color(0xFFFFE0EE),
-                      ),
-                    ),
-                  )
-                else
+                // 사진이 없는 룸만 예전 아이콘 자리를 둔다.
+                if (images.isEmpty) ...[
                   Container(
                     width: 56,
                     height: 56,
@@ -1917,7 +1925,8 @@ class _PlaceDetailScreenState extends State<PlaceDetailScreen> {
                       color: Color(0xFF7C5CBF),
                     ),
                   ),
-                const SizedBox(width: 12),
+                  const SizedBox(width: 12),
+                ],
                 Expanded(
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
@@ -2963,8 +2972,83 @@ class _PlaceDetailScreenState extends State<PlaceDetailScreen> {
               ),
               const SizedBox(width: 10),
             ],
-            Expanded(child: _reserveButton()),
+            Expanded(
+              child: _selectedRoomIsInquiry
+                  ? _inquiryRoomButton(showInquiry)
+                  : _reserveButton(),
+            ),
           ],
+        ),
+      ),
+    );
+  }
+
+  /// 지금 고른 룸이 가격 문의 옵션인지.
+  bool get _selectedRoomIsInquiry => isInquiryRoom(_selectedRoom);
+
+  /// 가격 문의 룸을 고르면 예약 달력 대신 보이는 안내.
+  Widget _inquiryRoomCard() {
+    final name = _selectedRoom?['roomName'] as String? ?? '이 옵션';
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: const Color(0xFFFFF0F5),
+        borderRadius: BorderRadius.circular(14),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            '$name  ·  $kInquiryPriceLabel',
+            style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w700),
+          ),
+          const SizedBox(height: 6),
+          const Text(
+            '날짜·인원에 따라 금액이 달라지는 옵션이에요. '
+            '호스트에게 문의하면 가격과 가능한 일정을 안내받을 수 있어요.',
+            style: TextStyle(fontSize: 13, color: Colors.black54, height: 1.4),
+          ),
+        ],
+      ),
+    );
+  }
+
+  /// 가격 문의 룸을 골랐을 때의 주 버튼 — 기존 문의하기와 **같은 채팅방**으로
+  /// 보낸다([openListingChat]). 호스트가 문의를 꺼 두었거나 내 장소면 누를 수
+  /// 없는 안내로만 남는다(예약하기로 되돌아가지 않는다).
+  Widget _inquiryRoomButton(bool inquiryOpen) {
+    final name = _selectedRoom?['roomName'] as String? ?? '옵션';
+    return SizedBox(
+      height: 52,
+      child: ElevatedButton(
+        onPressed: inquiryOpen
+            ? () => openListingChat(
+                context,
+                target: InquiryTarget.rental,
+                listingId: widget.placeId,
+                hostId: _data['hostId'] as String? ?? '',
+                hostName: _data['hostName'] as String? ?? '호스트',
+                listingTitle: _data['name'] as String? ?? '장소',
+                guide: ListingInquiry.guideOf(_data),
+                openingMessage: '$name 가격 문의',
+                onFailure: (ctx, message) => ScaffoldMessenger.of(
+                  ctx,
+                ).showSnackBar(SnackBar(content: Text(message))),
+              )
+            : null,
+        style: ElevatedButton.styleFrom(
+          backgroundColor: const Color(0xFFFF6FA0),
+          foregroundColor: Colors.white,
+          disabledBackgroundColor: Colors.grey.shade300,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(14),
+          ),
+          elevation: 0,
+        ),
+        child: Text(
+          inquiryOpen ? '가격 문의하기' : kInquiryPriceLabel,
+          style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
         ),
       ),
     );

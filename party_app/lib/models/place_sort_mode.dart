@@ -1,5 +1,6 @@
 import 'package:party_app/models/capacity_filter.dart';
 import 'package:party_app/models/place_area.dart';
+import 'package:party_app/models/room_price_type.dart';
 import 'package:party_app/services/place_party_link_service.dart';
 import 'package:party_app/utils/geo_distance.dart';
 import 'package:party_app/utils/partychu_perk_ranking.dart';
@@ -155,13 +156,24 @@ int Function(Map<String, dynamic>, Map<String, dynamic>)? placeSortComparator(
     // 네 가지 금액순은 **대상이 이미 한 단위로 좁혀진 뒤에** 불린다
     // ([placeSortIncludes]). 그래서 비교는 카드에 적히는 금액 하나로 끝나고,
     // 환산도 단위 비교도 여기 없다.
+    // 가격 문의 공간은 금액을 모르므로 어느 방향이든 맨 뒤에 둔다.
     case PlaceSortMode.nightPriceLow:
     case PlaceSortMode.hourPriceLow:
-      return _byKey((m) => placeRentalPrice(m).toDouble(), descending: false);
+      return _byKey(
+        (m) => isInquiryPlace(m)
+            ? double.infinity
+            : placeRentalPrice(m).toDouble(),
+        descending: false,
+      );
 
     case PlaceSortMode.nightPriceHigh:
     case PlaceSortMode.hourPriceHigh:
-      return _byKey((m) => placeRentalPrice(m).toDouble(), descending: true);
+      return _byKey(
+        (m) => isInquiryPlace(m)
+            ? double.negativeInfinity
+            : placeRentalPrice(m).toDouble(),
+        descending: true,
+      );
 
     case PlaceSortMode.capacityHigh:
       // 0은 "0명 수용"이 아니라 "호스트가 인원을 입력하지 않음"이다

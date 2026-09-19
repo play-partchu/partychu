@@ -7,6 +7,7 @@ import 'package:flutter/services.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:party_app/models/place_rental_reservation.dart';
 import 'package:party_app/models/reservation_modes.dart';
+import 'package:party_app/models/room_price_type.dart';
 import 'package:party_app/services/cloudflare_service.dart';
 import 'package:party_app/utils/local_media.dart';
 import 'package:party_app/utils/refund_policy.dart';
@@ -32,6 +33,10 @@ class RoomCard extends StatefulWidget {
   /// 입력값을 초기화한다.
   final Map<String, dynamic>? initialData;
 
+  /// □ 가격 문의가 켜지거나 꺼졌을 때 — 등록 화면이 '채팅 문의 필수' 고정을
+  /// 다시 판정하려고 듣는다([RoomCardState.isPriceInquiry]).
+  final VoidCallback? onPriceTypeChanged;
+
   const RoomCard({
     super.key,
     required this.index,
@@ -39,6 +44,7 @@ class RoomCard extends StatefulWidget {
     this.getPreviousData,
     this.roomId,
     this.initialData,
+    this.onPriceTypeChanged,
   });
 
   @override
@@ -87,6 +93,26 @@ class RoomCardState extends State<RoomCard> {
   bool get _hasStay => _modes.contains(ReservationMode.stay);
   bool get _hasHourly => _modes.contains(ReservationMode.hourly);
   bool get _hasPackage => _modes.contains(ReservationMode.package);
+
+  // ── 가격 방식 ────────────────────────────────────────────────────────────
+  // [가격 입력] / [가격 문의]. 필드가 없는 기존 룸은 가격 입력이다.
+  // 가격 문의면 숫자 요금을 받지 않고, 상세에서 '가격 문의' + 문의하기로 간다.
+  RoomPriceType _priceType = RoomPriceType.fixed;
+  bool get _isInquiry => _priceType == RoomPriceType.inquiry;
+
+  /// 지금 □ 가격 문의가 체크돼 있는지 — 등록 화면이 채팅 문의 고정에 쓴다.
+  bool get isPriceInquiry => _isInquiry;
+
+  /// □ 가격 문의 체크/해제. 해제하면 가격 입력칸이 다시 나타나고 기존 필수
+  /// 검증이 그대로 걸린다(문의 상태의 빈 칸이 0원으로 저장되지 않게).
+  void _setPriceInquiry(bool inquiry) {
+    setState(() {
+      _priceType = inquiry ? RoomPriceType.inquiry : RoomPriceType.fixed;
+      _showPriceError = false;
+      _showStayPriceError = false;
+    });
+    widget.onPriceTypeChanged?.call();
+  }
 
   // ── 승인 방식 ────────────────────────────────────────────────────────────
   // 설정한 적 없는 기존 룸은 자동승인이다 — 지금까지 장소대여에는 승인 단계가
@@ -204,6 +230,10 @@ class RoomCardState extends State<RoomCard> {
       ),
     );
     _modes = parseReservationModes(d);
+    _priceType = RoomPriceType.of(d);
+    // 가격 문의 룸의 숫자 칸은 비워서 연다 — 나중에 체크를 풀었을 때 '0'이
+    // 그대로 남아 있으면 필수 검증을 통과해 무료 룸으로 저장된다.
+    if (_isInquiry && _priceCtrl.text == '0') _priceCtrl.text = '';
     _approvalMode = RoomApprovalMode.of(d);
     _paymentPolicy = PaymentPolicy.fromMap(d);
 
@@ -293,11 +323,12 @@ class RoomCardState extends State<RoomCard> {
       setState(() => _showCapacityError = true);
       ok = false;
     }
-    if (_hasStay && _stayPriceCtrl.text.trim().isEmpty) {
+    // 가격 문의 룸은 숫자 요금을 받지 않는다.
+    if (!_isInquiry && _hasStay && _stayPriceCtrl.text.trim().isEmpty) {
       setState(() => _showStayPriceError = true);
       ok = false;
     }
-    if (_hasHourly && _priceCtrl.text.trim().isEmpty) {
+    if (!_isInquiry && _hasHourly && _priceCtrl.text.trim().isEmpty) {
       setState(() => _showPriceError = true);
       ok = false;
     }
@@ -328,6 +359,7 @@ class RoomCardState extends State<RoomCard> {
   /// 시간당 요금을 쓴다. 실제 예약금은 예약 당시 최종 이용요금(숙박일수·
   /// 옵션 포함)으로 서버가 다시 계산하므로 여기 값은 어디까지나 예시다.
   int? _sampleTotalForPreview() {
+    if (_isInquiry) return null;
     final stay = int.tryParse(_stayPriceCtrl.text.trim()) ?? 0;
     if (_hasStay && stay > 0) return stay;
     final hourly = int.tryParse(_priceCtrl.text.trim()) ?? 0;
@@ -338,6 +370,8 @@ class RoomCardState extends State<RoomCard> {
   /// 쓰도록 한곳에서 만든다. `reservationMode`(단수)는 아직 업데이트되지 않은
   /// 앱을 위한 하위호환 미러다.
   Map<String, dynamic> _reservationFields() => {
+    // 가격 방식 — 저장·임시저장·룸 복사가 모두 이 맵을 거친다.
+    RoomPriceType.field: _priceType.key,
     'reservationModes': reservationModeKeys(_modes),
     'reservationMode': legacyReservationMode(_modes),
     // 승인 방식 — 서버(placeReservationFlow.js)가 같은 키를 읽어 "승인 전에는
@@ -502,6 +536,7 @@ class RoomCardState extends State<RoomCard> {
       _priceCtrl.text = data['price'] as String? ?? '';
       _stayPriceCtrl.text = data['stayPrice'] as String? ?? '';
       _modes = parseReservationModes(data);
+      _priceType = RoomPriceType.of(data);
       _approvalMode = RoomApprovalMode.of(data);
       _paymentPolicy = PaymentPolicy.fromMap(data);
       final stay = StayConfig.fromMap(data);
@@ -559,6 +594,8 @@ class RoomCardState extends State<RoomCard> {
       _showStayPriceError = false;
       _showRefundError = false;
     });
+    // 이전 룸 복사로 가격 문의가 들어오거나 빠질 수 있다.
+    widget.onPriceTypeChanged?.call();
   }
 
   void _addOption() {
@@ -1047,21 +1084,59 @@ class RoomCardState extends State<RoomCard> {
             onChanged: (v) => setState(() => _paymentPolicy = v),
           ),
         ),
-        if (_hasStay) ...[
-          _label('1박 요금 (원) *'),
-          TextField(
-            controller: _stayPriceCtrl,
-            keyboardType: TextInputType.number,
-            inputFormatters: [FilteringTextInputFormatter.digitsOnly],
-            onChanged: (_) => setState(() => _showStayPriceError = false),
-            decoration: _inputDeco('예: 120000').copyWith(
-              errorText: _showStayPriceError ? '1박 요금을 입력해주세요' : null,
-              errorBorder: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(12),
-                borderSide: const BorderSide(color: Colors.redAccent),
+        // ── □ 가격 문의 ────────────────────────────────────────────
+        // 기본은 해제 — 해제 상태는 예전과 완전히 같다(가격 입력·검증·예약).
+        // 체크하면 아래 가격 입력칸과 필수 검증이 빠지고, 상세에서는
+        // '가격 문의' + 가격 문의하기(채팅)로 간다. 0원(무료)과는 다른 상태다.
+        const SizedBox(height: 16),
+        InkWell(
+          borderRadius: BorderRadius.circular(8),
+          onTap: () => _setPriceInquiry(!_isInquiry),
+          child: Row(
+            children: [
+              Checkbox(
+                value: _isInquiry,
+                activeColor: const Color(0xFF7C5CBF),
+                onChanged: (v) => _setPriceInquiry(v ?? false),
+              ),
+              const Text(
+                '가격 문의',
+                style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600),
+              ),
+            ],
+          ),
+        ),
+        if (_isInquiry)
+          const Padding(
+            padding: EdgeInsets.only(left: 12, bottom: 4),
+            child: Text(
+              '가격을 공개하지 않고 문의로 안내하는 옵션이에요. 상세에 \'가격 문의\'로 '
+              '보이고, 예약 대신 가격 문의하기(채팅)로 연결돼요.',
+              style: TextStyle(
+                fontSize: 12,
+                color: Colors.black38,
+                height: 1.4,
               ),
             ),
           ),
+        if (_hasStay) ...[
+          // 가격 문의 룸은 숫자 요금을 받지 않는다.
+          if (!_isInquiry) ...[
+            _label('1박 요금 (원) *'),
+            TextField(
+              controller: _stayPriceCtrl,
+              keyboardType: TextInputType.number,
+              inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+              onChanged: (_) => setState(() => _showStayPriceError = false),
+              decoration: _inputDeco('예: 120000').copyWith(
+                errorText: _showStayPriceError ? '1박 요금을 입력해주세요' : null,
+                errorBorder: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(12),
+                  borderSide: const BorderSide(color: Colors.redAccent),
+                ),
+              ),
+            ),
+          ],
           _label('체크인 / 체크아웃'),
           Row(
             children: [
@@ -1122,19 +1197,21 @@ class RoomCardState extends State<RoomCard> {
           ),
         ],
         if (_hasHourly) ...[
-          _label('시간당 가격 (원) *'),
-          TextField(
-            controller: _priceCtrl,
-            keyboardType: TextInputType.number,
-            onChanged: (_) => setState(() => _showPriceError = false),
-            decoration: _inputDeco('예: 50000').copyWith(
-              errorText: _showPriceError ? '가격을 입력해주세요' : null,
-              errorBorder: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(12),
-                borderSide: const BorderSide(color: Colors.redAccent),
+          if (!_isInquiry) ...[
+            _label('시간당 가격 (원) *'),
+            TextField(
+              controller: _priceCtrl,
+              keyboardType: TextInputType.number,
+              onChanged: (_) => setState(() => _showPriceError = false),
+              decoration: _inputDeco('예: 50000').copyWith(
+                errorText: _showPriceError ? '가격을 입력해주세요' : null,
+                errorBorder: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(12),
+                  borderSide: const BorderSide(color: Colors.redAccent),
+                ),
               ),
             ),
-          ),
+          ],
           _label('예약 시간 단위'),
           Wrap(
             spacing: 8,

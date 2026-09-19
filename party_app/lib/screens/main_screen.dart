@@ -46,6 +46,7 @@ import 'package:party_app/models/party_schedule.dart';
 import 'package:party_app/models/party_series.dart';
 import 'package:party_app/models/place_availability.dart';
 import 'package:party_app/models/reservation_modes.dart';
+import 'package:party_app/models/room_price_type.dart';
 import 'package:party_app/models/place_facility_options.dart';
 import 'package:party_app/services/listing_sources.dart';
 import 'package:party_app/services/place_availability_service.dart';
@@ -113,6 +114,8 @@ import 'package:party_app/screens/crew_register_screen.dart';
 import 'package:party_app/screens/crew_detail_screen.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:party_app/widgets/web_frame.dart';
+import 'package:party_app/widgets/pre_registration_notice.dart';
+import 'package:party_app/services/pre_registration_visibility.dart';
 
 // ── 낮/밤 전환 버튼의 아이콘·문구 ─────────────────────────────────────────
 //
@@ -495,6 +498,12 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin {
     );
     _checkFirstVisit();
 
+    // 사전등록 기간 안내 — 업데이트 안내가 끝난 뒤, 실행당 한 번, '오늘은
+    // 그만 보기'면 그날은 건너뛴다(조건은 PreRegistrationNotice 안에 있다).
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) unawaited(PreRegistrationNotice.maybeShow(context));
+    });
+
     // 랜딩페이지에서 "등록하기"로 들어온 경우 — 첫 프레임 뒤에 하단탭 '등록'과
     // 같은 경로를 태운다(트리가 만들어지기 전에는 Navigator를 쓸 수 없다).
     if (_webWantsRegister || _webWantsMyPage || _webWantsLogin) {
@@ -558,6 +567,8 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin {
           // 달력에서 제외한다.
           final dates = snapshot.docs
               .where((doc) => !PartyOpenState.isDateTbd(doc.data()))
+              // 사전등록 비공개 콘텐츠는 날짜 점도 찍지 않는다.
+              .where((doc) => !PreRegistrationVisibility.isHidden(doc.data()))
               .expand((doc) => PartySchedule.occurrenceDays(doc.data()))
               .toSet();
           if (mounted) setState(() => _partyDates = dates);
@@ -3046,7 +3057,11 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin {
             ),
           );
         }
-        final docs = _applyCrewFilter(BlockService.withoutBlocked(allDocs));
+        final docs = _applyCrewFilter(
+          PreRegistrationVisibility.withoutHidden(
+            BlockService.withoutBlocked(allDocs),
+          ),
+        );
         if (docs.isEmpty) {
           return const Center(
             child: Padding(
@@ -3306,7 +3321,11 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin {
             ),
           );
         }
-        final docs = _applyShopFilter(BlockService.withoutBlocked(allDocs));
+        final docs = _applyShopFilter(
+          PreRegistrationVisibility.withoutHidden(
+            BlockService.withoutBlocked(allDocs),
+          ),
+        );
         if (docs.isEmpty) {
           return const Center(
             child: Padding(
@@ -3821,7 +3840,9 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin {
             ),
           );
         }
-        final docs = snap.data?.docs ?? const <QueryDocumentSnapshot>[];
+        final docs = PreRegistrationVisibility.withoutHidden(
+          snap.data?.docs ?? const <QueryDocumentSnapshot>[],
+        );
         if (docs.isEmpty) return whenNoShops ?? const SizedBox.shrink();
 
         final labelColor = _isNightMode ? Colors.white : Colors.black87;
@@ -5405,6 +5426,9 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin {
       }
     }
     if (filter.priceRanges.isNotEmpty) {
+      // 가격 문의 공간은 금액을 모른다 — 어느 가격대에도 넣지 않는다
+      // (0원으로 읽혀 최저 가격대에 걸리면 안 된다).
+      if (RoomPriceType.of(data) == RoomPriceType.inquiry) return false;
       final price = (data['pricePerHour'] as num?)?.toInt() ?? 0;
       if (!filter.priceRanges.any((r) => _matchesPlacePriceRange(price, r))) {
         return false;

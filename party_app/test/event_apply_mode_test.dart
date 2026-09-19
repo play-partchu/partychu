@@ -21,6 +21,7 @@ import 'dart:io';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:visibility_detector/visibility_detector.dart';
 
 import 'package:party_app/models/event_apply.dart';
 import 'package:party_app/models/host_offering.dart';
@@ -66,6 +67,11 @@ PlacePromotion _promo({
 );
 
 void main() {
+  // 상세 시트의 사진·영상 갤러리가 자동 넘김용 VisibilityDetector를 쓴다 —
+  // 기본 500ms 지연 타이머가 테스트 끝에 남지 않게 즉시 갱신한다.
+  setUpAll(() {
+    VisibilityDetectorController.instance.updateInterval = Duration.zero;
+  });
   setUp(() {
     // 로그아웃 상태가 기본 — "내 글에는 버튼을 안 그린다" 분기를 타지 않는다.
     UserSession.userId = '';

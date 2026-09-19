@@ -1,6 +1,7 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 
 import 'package:party_app/services/block_service.dart';
+import 'package:party_app/services/pre_registration_visibility.dart';
 import 'package:party_app/widgets/party_card_widget.dart';
 
 /// 공개 목록에 노출되는 **세 종류 콘텐츠의 정본 데이터 소스**.
@@ -38,6 +39,7 @@ class ListingSources {
   /// 파티 목록 노출 판정 — 삭제됨 + 지난 파티(정기는 남은 회차 없음)를 뺀다.
   static bool isPartyVisible(Map<String, dynamic> data, {DateTime? now}) =>
       !BlockService.isBlockedOwner(data) &&
+      !PreRegistrationVisibility.isHidden(data) &&
       PartyCard.isVisibleInList(data, now: now);
 
   // ── 플레이스 (events) ─────────────────────────────────────────────
@@ -57,6 +59,7 @@ class ListingSources {
   /// 같은 규칙이 걸리게 하는 안전망이다.
   static bool isEventVisible(Map<String, dynamic> data) =>
       !BlockService.isBlockedOwner(data) &&
+      !PreRegistrationVisibility.isHidden(data) &&
       data['isDeleted'] != true &&
       data['isActive'] == true;
 
@@ -71,6 +74,7 @@ class ListingSources {
   /// 진행중/숨김 판정과 정확히 같은 규칙이라 두 화면의 개수가 일치한다).
   static bool isRentalVisible(Map<String, dynamic> data) =>
       !BlockService.isBlockedOwner(data) &&
+      !PreRegistrationVisibility.isHidden(data) &&
       data['isDeleted'] != true &&
       data['isActive'] != false;
 }

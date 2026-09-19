@@ -14,6 +14,8 @@
 //                     하위호환 미러(읽기 전용 취급, [legacyReservationMode])
 // ─────────────────────────────────────────────────────────────────────────────
 
+import 'package:party_app/models/room_price_type.dart';
+
 /// 예약 방식 한 가지. 화면 표시 순서도 이 선언 순서를 따른다(숙박 → 시간제 →
 /// 패키지) — 공간대여·숙박 유형이 가장 먼저 만나는 방식이 숙박이기 때문.
 enum ReservationMode {
@@ -256,6 +258,9 @@ PlacePriceSummary placePriceSummary(List<Map<String, dynamic>> rooms) {
   final hourly = <int>[];
   final nightly = <int>[];
   for (final r in rooms) {
+    // 가격 문의 룸은 대표가 후보가 아니다 — 입력칸에 남은 숫자가 있어도 보이지
+    // 않는 값이라, 카드·필터가 그 금액을 대표가로 쓰면 안 된다.
+    if (isInquiryRoom(r)) continue;
     final modes = roomReservationModes(r);
     if (modes.contains(ReservationMode.hourly)) {
       final p = (r['pricePerHour'] as num?)?.toInt() ?? 0;
