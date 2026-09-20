@@ -1283,6 +1283,18 @@ service cloud.firestore {
       allow write: if false;
     }
 
+    // ── publicEvents 컬렉션 (공공 축제·행사 — 한국관광공사 TourAPI) ──────
+    // syncTourFestivals(tourFestivals.js)가 Admin SDK로만 쓴다. 문서 id는
+    // tour_<contentid>, source == 'tourapi'. 사용자가 등록한 이벤트
+    // (placePromotions)와는 별개 컬렉션이다.
+    // [읽기] 누구나(비로그인 포함) — 공개 데이터이고 목록·지도에 노출된다.
+    // [쓰기] 클라이언트 직접 불가(create·update·delete 전부). 숨김도 서버
+    //        필드(status·isVisible·adminHidden)로만 한다.
+    match /publicEvents/{eventId} {
+      allow read: if true;
+      allow write: if false;
+    }
+
     // ── events 컬렉션 (플레이스 본체 — 매장·즐길거리) ──────────────────
     // ⚠ 이름이 헷갈린다: 이 컬렉션은 **플레이스 본체**다(파티츄의 "이벤트"
     //   한 건은 placePromotions에 있다 — party_event_source.dart 상단 주석).
