@@ -41,6 +41,9 @@ const _targetTypeLabels = {
   'shop': '파티샵',
   'crew': '파티크루',
   'chatRoom': '채팅',
+  // 파티 참여 후기 한 줄. 라벨은 앱과 같은 말로 둔다 — 지우는 권한은 관리자에게만
+  // 있다(firestore.rules의 partyReviews … allow delete: if isAdmin()).
+  'partyReview': '참여 후기',
 };
 
 /// 처리상태 — 앱이 만드는 초기값은 'received' 하나뿐이고, 나머지는 관리자만
