@@ -9,8 +9,9 @@ import '../models/business_info.dart';
 import '../services/admin_firestore_service.dart';
 import '../services/person_identity_service.dart';
 import '../theme/admin_theme.dart';
-import '../utils/masking.dart';
+import '../utils/member_identity_sort.dart';
 import '../utils/person_identity.dart';
+import '../utils/phone_display.dart';
 import '../utils/responsive.dart';
 
 typedef OpenMember = void Function(String uid);
@@ -121,6 +122,15 @@ class _MembersScreenState extends State<MembersScreen> {
   int _activeSinceDays = 7;
 
   MemberSortField _sortField = MemberSortField.createdAt;
+
+  /// '본인확인' 열의 정렬 — 상단 필터와 **역할이 다르다.**
+  /// 상단 필터는 어떤 상태만 골라 볼지(서버 쿼리), 이 값은 그렇게 받아 온
+  /// 결과 안에서 완료/미완료 순서를 어떻게 세울지(화면)를 정한다.
+  ///
+  /// 첫 진입 기본값이 [IdentitySortOrder.verifiedFirst]라, 필터를 건드리지
+  /// 않아도 실제 인증된 회원이 위에 온다.
+  IdentitySortOrder _identitySort = IdentitySortOrder.verifiedFirst;
+
   int _pageSize = AdminFirestoreService.pageSizeOptions.first;
 
   List<QueryDocumentSnapshot<Map<String, dynamic>>> _docs = [];
@@ -520,6 +530,7 @@ class _MembersScreenState extends State<MembersScreen> {
         _showTestAccounts ||
         _hasRangeFilter ||
         _sortField != MemberSortField.createdAt ||
+        _identitySort != IdentitySortOrder.verifiedFirst ||
         _searchMode;
 
     return Wrap(
@@ -703,6 +714,7 @@ class _MembersScreenState extends State<MembersScreen> {
               _joinedRange = null;
               _ageBucket = null;
               _sortField = MemberSortField.createdAt;
+              _identitySort = IdentitySortOrder.verifiedFirst;
               _searchCtrl.clear();
               _applyFilters();
             },
@@ -720,40 +732,72 @@ class _MembersScreenState extends State<MembersScreen> {
   /// 쿼리·색인·필터는 그대로 재사용한다(accountStatus + createdAt 복합 색인).
   bool get _isWithdrawnView => _accountStatusFilter == 'withdrawn';
 
+  /// '본인확인' 머리를 누를 때 — 완료 먼저 → 미완료 먼저 → 정렬 안 함.
+  ///
+  /// 서버 쿼리를 다시 던지지 않는다. 지금 화면에 있는 결과만 다시 세우므로
+  /// 페이지 위치·필터·검색어가 그대로 남는다.
+  void _cycleIdentitySort() {
+    setState(() => _identitySort = _identitySort.next);
+  }
+
   Widget _buildTable() {
     if (_isWithdrawnView) return _buildWithdrawnTable();
     final people = _personRows;
+    final columns = _memberColumns();
+    // 열 위치를 숫자로 박아 두면 열을 하나 끼울 때 화살표가 엉뚱한 머리에
+    // 붙는다 — 머리글로 찾는다.
+    final identityIndex = columns.indexWhere(
+      (c) => c.label is Text && (c.label as Text).data == '본인확인',
+    );
+    // 이미 받아 온 이 페이지 안에서만 다시 줄 세운다 — 쿼리·페이지 나눔은 그대로.
+    final rows = sortByIdentityVerified(
+      people.rows,
+      verified: (doc) => isIdentityVerifiedDoc(doc.data()),
+      order: _identitySort,
+    );
     return _ScrollableTable(
       child: DataTable(
         // 생년월일 칸이 두 줄(생년월일 + 나이)이라 기본 행 높이(48)로는 넘친다.
         dataRowMinHeight: 46,
         dataRowMaxHeight: 62,
-        columns: [
-          // 맨 앞 체크박스 칸은 DataTable이 onSelectChanged가 있는 행에
-          // 자동으로 붙인다 — 여기서 선언하지 않는다.
-          const DataColumn(label: Text('이름')),
-          const DataColumn(label: Text('생년월일 / 나이')),
-          const DataColumn(label: Text('성별')),
-          const DataColumn(label: Text('닉네임')),
-          const DataColumn(label: Text('UID')),
-          const DataColumn(label: Text('전화번호')),
-          const DataColumn(label: Text('이메일')),
-          const DataColumn(label: Text('본인확인')),
-          // 사업자/일반회원 구분 — users.businessVerification 맵을 그대로
-          // 읽는다(추가 조회 없음). 맵이 없으면 일반회원.
-          const DataColumn(label: Text('회원 구분')),
-          const DataColumn(label: Text('사업자번호')),
-          const DataColumn(label: Text('상호명')),
-          const DataColumn(label: Text('가입일')),
-          const DataColumn(label: Text('가입경로')),
-          // '테스트 계정 보기'를 켰을 때만 붙는다. 꺼져 있으면 모든 행이
-          // 실사용자라 칸을 쓸 이유가 없고, 켜면 섞여 나오므로 반드시 필요하다
-          // (본인확인 목록과 회원 관리가 달라 보였던 원인이 이 구분이다).
-          if (_showTestColumn) const DataColumn(label: Text('테스트')),
-        ],
-        rows: [for (final doc in people.rows) _buildRow(doc, people.groups[doc])],
+        sortColumnIndex: _identitySort == IdentitySortOrder.none ? null : identityIndex,
+        sortAscending: _identitySort.ascending,
+        columns: columns,
+        rows: [for (final doc in rows) _buildRow(doc, people.groups[doc])],
       ),
     );
+  }
+
+  List<DataColumn> _memberColumns() {
+    return [
+      // 맨 앞 체크박스 칸은 DataTable이 onSelectChanged가 있는 행에
+      // 자동으로 붙인다 — 여기서 선언하지 않는다.
+      const DataColumn(label: Text('이름')),
+      const DataColumn(label: Text('생년월일 / 나이')),
+      const DataColumn(label: Text('성별')),
+      const DataColumn(label: Text('닉네임')),
+      const DataColumn(label: Text('UID')),
+      const DataColumn(label: Text('전화번호')),
+      const DataColumn(label: Text('이메일')),
+      // 머리를 누르면 이 페이지 안에서 완료/미완료 순서가 바뀐다. 화살표는
+      // DataTable이 sortColumnIndex/sortAscending을 보고 직접 그린다.
+      DataColumn(
+        label: const Text('본인확인'),
+        tooltip: '누르면 지금 보고 있는 결과 안에서 인증완료 → 미인증 → 정렬 안 함 순으로 바뀝니다.',
+        onSort: (_, _) => _cycleIdentitySort(),
+      ),
+      // 사업자/일반회원 구분 — users.businessVerification 맵을 그대로
+      // 읽는다(추가 조회 없음). 맵이 없으면 일반회원.
+      const DataColumn(label: Text('회원 구분')),
+      const DataColumn(label: Text('사업자번호')),
+      const DataColumn(label: Text('상호명')),
+      const DataColumn(label: Text('가입일')),
+      const DataColumn(label: Text('가입경로')),
+      // '테스트 계정 보기'를 켰을 때만 붙는다. 꺼져 있으면 모든 행이
+      // 실사용자라 칸을 쓸 이유가 없고, 켜면 섞여 나오므로 반드시 필요하다
+      // (본인확인 목록과 회원 관리가 달라 보였던 원인이 이 구분이다).
+      if (_showTestColumn) const DataColumn(label: Text('테스트')),
+    ];
   }
 
   // ── 탈퇴 회원 표 ──────────────────────────────────────────────────────────
@@ -841,9 +885,10 @@ class _MembersScreenState extends State<MembersScreen> {
     final name = d['name'] as String? ?? '-';
     final gender = d['gender'] as String?;
     final genderLabel = gender == 'male' ? '남' : gender == 'female' ? '여' : '-';
-    final phone = Masking.phone(d['phoneNumber'] as String?);
+    // 관리자 화면은 전체 번호 — 회원 확인·CS에 필요하다(phone_display.dart).
+    final phone = adminPhoneNumber(d['phoneNumber'] as String?);
     final email = d['email'] as String? ?? '-';
-    final verified = (d['identityVerified'] as bool?) ?? (d['isVerified'] as bool?) ?? false;
+    final verified = isIdentityVerifiedDoc(d);
     final createdAt = (d['createdAt'] as Timestamp?)?.toDate();
     // "이메일 테스트 계정"(kDebugMode 전용 로그인) — signupProvider 없이
     // isTestAccount만 true인 경우를 이렇게 구분해 표시한다.
@@ -982,13 +1027,22 @@ class _VerifiedBadge extends StatelessWidget {
         color: verified ? const Color(0xFFE6F7ED) : const Color(0xFFF3F4F6),
         borderRadius: BorderRadius.circular(20),
       ),
-      child: Text(
-        verified ? '완료' : '미완료',
-        style: TextStyle(
-          fontSize: 11.5,
-          fontWeight: FontWeight.bold,
-          color: verified ? const Color(0xFF17924E) : AdminTheme.textSecondary,
-        ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          if (verified) ...[
+            const Icon(Icons.check, size: 13, color: Color(0xFF17924E)),
+            const SizedBox(width: 3),
+          ],
+          Text(
+            verified ? '인증완료' : '미인증',
+            style: TextStyle(
+              fontSize: 11.5,
+              fontWeight: FontWeight.bold,
+              color: verified ? const Color(0xFF17924E) : AdminTheme.textSecondary,
+            ),
+          ),
+        ],
       ),
     );
   }

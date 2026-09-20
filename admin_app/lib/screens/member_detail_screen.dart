@@ -8,7 +8,9 @@ import '../services/admin_firestore_service.dart';
 import '../services/person_identity_service.dart';
 import '../theme/admin_theme.dart';
 import '../utils/masking.dart';
+import '../utils/member_identity_sort.dart';
 import '../utils/person_identity.dart';
+import '../utils/phone_display.dart';
 import '../widgets/person_accounts_card.dart';
 
 // Firebase Functions 리전 — functions/index.js/memberManagement.js와 일치해야 함.
@@ -334,7 +336,8 @@ class _MemberDetailScreenState extends State<MemberDetailScreen> {
               _kv('닉네임', d['nickname'] as String? ?? '-'),
               _kv('UID', widget.uid),
               _kv('이메일', d['email'] as String? ?? '-'),
-              _kv('휴대전화', Masking.phone(d['phoneNumber'] as String?)),
+              // 관리자 화면은 전체 번호 — CS가 걸 수 있어야 한다(phone_display.dart).
+              _kv('휴대전화', adminPhoneNumber(d['phoneNumber'] as String?)),
               _kv('가입일', _fmtDate(d['createdAt'])),
               _kv('가입 경로', signupProviderLabel + (isTestAccount ? ' (테스트 계정)' : '')),
               _kv('최근 로그인일', _fmtDate(d['lastLoginAt'])),
@@ -468,7 +471,7 @@ class _MemberDetailScreenState extends State<MemberDetailScreen> {
   }
 
   Widget _verificationGrid(Map<String, dynamic> d) {
-    final verified = (d['identityVerified'] as bool?) ?? (d['isVerified'] as bool?) ?? false;
+    final verified = isIdentityVerifiedDoc(d);
     if (!verified) {
       return const Text('본인확인 미완료', style: TextStyle(color: AdminTheme.textSecondary, fontSize: 13));
     }
@@ -482,7 +485,7 @@ class _MemberDetailScreenState extends State<MemberDetailScreen> {
         _kv('인증방식', d['verificationProvider'] as String? ?? '-'),
         _kv('CI', Masking.token(d['ci'] as String?)),
         _kv('DI', Masking.token(d['di'] as String?)),
-        _kv('휴대폰', Masking.phone(d['phoneNumber'] as String?)),
+        _kv('휴대폰', adminPhoneNumber(d['phoneNumber'] as String?)),
       ],
     );
   }
