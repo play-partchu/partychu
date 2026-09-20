@@ -466,7 +466,9 @@ void main() {
       // 종류를 바꿀 때 조건을 자동으로 끄지 않는다(이 화면의 기존 규칙).
       final onKindsChanged = src.substring(
         src.indexOf('void _onKindsChanged('),
-        src.indexOf('Future<void> _searchThisArea()'),
+        // 바로 다음 멤버까지. 예전에는 _searchThisArea가 그 자리였는데,
+        // '이 지역에서 다시 찾기'가 자동 재조회로 바뀌면서 없어졌다.
+        src.indexOf('void _ensureSheetExpanded()'),
       );
       expect(
         onKindsChanged.contains('selectEvent') ||

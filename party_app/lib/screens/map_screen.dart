@@ -43,6 +43,7 @@ import 'package:party_app/utils/party_utils.dart';
 import 'package:party_app/widgets/party_card_widget.dart';
 import 'package:party_app/models/party_age_restriction.dart';
 import 'package:party_app/models/listing_text_search.dart';
+import 'package:party_app/models/map_auto_search.dart';
 import 'package:party_app/models/map_home_category.dart';
 import 'package:party_app/models/map_listing.dart';
 import 'package:party_app/models/map_marker_tap.dart';
@@ -119,9 +120,21 @@ class _MapScreenState extends State<MapScreen> {
   bool _isLoadingLocation = false;
 
   // ── 지도 이동 감지 ────────────────────────────────────────────────
+  //
+  // 예전에는 움직이면 재검색 버튼이 떴고, 그것을 눌러야 이 영역으로 좁혀졌다.
+  // 지금은 카메라가 멈추면 앱이 알아서 한다([_scheduleAutoSearch]).
   bool _mapInitialized = false; // 최초 onCameraIdle 무시용
-  bool _mapMoved = false; // "이 지도에서 파티 보기" 버튼 표시 여부
   bool _pendingAreaSearch = false; // 현재 위치 이동 후 자동 영역 검색 트리거
+
+  /// 카메라가 멈춘 뒤 기다리는 타이머. 이어서 움직이면 다시 건다 —
+  /// 마지막 위치에서 한 번만 돌게 하려는 것이다.
+  Timer? _autoSearchTimer;
+
+  /// 영역 조회 세대. bounds를 읽어 오는 사이에 지도가 또 움직이면 먼저
+  /// 시작한 조회가 뒤늦게 옛 영역을 얹을 수 있어, 자기 번호가 밀렸으면
+  /// 아무것도 하지 않고 물러난다.
+  int _areaSearchGeneration = 0;
+
   double _currentZoom = 12.0; // 현재 줌 레벨
   // 줌 3단계 전환 — 멀리서는 점 마커, 중간 줌부터 작은 원형 썸네일,
   // 확대하면 기존 핀+카드 썸네일. 기존엔 15 하나뿐이라 꽤 확대해야만
@@ -181,6 +194,11 @@ class _MapScreenState extends State<MapScreen> {
   NLatLngBounds? _lastSearchBounds; // 마지막 영역 검색 bounds
 
   final Map<String, NMarker> _markers = {};
+
+  /// 지도에 올라가 있는 마커의 '지금 모양'([_markerSignature]). 다시 그릴 때
+  /// 이것과 견줘 **달라진 것만** 건드린다 — 전부 지웠다 그리면 지도를 움직일
+  /// 때마다 마커가 깜빡인다.
+  final Map<String, String> _markerSignatures = {};
   final List<StreamSubscription<QuerySnapshot<Map<String, dynamic>>>>
   _subscriptions = [];
 
@@ -222,7 +240,7 @@ class _MapScreenState extends State<MapScreen> {
   NLatLng? _myLatLng;
 
   /// 앱이 카메라를 옮긴 직후의 idle 한 번은 "사용자가 지도를 움직였다"가
-  /// 아니다('이 지역에서 다시 찾기'를 띄우지 않는다).
+  /// 아니다(자동 재조회를 걸지 않는다).
   bool _ignoreNextIdle = false;
 
   /// 📅 날짜·시간 알약을 눌러 그 아래 빠른선택 판이 펼쳐져 있는가.
@@ -324,6 +342,7 @@ class _MapScreenState extends State<MapScreen> {
 
   @override
   void dispose() {
+    _autoSearchTimer?.cancel();
     for (final sub in _subscriptions) {
       sub.cancel();
     }
@@ -548,7 +567,7 @@ class _MapScreenState extends State<MapScreen> {
     if (_mapController == null) return;
     final generation = ++_syncGeneration;
 
-    // 홈에는 아래 목록이 없다 — '이 지역에서 다시 찾기'가 좁힌 결과를 마커가
+    // 홈에는 아래 목록이 없다 — 영역 조회가 좁힌 결과를 마커가
     // 그대로 보여준다(영역 검색 전에는 [_mapItems]와 같다).
     var pool = _home ? _displayed : _mapItems;
     // 🎊 공공 축제는 전국 수백 건이라 **화면 근처 것만** 마커 후보로 만든다.
@@ -579,28 +598,56 @@ class _MapScreenState extends State<MapScreen> {
       _festivalSyncBox = null;
     }
 
-    for (final marker in _markers.values) {
-      await _mapController!.deleteOverlay(marker.info);
-    }
-    _markers.clear();
-    if (!mounted || generation != _syncGeneration) return;
-
     final tier = _markerTierForZoom(_currentZoom);
     _syncedZoomStep = _currentZoom.floor();
     final groups = _clusterListings(pool, tier);
     _groupsById
       ..clear()
       ..addEntries(groups.map((g) => MapEntry(g.id, g)));
+
+    // ── 달라진 것만 건드린다 ────────────────────────────────────────
+    //
+    // 예전에는 여기서 마커를 **전부 지우고 처음부터 다시 그렸다.** 사용자가
+    // 버튼을 눌렀을 때만 돌던 시절에는 티가 안 났는데, 지도를 멈출 때마다
+    // 자동으로 도는 지금은 움직일 때마다 마커가 사라졌다 나타난다.
+    //
+    // 그래서 묶음마다 '그림에 영향을 주는 것 전부'를 한 줄로 만들어
+    // ([_markerSignature]) 지난번과 견준다. 같으면 그대로 두고, 사라진 것만
+    // 지우고, 새로 생기거나 모양이 달라진 것만 다시 굽는다. 화면에 남아 있는
+    // 마커는 손대지 않으므로 깜빡임이 없다.
+    final desired = {for (final g in groups) g.id: g};
+    final removed = [
+      for (final entry in _markers.entries)
+        if (!desired.containsKey(entry.key) ||
+            _markerSignatures[entry.key] !=
+                _markerSignature(desired[entry.key]!, tier))
+          entry.key,
+    ];
+    for (final id in removed) {
+      if (!mounted || generation != _syncGeneration) return;
+      final marker = _markers.remove(id);
+      _markerSignatures.remove(id);
+      if (marker != null) await _mapController?.deleteOverlay(marker.info);
+    }
+
     final pending = <String, NMarker>{};
 
     Future<void> rollback() async {
       for (final marker in pending.values) {
         await _mapController?.deleteOverlay(marker.info);
       }
+      for (final id in pending.keys) {
+        _markers.remove(id);
+        _markerSignatures.remove(id);
+      }
     }
 
     for (final group in groups) {
       if (!mounted || generation != _syncGeneration) return rollback();
+      final signature = _markerSignature(group, tier);
+      // 그대로인 마커는 지우지도 다시 굽지도 않았다 — 건너뛴다.
+      if (_markerSignatures[group.id] == signature) continue;
+
       final selected = _isSelectedGroup(group);
       final built = selected
           ? await _buildSelectedMarkerIcon(group.first)
@@ -619,9 +666,22 @@ class _MapScreenState extends State<MapScreen> {
       marker.setOnTapListener((_) => _onMarkerTap(group));
       await _mapController?.addOverlay(marker);
       pending[group.id] = marker;
+      _markers[group.id] = marker;
+      _markerSignatures[group.id] = signature;
     }
     if (!mounted || generation != _syncGeneration) return rollback();
-    _markers.addAll(pending);
+  }
+
+  /// 이 묶음의 마커 그림을 정하는 것 전부 — 하나라도 다르면 다시 구워야 한다.
+  ///
+  /// 묶음 id는 대표 항목([_MarkerGroup.id])으로만 정해져서, 같은 자리에 다른
+  /// 것이 하나 더 들어오거나 빠져도 id는 그대로다. 그래서 개수·섞인 종류·줌
+  /// 단계·선택 여부까지 함께 본다.
+  String _markerSignature(_MarkerGroup group, _MarkerTier tier) {
+    final kinds = group.kinds.map((k) => k.index).join(',');
+    final selected = _isSelectedGroup(group) ? '1' : '0';
+    return '${tier.index}|${group.items.length}|$kinds|$selected'
+        '|${group.lat.toStringAsFixed(6)},${group.lng.toStringAsFixed(6)}';
   }
 
   // ── 겹침 처리(클러스터링) ─────────────────────────────────────────
@@ -1193,15 +1253,68 @@ class _MapScreenState extends State<MapScreen> {
     }
 
     if (_pendingAreaSearch) {
+      // '현재 위치'로 옮긴 직후 — 기다릴 이유가 없다(사용자가 방금 누른
+      // 버튼의 결과다). 조금만 움직였더라도 그 자리를 조회한다.
       _pendingAreaSearch = false;
       _ignoreNextIdle = false;
-      _searchThisArea();
+      _autoSearchTimer?.cancel();
+      _runAreaSearch(force: true, expandSheet: true);
     } else if (_ignoreNextIdle) {
-      // 앱이 옮긴 카메라(내 위치 자동 이동·마커 가운데 맞춤)다.
+      // 앱이 옮긴 카메라(마커 가운데 맞춤·검색 결과로 이동)다 — 사용자가
+      // 지도를 움직인 것이 아니므로 다시 찾지 않는다.
       _ignoreNextIdle = false;
     } else {
-      setState(() => _mapMoved = true);
+      _scheduleAutoSearch();
     }
+  }
+
+  /// 카메라가 멈췄다 — 조금 기다렸다가 이 영역으로 다시 찾는다.
+  ///
+  /// 이어서 또 움직이면 타이머를 다시 걸므로, 드래그 → 확대 → 드래그를
+  /// 빠르게 해도 **마지막 자리에서 한 번만** 돈다.
+  void _scheduleAutoSearch() {
+    _autoSearchTimer?.cancel();
+    _autoSearchTimer = Timer(kMapAutoSearchDebounce, () {
+      if (!mounted) return;
+      _runAreaSearch();
+    });
+  }
+
+  /// 지금 화면 영역으로 목록·마커를 좁힌다.
+  ///
+  /// [force]가 아니면 지난번 조회한 영역과 견줘 **의미 있게 움직였을 때만**
+  /// 돈다([mapViewChangedEnough]) — 손가락이 스친 정도로는 돌지 않는다.
+  Future<void> _runAreaSearch({
+    bool force = false,
+    bool expandSheet = false,
+  }) async {
+    final controller = _mapController;
+    if (controller == null) return;
+    // bounds를 읽는 사이에 지도가 또 움직일 수 있다 — 번호가 밀리면 물러난다.
+    final generation = ++_areaSearchGeneration;
+    final bounds = await controller.getContentBounds();
+    if (!mounted || generation != _areaSearchGeneration) return;
+
+    if (!force) {
+      final last = _lastSearchBounds;
+      final changed = mapViewChangedEnough(
+        last == null ? null : _boxOf(last),
+        _boxOf(bounds),
+      );
+      if (!changed) return;
+    }
+
+    setState(() {
+      _lastSearchBounds = bounds;
+      _isAreaSearch = true;
+      _recomputeVisible();
+    });
+    // 홈은 마커가 곧 결과다 — 좁힌 영역으로 마커를 다시 맞춘다.
+    // ([_syncMarkers]는 달라진 마커만 건드린다 — 전부 지웠다 그리지 않는다.)
+    if (_home) _syncMarkers();
+    // 시트는 사용자가 누른 동작일 때만 펼친다. 지도를 훑을 때마다 시트가
+    // 올라오면 지도를 가려 훑을 수가 없다.
+    if (expandSheet) _ensureSheetExpanded();
   }
 
   static ({double south, double west, double north, double east}) _boxOf(
@@ -1727,20 +1840,6 @@ class _MapScreenState extends State<MapScreen> {
     if (placeTurnedOn) _ensureSheetExpanded();
   }
 
-  Future<void> _searchThisArea() async {
-    if (_mapController == null) return;
-    final bounds = await _mapController!.getContentBounds();
-    setState(() {
-      _lastSearchBounds = bounds;
-      _isAreaSearch = true;
-      _recomputeVisible();
-      _mapMoved = false;
-    });
-    // 홈은 마커가 곧 결과다 — 좁힌 영역으로 마커를 다시 그린다.
-    if (_home) _syncMarkers();
-    _ensureSheetExpanded();
-  }
-
   // 시트가 사용자에 의해 접혀 있으면(예: minChildSize까지 드래그) 새로
   // 조회된 목록이 보이도록 충분한 높이로 펼친다. 이미 그보다 더 펼쳐져
   // 있으면(사용자가 크게 열어둔 상태) 굳이 줄이지 않는다.
@@ -1850,58 +1949,6 @@ class _MapScreenState extends State<MapScreen> {
           //  고른다. 같은 선택이 두 곳에 있으면 어느 쪽이 정본인지 알 수 없고,
           //  지도가 그만큼 좁아진다. MapKindFilterBar 주석 참고.)
 
-          // ── "이 지도에서 보기" 버튼 (지도 상단 중앙) ──────────────
-          // 칩이 있던 자리를 이 버튼이 물려받는다 — 지도 위에 떠 있는 것이
-          // 이것뿐이라 더 내려 둘 이유가 없다.
-          if (_mapMoved)
-            Positioned(
-              top: 12,
-              left: 0,
-              right: 0,
-              child: Center(
-                child: GestureDetector(
-                  onTap: _searchThisArea,
-                  child: Container(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 18,
-                      vertical: 10,
-                    ),
-                    decoration: BoxDecoration(
-                      color: Colors.white,
-                      borderRadius: BorderRadius.circular(30),
-                      boxShadow: const [
-                        BoxShadow(
-                          color: Color(0x33000000),
-                          blurRadius: 10,
-                          offset: Offset(0, 3),
-                        ),
-                      ],
-                    ),
-                    child: const Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Icon(
-                          Icons.refresh_rounded,
-                          size: 16,
-                          color: Color(0xFFFF6FA0),
-                        ),
-                        SizedBox(width: 7),
-                        Text(
-                          // 파티만 보던 화면이 아니다 — 지금 켜 둔 종류
-                          // 전부를 이 영역에서 다시 찾는다.
-                          '이 지도에서 다시 찾기',
-                          style: TextStyle(
-                            fontSize: 14,
-                            fontWeight: FontWeight.w700,
-                            color: Colors.black87,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                ),
-              ),
-            ),
 
           // ── 현재 위치 버튼 ── 시트를 드래그하거나 _ensureSheetExpanded로
           // 펼쳐도 항상 시트 바로 위에 떠 있도록 실제 현재 높이를 따라간다.
@@ -2109,6 +2156,12 @@ class _MapScreenState extends State<MapScreen> {
       ..setSize(built.size)
       ..setAnchor(built.anchor)
       ..setZIndex(selected ? 1000 : 0);
+    // 선택 여부는 마커 모양의 일부다 — 여기서 갱신해 두지 않으면 다음
+    // 동기화가 "모양이 달라졌다"고 보고 이 마커만 지웠다 다시 올린다.
+    _markerSignatures[id] = _markerSignature(
+      group,
+      _markerTierForZoom(_currentZoom),
+    );
   }
 
   /// 미리보기 카드와 강조 마커를 함께 바꾼다(null이면 둘 다 내린다).
@@ -2125,7 +2178,7 @@ class _MapScreenState extends State<MapScreen> {
     }
   }
 
-  /// 앱이 카메라를 옮긴다 — 그 뒤의 idle 한 번은 '다시 찾기'를 띄우지 않는다.
+  /// 앱이 카메라를 옮긴다 — 그 뒤의 idle 한 번은 자동 재조회를 걸지 않는다.
   /// 제자리라 idle이 오지 않는 경우에 대비해 잠시 뒤 스스로 풀린다.
   void _moveCameraQuietly(NCameraUpdate update) {
     _ignoreNextIdle = true;
@@ -2266,15 +2319,10 @@ class _MapScreenState extends State<MapScreen> {
           if (!kIsWeb)
             Positioned(top: 0, left: 0, right: 0, child: _buildHomeTopBar()),
 
-          // ── 이 지역에서 다시 찾기 ──────────────────────────────────
-          if (_mapMoved && !kIsWeb)
-            Positioned(
-              left: 0,
-              right: 0,
-              bottom: bottomGap,
-              child: Center(child: _buildHomeReSearchButton()),
-            )
-          else if (_isAreaSearch && _displayed.isEmpty && !kIsWeb)
+          // ── 이 영역에 아무것도 없을 때 ─────────────────────────────
+          // (재검색 버튼이 있던 자리다 — 지도를 멈추면 앱이
+          //  알아서 다시 찾으므로 누를 것이 없어졌다.)
+          if (_isAreaSearch && _displayed.isEmpty && !kIsWeb)
             Positioned(
               left: 0,
               right: 0,
@@ -2297,7 +2345,7 @@ class _MapScreenState extends State<MapScreen> {
           if (!kIsWeb)
             Positioned(
               right: 14,
-              bottom: bottomGap + (_mapMoved ? 52 : 0),
+              bottom: bottomGap,
               child: FloatingActionButton.small(
                 heroTag: 'map_home_location_fab',
                 onPressed: _isLoadingLocation ? null : _goToCurrentLocation,
@@ -2861,27 +2909,6 @@ class _MapScreenState extends State<MapScreen> {
       ),
     );
   }
-
-  Widget _buildHomeReSearchButton() => GestureDetector(
-    onTap: _searchThisArea,
-    child: _homePill(
-      child: const Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Icon(Icons.refresh_rounded, size: 16, color: Color(0xFFFF6FA0)),
-          SizedBox(width: 6),
-          Text(
-            '이 지역에서 다시 찾기',
-            style: TextStyle(
-              fontSize: 13.5,
-              fontWeight: FontWeight.w700,
-              color: Colors.black87,
-            ),
-          ),
-        ],
-      ),
-    ),
-  );
 
   /// 내 위치에서의 거리('300m', '1.2km') — 위치를 모르면 null.
   String? _distanceLabel(MapListing item) {
