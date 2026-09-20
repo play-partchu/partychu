@@ -33,7 +33,7 @@
     "check:chatrooms": "node chatRooms.selfcheck.js",
     "check:blocks": "node userBlocks.selfcheck.js",
     "check:checkin": "node checkInTokens.selfcheck.js",
-    "check": "npm run check:schedule && npm run check:pricing && npm run check:earlybird && npm run check:rooms && npm run check:products && npm run check:social && npm run check:mincapacity && npm run check:roundcapacity && npm run check:payment && npm run check:policy && npm run check:rental && npm run check:package && npm run check:shop && npm run check:chat && npm run check:refund && npm run check:bizverify && npm run check:openstate && npm run check:refundsnapshot && npm run check:partyactivity && npm run check:push && npm run check:withdrawal && npm run check:questions && npm run check:backcompat && npm run check:canceltarget && npm run check:hostinbox && npm run check:payout && npm run check:identity && npm run check:chatrooms && npm run check:checkin && npm run check:checkin-issue && npm run check:partyregister && npm run check:agerestriction && npm run check:genderrecruit && npm run check:occurrencerecruit && npm run check:uploads && npm run check:uploads-e2e && npm run check:cleanup && npm run check:nickname && npm run check:delegation && npm run check:preregistration && npm run check:adminnotif && npm run check:bizrules && npm run check:feedbackrules && npm run check:placeeventrules && npm run check:placeeventapps && npm run check:placeeventapply && npm run check:limits && npm run check:cfcleanup && npm run check:phone && npm run check:salesstats && npm run check:reviews",
+    "check": "npm run check:schedule && npm run check:pricing && npm run check:earlybird && npm run check:rooms && npm run check:products && npm run check:social && npm run check:mincapacity && npm run check:roundcapacity && npm run check:payment && npm run check:policy && npm run check:rental && npm run check:package && npm run check:shop && npm run check:chat && npm run check:refund && npm run check:bizverify && npm run check:openstate && npm run check:refundsnapshot && npm run check:partyactivity && npm run check:push && npm run check:withdrawal && npm run check:questions && npm run check:backcompat && npm run check:canceltarget && npm run check:hostinbox && npm run check:payout && npm run check:identity && npm run check:chatrooms && npm run check:checkin && npm run check:checkin-issue && npm run check:partyregister && npm run check:agerestriction && npm run check:genderrecruit && npm run check:occurrencerecruit && npm run check:uploads && npm run check:uploads-e2e && npm run check:cleanup && npm run check:nickname && npm run check:delegation && npm run check:preregistration && npm run check:adminnotif && npm run check:bizrules && npm run check:feedbackrules && npm run check:placeeventrules && npm run check:placeeventapps && npm run check:placeeventapply && npm run check:limits && npm run check:cfcleanup && npm run check:phone && npm run check:salesstats && npm run check:reviews && npm run check:tourfestivals",
     "check:limits": "node registrationLimits.selfcheck.js",
     "check:questions": "node applicationQuestions.selfcheck.js",
     "check:backcompat": "node applicationBackcompat.selfcheck.js",
@@ -60,7 +60,9 @@
     "check:placeeventapps:emulator": "firebase emulators:exec --only firestore \"node placeEventApplicationRules.selfcheck.js\"",
     "check:placeeventapply": "node placeEventApplications.selfcheck.js",
     "check:occurrencerecruit": "node partyOccurrenceRecruit.selfcheck.js",
-    "check:cfcleanup": "node cloudflareCleanup.selfcheck.js"
+    "check:cfcleanup": "node cloudflareCleanup.selfcheck.js",
+    "check:tourfestivals": "node tourFestivals.selfcheck.js",
+    "dryrun:tourfestivals": "node scripts/tourFestivalsDryRun.js"
   },
   "engines": {
     "node": "20"

@@ -1038,6 +1038,11 @@ exports.deleteExpiredPromotions = onSchedule(
 // (registrationLimitGuard.js 상단 주석에 그 판단이 전부 적혀 있다).
 Object.assign(exports, require('./registrationLimitGuard'));
 
+// ── 한국관광공사 TourAPI 축제 수집 ───────────────────────────────────────────
+// publicEvents/{tour_<contentid>}를 서버만 쓴다. tourFestivals.js는 순수 헬퍼도
+// 내보내므로 Object.assign으로 붙이지 않고 함수 하나만 명시적으로 붙인다.
+exports.syncTourFestivals = require('./tourFestivals').syncTourFestivals;
+
 // ── Naver Geocoding ───────────────────────────────────────────────────────────
 
 const NAVER_CLIENT_ID = 'tdehle93zg';
