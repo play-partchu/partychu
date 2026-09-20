@@ -27,7 +27,7 @@ Set<MapListingKind> nextMapKindSelection(
   MapListingKind tapped,
 ) {
   // ① 전체 → 누른 하나만.
-  if (current.length == MapListingKind.values.length) return {tapped};
+  if (current.length == MapListingKind.listingKinds.length) return {tapped};
   // ② 개별 선택 중 — 켜고 끄는 토글.
   if (!current.contains(tapped)) return {...current, tapped};
   // 마지막 하나는 그대로 돌려준다(= 아무 일도 일어나지 않는다).
@@ -81,13 +81,13 @@ class MapKindFilterBar extends StatelessWidget {
     this.padding = EdgeInsets.zero,
   });
 
-  bool get _isAll => selected.length == MapListingKind.values.length;
+  bool get _isAll => selected.length == MapListingKind.listingKinds.length;
 
   /// '전체' 칩의 숫자 — 종류별 개수의 합.
   int? get _totalCount {
     if (counts.isEmpty) return null;
     var sum = 0;
-    for (final kind in MapListingKind.values) {
+    for (final kind in MapListingKind.listingKinds) {
       sum += counts[kind] ?? 0;
     }
     return sum;
@@ -138,10 +138,10 @@ class MapKindFilterBar extends StatelessWidget {
                 // 보는 상태"가 되므로 그대로 둔다.
                 onTap: _isAll
                     ? null
-                    : () => onChanged(MapListingKind.values.toSet()),
+                    : () => onChanged(MapListingKind.listingKinds.toSet()),
               ),
             ),
-            for (final kind in MapListingKind.values) ...[
+            for (final kind in MapListingKind.listingKinds) ...[
               const SizedBox(width: _gap),
               Expanded(
                 flex: _widthWeight(kind.label, hasEmoji: true),

@@ -13,7 +13,7 @@ import 'package:party_app/screens/party_detail_screen.dart';
 import 'package:party_app/models/combo_place_type.dart';
 import 'package:party_app/models/custom_amenity.dart';
 import 'package:party_app/models/custom_play_item.dart';
-import 'package:party_app/models/listing_constants.dart';
+import 'package:party_app/models/listing_text_search.dart';
 import 'package:party_app/screens/party_video_feed_screen.dart';
 import 'package:party_app/screens/place_feed_screen.dart';
 import 'package:party_app/utils/favorites_service.dart';
@@ -59,7 +59,7 @@ import 'package:party_app/utils/early_bird.dart';
 import 'package:party_app/models/capacity_filter.dart';
 import 'package:party_app/models/event_filter.dart';
 import 'package:party_app/models/place_filter.dart';
-import 'package:party_app/models/place_taxonomy.dart';
+import 'package:party_app/models/listing_price_match.dart';
 import 'package:party_app/models/place_weekly_hours.dart';
 import 'package:party_app/widgets/partychu_perk.dart' show partychuPerkFrom;
 import 'package:party_app/models/pet_policy.dart';
@@ -154,7 +154,12 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin {
   late final Animation<double> _coachMarkAnim;
 
   // ── 하단 내비게이션 ───────────────────────────────────────────────
-  int _currentIndex = 0;
+  /// 하단 네비의 첫 두 칸이 이 화면 안에서 갈아끼우는 본문 — 0 지도 홈,
+  /// 1 목록(예전 홈의 카드 탐색 화면 그대로). 웹에는 지도가 없어서
+  /// 목록으로 시작한다(홈을 누르면 지도 대신 안내와 '목록으로 보기'가 뜬다).
+  int _homeTab = kIsWeb ? 1 : 0;
+
+  int _currentIndex = kIsWeb ? 1 : 0;
 
   // ── 헤더 축소 상태 (스크롤 연동 — 로고 배너만 축소) ────────────────
   bool _headerCollapsed = false;
@@ -606,7 +611,9 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin {
     pendingPlaceShopCategoryAfterRegister.value = false; // 한 번만 소비
     if (!mounted) return;
     setState(() {
-      _currentIndex = 0;
+      // 등록한 글은 목록에서 보여준다(목록 탭으로 옮긴 뒤 그 칸을 연다).
+      _homeTab = 1;
+      _currentIndex = 1;
       _placeShowShopCategory = tabIndex == 1 && showShopCategory;
       _topTabController.animateTo(tabIndex);
     });
@@ -682,31 +689,43 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin {
     return identityRequirementMet(UserSession.identityStatus);
   }
 
+  /// 넓은 화면(태블릿·데스크톱) 상단 바의 '지도' — 예전처럼 지도 화면을
+  /// 새 라우트로 연다(넓은 화면은 하단 네비 대신 이 바를 쓴다).
+  void _openMapRoute() {
+    // 지도 화면은 MainScreen 위에 새 라우트로 쌓일 뿐 이 화면은 dispose되지
+    // 않는다 — 화면 전환 중엔 카드의 VisibilityDetector가 곧바로 "화면 밖"을
+    // 감지하지 못해 재생 중이던 동영상 소리가 새어나갈 수 있으므로, 이동
+    // 직전에 명시적으로 일시정지한다. 메인으로 돌아오면 기존 가시성 기반
+    // 자동재생이 다시 감지해 이어서 재생한다.
+    FeedVideoManager.instance.pauseActive();
+    Navigator.push(context, webFramedRoute((_) => const MapScreen()));
+  }
+
   Future<void> _onBottomNavTap(int index) async {
+    if (index == 0 || index == 1) {
+      // 홈(지도) ↔ 목록은 라우트를 쌓지 않고 본문만 갈아끼운다. 목록을 떠날
+      // 때는 재생 중이던 카드 동영상을 멈춘다(지도 홈에는 동영상이 없다).
+      if (index == 0) FeedVideoManager.instance.pauseActive();
+      setState(() {
+        _homeTab = index;
+        _currentIndex = index;
+      });
+      return;
+    }
     setState(() => _currentIndex = index);
-    if (index == 1) {
-      // 지도 화면은 MainScreen 위에 새 라우트로 쌓일 뿐 이 화면은 dispose되지
-      // 않는다 — 화면 전환 중엔 카드의 VisibilityDetector가 곧바로 "화면 밖"을
-      // 감지하지 못해 재생 중이던 동영상 소리가 새어나갈 수 있으므로, 이동
-      // 직전에 명시적으로 일시정지한다. 지도 화면 자체는 별도 동영상이 없어
-      // 이걸로 "지도에서는 소리 없음"까지 함께 보장된다. 메인으로 돌아오면
-      // 기존 가시성 기반 자동재생이 다시 감지해 이어서 재생한다.
-      FeedVideoManager.instance.pauseActive();
-      Navigator.push(
-        context,
-        webFramedRoute((_) => const MapScreen()),
-      ).then((_) => setState(() => _currentIndex = 0));
-    } else if (index == 2) {
+    if (index == 2) {
       final ok = await _requireLogin();
       if (!mounted) return;
-      setState(() => _currentIndex = 0);
+      setState(() => _currentIndex = _homeTab);
       if (ok) {
-        _goToRegisterScreen().then((_) => setState(() => _currentIndex = 0));
+        _goToRegisterScreen().then(
+          (_) => setState(() => _currentIndex = _homeTab),
+        );
       }
     } else if (index == 3) {
       final ok = await _requireLogin();
       if (!mounted) return;
-      setState(() => _currentIndex = 0);
+      setState(() => _currentIndex = _homeTab);
       if (ok) {
         // 대화 목록이 아니라 **진행 중인 신청·예약 목록**이 먼저다 —
         // 방이 아직 없는 사람도 여기서 호스트에게 말을 걸 수 있어야 한다
@@ -714,17 +733,17 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin {
         Navigator.push(
           context,
           webFramedRoute((_) => const ChatTargetListScreen()),
-        ).then((_) => setState(() => _currentIndex = 0));
+        ).then((_) => setState(() => _currentIndex = _homeTab));
       }
     } else if (index == 4) {
       final ok = await _requireLogin();
       if (!mounted) return;
-      setState(() => _currentIndex = 0);
+      setState(() => _currentIndex = _homeTab);
       if (ok) {
         Navigator.push(
           context,
           webFramedRoute((_) => const MyPageScreen()),
-        ).then((_) => setState(() => _currentIndex = 0));
+        ).then((_) => setState(() => _currentIndex = _homeTab));
       }
     }
   }
@@ -1330,7 +1349,11 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin {
     if (Responsive.isDesktop(context)) return _buildDesktopLayout();
     if (Responsive.isTablet(context)) return _buildTabletLayout();
     return Stack(
-      children: [_buildMainScaffold(), if (_showCoachMark) _buildCoachMark()],
+      children: [
+        _buildMainScaffold(),
+        // 코치마크는 목록의 상단 탭바를 가리키는 안내다 — 목록을 볼 때만.
+        if (_showCoachMark && _homeTab == 1) _buildCoachMark(),
+      ],
     );
   }
 
@@ -1413,10 +1436,8 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin {
       isLoggedIn: UserSession.userId.isNotEmpty,
       onLoginOrMyPageTap: _handleLoginOrMyPageTap,
       onRegisterTap: _handleCategoryAwareRegisterTap,
-      // 지도는 넓은 화면에서도 하단 네비의 '지도'(index 1)와 **같은 경로**로
-      // 들어간다 — 동영상 일시정지·MapScreen 라우트가 한 곳(_onBottomNavTap)에만
-      // 있어야 모바일과 태블릿의 지도 진입이 갈라지지 않는다.
-      onMapTap: () => _onBottomNavTap(1),
+      // 넓은 화면은 하단 네비가 없어 지도를 예전처럼 새 화면으로 연다.
+      onMapTap: _openMapRoute,
     );
   }
 
@@ -1851,50 +1872,13 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin {
   Widget _buildMainScaffold() {
     return Scaffold(
       backgroundColor: _isNightMode ? Colors.black : const Color(0xFFFFF4F8),
-      body: Stack(
+      // 홈 = 지도(0), 목록 = 예전 홈의 카드 탐색(1). 둘 다 살려 둔 채 보이는
+      // 쪽만 바꾼다 — 탭을 오가도 지도 위치·목록 스크롤·필터가 그대로다.
+      body: IndexedStack(
+        index: _homeTab,
         children: [
-          Column(
-            children: [
-              // head-up(토끼 로고 배너) — "전체 숨김"과 무관하게 항상 남아있는다.
-              // 스크롤에 따라 축소된 상태(_headerCollapsed)로 크로스페이드되는
-              // 동작은 그대로 유지되고, 그 축소 여부와 상관없이 배너 자체는
-              // 절대 사라지지 않는다.
-              _buildHeaderBanner(),
-              // 상단 탭바 — "전체 숨김"이 켜지면 이 부분만 높이 0으로 접힌다
-              // (파티 목록 헤더/필터는 _buildPartyPage 안에서 같은
-              // _headerFullyHidden을 보고 따로 접힌다).
-              AnimatedSize(
-                duration: const Duration(milliseconds: 260),
-                curve: Curves.easeInOut,
-                alignment: Alignment.topCenter,
-                child: _headerFullyHidden
-                    ? const SizedBox(width: double.infinity)
-                    : _buildTopTabBar(),
-              ),
-              // 콘텐츠 영역 (탭에 따라 전환)
-              Expanded(
-                child: TabBarView(
-                  controller: _topTabController,
-                  children: [
-                    // 파티 상세화면 등에서 로그인하고 뒤로가기만 눌러 돌아와도
-                    // (탭을 다시 누르지 않아도) 참가비 "로그인 필요" 표시가
-                    // 즉시 로그인 상태로 갱신되도록 AuthRebuilder로 감싼다 —
-                    // 다른 화면들과 동일한 패턴([UserSession.revision] 구독).
-                    AuthRebuilder(builder: (_) => _buildPartyPage()),
-                    _buildEventPage(),
-                    _buildPlacePage(),
-                    _buildCrewPage(),
-                  ],
-                ),
-              ),
-            ],
-          ),
-          // 헤더 접기/펼치기 버튼 — 상태와 무관하게 항상 화면 좌상단에
-          // 떠 있는다(문구만 상태에 따라 바뀜).
-          _buildHeaderToggleButton(),
-          // 우상단 액션들 — 낮/밤 토글 + 알림함. 한 Row에 묶어 오른쪽 끝에
-          // 고정하므로 버튼이 늘어나도 간격이 어긋나거나 겹치지 않는다.
-          _buildTopRightActions(),
+          MapScreen(home: true, onOpenList: () => _onBottomNavTap(1)),
+          _buildListBody(),
         ],
       ),
       // 상세검색 전용 FAB(튠 아이콘)는 없앴다 — 네 탭 모두 목록 헤더의 돋보기
@@ -1908,11 +1892,13 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin {
         items: [
           const BottomNavigationBarItem(
             icon: Icon(Icons.home_outlined),
+            activeIcon: Icon(Icons.home_rounded),
             label: '홈',
           ),
           const BottomNavigationBarItem(
-            icon: Icon(Icons.map_outlined),
-            label: '지도',
+            icon: Icon(Icons.view_agenda_outlined),
+            activeIcon: Icon(Icons.view_agenda_rounded),
+            label: '목록',
           ),
           const BottomNavigationBarItem(
             icon: Icon(Icons.add_box_outlined),
@@ -1925,6 +1911,57 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin {
           ),
         ],
       ),
+    );
+  }
+
+  /// 목록 탭 본문 — **예전 홈 화면 그대로**다(로고 배너 · 상단 탭 · 카드 목록 ·
+  /// 검색/필터 · 큰 카드 보기 · 헤더 접기 · 낮/밤 · 알림함).
+  Widget _buildListBody() {
+    return Stack(
+      children: [
+        Column(
+          children: [
+            // head-up(토끼 로고 배너) — "전체 숨김"과 무관하게 항상 남아있는다.
+            // 스크롤에 따라 축소된 상태(_headerCollapsed)로 크로스페이드되는
+            // 동작은 그대로 유지되고, 그 축소 여부와 상관없이 배너 자체는
+            // 절대 사라지지 않는다.
+            _buildHeaderBanner(),
+            // 상단 탭바 — "전체 숨김"이 켜지면 이 부분만 높이 0으로 접힌다
+            // (파티 목록 헤더/필터는 _buildPartyPage 안에서 같은
+            // _headerFullyHidden을 보고 따로 접힌다).
+            AnimatedSize(
+              duration: const Duration(milliseconds: 260),
+              curve: Curves.easeInOut,
+              alignment: Alignment.topCenter,
+              child: _headerFullyHidden
+                  ? const SizedBox(width: double.infinity)
+                  : _buildTopTabBar(),
+            ),
+            // 콘텐츠 영역 (탭에 따라 전환)
+            Expanded(
+              child: TabBarView(
+                controller: _topTabController,
+                children: [
+                  // 파티 상세화면 등에서 로그인하고 뒤로가기만 눌러 돌아와도
+                  // (탭을 다시 누르지 않아도) 참가비 "로그인 필요" 표시가
+                  // 즉시 로그인 상태로 갱신되도록 AuthRebuilder로 감싼다 —
+                  // 다른 화면들과 동일한 패턴([UserSession.revision] 구독).
+                  AuthRebuilder(builder: (_) => _buildPartyPage()),
+                  _buildEventPage(),
+                  _buildPlacePage(),
+                  _buildCrewPage(),
+                ],
+              ),
+            ),
+          ],
+        ),
+        // 헤더 접기/펼치기 버튼 — 상태와 무관하게 항상 화면 좌상단에
+        // 떠 있는다(문구만 상태에 따라 바뀜).
+        _buildHeaderToggleButton(),
+        // 우상단 액션들 — 낮/밤 토글 + 알림함. 한 Row에 묶어 오른쪽 끝에
+        // 고정하므로 버튼이 늘어나도 간격이 어긋나거나 겹치지 않는다.
+        _buildTopRightActions(),
+      ],
     );
   }
 
@@ -5448,22 +5485,8 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin {
     return true;
   }
 
-  bool _matchesPlacePriceRange(int price, String range) {
-    switch (range) {
-      case '3만원 이하':
-        return price > 0 && price <= 30000;
-      case '3~5만원':
-        return price > 30000 && price <= 50000;
-      case '5~10만원':
-        return price > 50000 && price <= 100000;
-      case '10~20만원':
-        return price > 100000 && price <= 200000;
-      case '20만원 이상':
-        return price > 200000;
-      default:
-        return true;
-    }
-  }
+  bool _matchesPlacePriceRange(int price, String range) =>
+      rentalPriceInRange(price, range);
 
   bool _matchesPlaceCapacityRange(int capacity, String range) {
     switch (range) {
@@ -5936,75 +5959,8 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin {
   /// 부분 일치). 다만 컬렉션마다 제목·주소 필드 이름이 제각각(name/title,
   /// address/roadAddress/location …)이라, 탭마다 함수를 따로 두는 대신
   /// **후보 필드를 전부 훑는** 한 벌로 네 탭이 공유한다.
-  static bool _matchesTextQuery(Map<String, dynamic> data, String query) {
-    if (query.isEmpty) return true;
-    final q = query.toLowerCase().replaceFirst('#', '');
-    const textFields = [
-      'name',
-      'title',
-      'description',
-      'intro',
-      'address',
-      'roadAddress',
-      'location',
-      'region',
-      'type',
-      'category',
-      'role',
-      'hostName',
-    ];
-    for (final field in textFields) {
-      final value = data[field];
-      if (value is String && value.toLowerCase().contains(q)) return true;
-    }
-    const listFields = [
-      'themeTags',
-      'tags',
-      'categories',
-      'businessTypes',
-      'placeTypes',
-      'facilities',
-      // 장소대여 등록 화면이 실제로 쓰는 필드 — 옛 'facilities'만 훑고 있어
-      // '주차'·'수영장'처럼 화면에 적힌 시설명으로 검색해도 안 나왔다.
-      'commonFacilities',
-      'regions',
-      'roles',
-    ];
-    for (final field in listFields) {
-      final value = data[field];
-      if (value is List &&
-          value.any((e) => e is String && e.toLowerCase().contains(q))) {
-        return true;
-      }
-    }
-    // 특징 태그는 **화면 표기로도** 찾을 수 있어야 한다 — 저장값은 '이벤트'인데
-    // 사용자가 보는 문구는 '이벤트 진행중'이라, 위 루프(저장값 대조)만으로는
-    // 화면에 적힌 그대로 검색했을 때 아무것도 안 나온다.
-    final themeTags = (data['themeTags'] as List?)?.cast<String>();
-    if (themeTags != null &&
-        themeTags.any(
-          (t) =>
-              ListingConstants.placeThemeTagLabel(t).toLowerCase().contains(q),
-        )) {
-      return true;
-    }
-    // 대분류도 **화면에 적힌 그대로** 찾을 수 있어야 한다 — 저장값과 부르는
-    // 이름이 다른 칸이 있다('체험·클래스' → '체험/클래스', '맛집' → '푸드').
-    // 저장값·화면 이름·짧은 표기·옛 이름을 한 줄로 훑는다.
-    final category = PlaceTaxonomy.categoryOf(data);
-    if (category != null) {
-      final c = PlaceTaxonomy.byLabel(category);
-      final names = <String>[
-        category,
-        if (c != null) ...[c.displayName, c.shortLabel, ...c.aliases],
-      ];
-      if (names.any((n) => n.toLowerCase().contains(q))) return true;
-    }
-    // 이벤트 소분류도 검색 대상 — 상세에 보이는 문구다(없는 문서는 건너뛴다).
-    final subtype = data['eventSubtype'];
-    if (subtype is String && subtype.toLowerCase().contains(q)) return true;
-    return false;
-  }
+  static bool _matchesTextQuery(Map<String, dynamic> data, String query) =>
+      listingTextMatches(data, query);
 
   // 검색 중일 때: 제목(0) → 유형/분위기(1) → 태그/설명(2) 우선순위 정렬
   List<QueryDocumentSnapshot> _applySearchSort(
@@ -6060,26 +6016,9 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin {
     return false;
   }
 
-  bool _matchesFeeRange(int fee, String range) {
-    switch (range) {
-      case '무료':
-        return fee <= 0;
-      case '1만원 이하':
-        return fee > 0 && fee <= 10000;
-      case '1~3만원':
-        return fee > 10000 && fee <= 30000;
-      case '3~5만원':
-        return fee > 30000 && fee <= 50000;
-      case '5~10만원':
-        return fee > 50000 && fee <= 100000;
-      case '10~20만원':
-        return fee > 100000 && fee <= 200000;
-      case '20만원 이상':
-        return fee > 200000;
-      default:
-        return true;
-    }
-  }
+  // 판정은 지도와 **같은 함수**를 쓴다([partyFeeInRange]) — 같은 switch가
+  // 두 곳에 따로 있으면 한쪽만 고쳐져 목록과 지도가 갈린다.
+  bool _matchesFeeRange(int fee, String range) => partyFeeInRange(fee, range);
 
   bool _matchesDateOption(
     Map<String, dynamic> data,

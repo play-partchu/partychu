@@ -7,10 +7,16 @@
 //   🎉 파티        = `parties` 한 건 — 참가자를 모집하고 신청을 받는다.
 //   🎪 매장 이벤트 = `placePromotions`(placeCollection: 'events') 한 건.
 //   🎪 공간 이벤트 = `placePromotions`(placeCollection: 'places') 한 건.
+//   🎊 공공 축제   = `publicEvents` 한 건 — 한국관광공사 TourAPI에서 서버가
+//                    가져온 축제·행사. 파티츄 장소에 매달리지 않는다.
 //
 // 새 컬렉션도, 한쪽을 다른 쪽으로 옮겨 적는 미러 필드도 만들지 않는다 — 이
 // 파일이 만드는 것은 **화면에 그릴 목록 한 벌**뿐이고, 그 목록의 각 칸은 원본
-// 문서를 그대로 들고 있다.
+// 문서를 그대로 들고 있다. 공공 축제도 [PublicEvent]를 그대로 들고 서며,
+// 사용자 등록 이벤트([PlacePromotion]) 모양으로 옮겨 적지 않는다.
+//
+// 공공 축제는 [build]·[expandEvents]를 거치지 않는다 — 원본 매장/공간이 없어
+// 묶을 것도 펼 것도 없다. 편 목록에 [withPublicEvents]로 **나중에 합친다**.
 //
 // ── 탭마다 보는 범위가 다르다 ────────────────────────────────────────────────
 //   · 파티츄/이벤트 → 셋 다(여기, [EventFeed]).
@@ -51,17 +57,19 @@
 import 'package:party_app/models/host_offering.dart';
 import 'package:party_app/models/place_event_index.dart';
 import 'package:party_app/models/place_promotion.dart';
+import 'package:party_app/models/public_event.dart';
 
 /// 피드 한 칸의 정체 — 배지에 그대로 적히는 값이다.
 enum EventFeedKind {
   /// 🎉 참가자를 모집하고 신청을 받는 행사. 누르면 파티 상세로 간다.
-  party(emoji: '🎉', label: '파티', collection: null),
+  party(emoji: '🎉', label: '파티', collection: null, isEvent: false),
 
   /// ✨ 매장·즐길거리가 여는 행사. 누르면 **그 매장 상세**로 간다.
   placeEvent(
     emoji: kPlaceEventEmoji,
     label: '매장 이벤트',
     collection: PlaceEventIndex.placeCollection,
+    isEvent: true,
   ),
 
   /// ✨ 공간대여·숙박이 여는 행사. 누르면 **그 장소 상세**로 간다.
@@ -69,26 +77,43 @@ enum EventFeedKind {
     emoji: kPlaceEventEmoji,
     label: '공간 이벤트',
     collection: PlaceEventIndex.rentalCollection,
+    isEvent: true,
+  ),
+
+  /// 🎊 한국관광공사가 제공하는 공공 축제·행사(publicEvents). 파티츄 장소에
+  /// 매달리지 않아 [collection]이 없다. 누르면 공공 축제 전용 상세로 간다
+  /// ([PublicEventFeedItem]).
+  publicFestival(
+    emoji: '🎊',
+    label: '공공 축제',
+    collection: null,
+    isEvent: true,
   );
 
   const EventFeedKind({
     required this.emoji,
     required this.label,
     required this.collection,
+    required this.isEvent,
   });
 
   final String emoji;
   final String label;
 
-  /// 이 종류가 읽는 `placePromotions.placeCollection` 값 — 파티는 null.
+  /// 이 종류가 읽는 `placePromotions.placeCollection` 값 — 파티와 공공
+  /// 축제는 null.
   final String? collection;
 
-  /// 카드 위에 붙는 배지 문구 — '🎉 파티' / '✨ 매장 이벤트' / '✨ 공간 이벤트'.
+  /// ✨ 이벤트 칸에 들어가는가 — 파티만 false다. 예전에는 [collection]
+  /// 유무로 판정했지만, 공공 축제는 컬렉션 없이도 이벤트라 값으로 갖는다.
+  final bool isEvent;
+
+  /// 카드 위에 붙는 배지 문구 — '🎉 파티' / '✨ 매장 이벤트' / '✨ 공간 이벤트'
+  /// / '🎊 공공 축제'.
   String get badge => '$emoji $label';
 
-  bool get isEvent => collection != null;
-
-  /// 이벤트 두 종류만 — 컬렉션으로 갈라 담을 때 쓴다.
+  /// placePromotions에서 오는 이벤트 두 종류만 — 컬렉션으로 갈라 담을 때
+  /// 쓴다(공공 축제는 넣지 않는다).
   static const List<EventFeedKind> events = [placeEvent, rentalEvent];
 }
 
@@ -190,6 +215,23 @@ class VenueEventFeedItem extends EventFeedItem {
         ? '${kind.collection}:$placeId'
         : '${kind.collection}:$placeId#$id';
   }
+}
+
+/// 🎊 공공 축제 — 한국관광공사 TourAPI(publicEvents) 한 건.
+///
+/// 파티츄 장소가 없으므로 [VenueEventFeedItem]과 달리 원본 문서를 들지
+/// 않는다. 누르면 이 [event]를 그대로 들고 공공 축제 전용 상세로 간다 —
+/// 원본 매장/공간 상세로는 가지 않는다.
+class PublicEventFeedItem extends EventFeedItem {
+  const PublicEventFeedItem({required this.event, required super.sortAt})
+    : super(kind: EventFeedKind.publicFestival);
+
+  final PublicEvent event;
+
+  /// 문서 id(`tour_<contentid>`)가 곧 열쇠다 — 같은 축제가 두 칸이 될 수 없고,
+  /// 'public:' 접두어로 매장/공간 이벤트의 열쇠와도 겹치지 않는다.
+  @override
+  String get key => 'public:${event.id}';
 }
 
 /// 세 정본을 읽어 **한 목록**으로 세우는 순수 함수 묶음.
@@ -316,6 +358,53 @@ class EventFeed {
       if (c != 0) return c;
       final k = a.kind.index.compareTo(b.kind.index);
       return k != 0 ? k : a.key.compareTo(b.key);
+    });
+    return out;
+  }
+
+  /// [expandEvents]가 편 목록에 🎊 공공 축제를 합쳐 **한 순서**로 세운다.
+  ///
+  /// [publicEvents]는 이미 노출 판정([PublicEvent.isVisible])과 종료 거르기를
+  /// 통과한 것이어도 되고 아니어도 된다 — 여기서 다시 거른다. 문서 id가
+  /// 열쇠라 같은 축제가 두 번 들어와도 한 칸이다.
+  ///
+  /// 순서는 [build]·[expandEvents]와 같은 "곧 볼 수 있는 것부터"다:
+  ///   ① max(시작, 지금) — 진행 중이면 모두 '지금'이라 앞에 선다.
+  ///   ② 같은 시각이면 종류 선언 순서 — 진행 중끼리는 파티츄 이벤트가
+  ///      공공 축제보다 앞이다.
+  ///   ③ 공공 축제끼리는 곧 끝나는 것부터(놓치기 쉬운 것을 앞에).
+  ///   ④ 그래도 같으면 열쇠 — 스냅샷이 새로 와도 자리가 흔들리지 않는다.
+  /// ①은 각 칸이 만들어진 시각이 달라도 같은 [now]로 다시 잰다 — 편 목록의
+  /// '지금'과 여기의 '지금'이 몇 밀리초 어긋나 진행 중 칸이 갈라지지 않게.
+  static List<EventFeedItem> withPublicEvents(
+    List<EventFeedItem> items,
+    Iterable<PublicEvent> publicEvents, {
+    DateTime? now,
+  }) {
+    final at = now ?? DateTime.now();
+    final byId = <String, PublicEventFeedItem>{};
+    for (final e in publicEvents) {
+      if (!e.isVisible || !e.isOpenAt(at)) continue;
+      byId[e.id] = PublicEventFeedItem(
+        event: e,
+        sortAt: _notBefore(e.startAt, at),
+      );
+    }
+    final out = <EventFeedItem>[
+      for (final item in items)
+        if (item is! PublicEventFeedItem) item,
+      ...byId.values,
+    ];
+    out.sort((a, b) {
+      final c = _notBefore(a.sortAt, at).compareTo(_notBefore(b.sortAt, at));
+      if (c != 0) return c;
+      final k = a.kind.index.compareTo(b.kind.index);
+      if (k != 0) return k;
+      if (a is PublicEventFeedItem && b is PublicEventFeedItem) {
+        final e = a.event.endAt.compareTo(b.event.endAt);
+        if (e != 0) return e;
+      }
+      return a.key.compareTo(b.key);
     });
     return out;
   }

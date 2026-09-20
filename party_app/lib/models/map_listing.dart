@@ -1,8 +1,10 @@
 import 'package:flutter/material.dart';
 
 import 'package:party_app/models/place_weekly_hours.dart';
+import 'package:party_app/models/public_event.dart';
 import 'package:party_app/models/region_data.dart';
 import 'package:party_app/widgets/place_card_widget.dart';
+import 'package:party_app/widgets/public_event_card.dart';
 
 /// 통합 지도에 함께 올라가는 콘텐츠 종류.
 ///
@@ -24,6 +26,19 @@ enum MapListingKind {
     emoji: '🏠',
     color: Color(0xFF1F9E77),
     icon: Icons.home_rounded,
+  ),
+
+  /// 🎊 공공 축제 — 한국관광공사 TourAPI(publicEvents). 파티츄 호스트 문서가
+  /// 아니라 [MapListing.publicEvent]를 들고 선다. 색은 이벤트 피드의 공공
+  /// 축제 배지와 같은 청록이다(파티츄 콘텐츠 셋과 한눈에 갈린다).
+  ///
+  /// **지도 홈 전용**이다 — 하단 목록 시트가 있는 지도 화면의 종류 칩
+  /// ([listingKinds])에는 들어가지 않는다.
+  festival(
+    label: '공공 축제',
+    emoji: '🎊',
+    color: Color(0xFF16867A),
+    icon: Icons.celebration_rounded,
   );
 
   const MapListingKind({
@@ -45,12 +60,18 @@ enum MapListingKind {
   /// 썸네일이 없을 때 대신 그리는 글리프이자, 마커에 붙는 종류 배지.
   final IconData icon;
 
-  /// 플레이스/장소대여 카드가 스키마를 가르는 데 쓰는 값. 파티는 해당 없음.
+  /// 플레이스/장소대여 카드가 스키마를 가르는 데 쓰는 값. 파티·공공 축제는
+  /// 해당 없음.
   PlaceCardSource? get cardSource => switch (this) {
     MapListingKind.party => null,
     MapListingKind.place => PlaceCardSource.place,
     MapListingKind.rental => PlaceCardSource.rental,
+    MapListingKind.festival => null,
   };
+
+  /// 파티츄 콘텐츠 세 종류 — 지도 화면 종류 칩([MapKindFilterBar])이 고르는
+  /// 범위이자 그 '전체'다. 공공 축제는 지도 홈 카테고리로만 켠다.
+  static const List<MapListingKind> listingKinds = [party, place, rental];
 }
 
 /// 지도가 다루는 항목 하나 — 어느 컬렉션에서 왔든 같은 모양으로 본다.
@@ -65,12 +86,17 @@ class MapListing {
   final double lat;
   final double lng;
 
+  /// 🎊 공공 축제일 때만 — 목록이 받은 객체 그대로(상세로 넘길 때 다시 읽지
+  /// 않는다). 나머지 종류는 null.
+  final PublicEvent? publicEvent;
+
   const MapListing({
     required this.kind,
     required this.docId,
     required this.data,
     required this.lat,
     required this.lng,
+    this.publicEvent,
   });
 
   /// 컬렉션이 달라도 겹치지 않는 키 — 마커 id와 중복 제거에 쓴다.
@@ -88,9 +114,31 @@ class MapListing {
     return MapListing(kind: kind, docId: docId, data: data, lat: lat, lng: lng);
   }
 
-  /// 마커 탭 카드에 쓰는 제목 — 파티는 `title`, 장소 계열은 `name`.
+  /// 🎊 공공 축제 → 지도 항목. **좌표가 있는 것만** 올린다(없으면 null).
+  ///
+  /// [data]에는 검색어 매칭([listingTextMatches])과 지역 필터가 읽는 필드만
+  /// 원본 이름 그대로 담는다 — 호스트 문서 모양으로 옮겨 적지 않는다.
+  static MapListing? fromPublicEvent(PublicEvent e) {
+    final lat = e.lat;
+    final lng = e.lng;
+    if (lat == null || lng == null || lat == 0 || lng == 0) return null;
+    return MapListing(
+      kind: MapListingKind.festival,
+      docId: e.id,
+      data: {
+        'title': e.title,
+        'address': ?e.address,
+        'location': ?e.addressDetail,
+      },
+      lat: lat,
+      lng: lng,
+      publicEvent: e,
+    );
+  }
+
+  /// 마커 탭 카드에 쓰는 제목 — 파티·공공 축제는 `title`, 장소 계열은 `name`.
   String get title =>
-      (kind == MapListingKind.party
+      (kind == MapListingKind.party || kind == MapListingKind.festival
           ? data['title'] as String?
           : data['name'] as String?) ??
       '';
@@ -100,6 +148,10 @@ class MapListing {
   String get shortAddress {
     if (kind == MapListingKind.party)
       return RegionData.formatCardLocation(data);
+    // 공공 축제는 전국이라 시/도까지 — 이벤트 피드 카드와 같은 표기.
+    if (kind == MapListingKind.festival) {
+      return publicEventAreaLabel(publicEvent?.address);
+    }
     final address =
         (data['address'] as String?) ?? (data['location'] as String?) ?? '';
     return address.isEmpty ? '' : RegionData.shortDistrictDong(address);
@@ -112,6 +164,35 @@ class MapListing {
       (data['location'] as String?) ??
       '';
 }
+
+/// 지도 화면 영역(남·서·북·동)을 사방으로 [ratio]만큼 넓힌 상자.
+///
+/// 공공 축제 마커를 **화면 근처 것만** 만들 때 쓴다. 보이는 영역 딱 그만큼만
+/// 만들면 조금만 움직여도 마커를 다시 그려야 하므로, 넉넉히 넓힌 상자로
+/// 만들고 화면이 그 상자를 벗어날 때만 다시 그린다([boxContains]).
+({double south, double west, double north, double east}) expandBox(
+  ({double south, double west, double north, double east}) box,
+  double ratio,
+) {
+  final dLat = (box.north - box.south) * ratio;
+  final dLng = (box.east - box.west) * ratio;
+  return (
+    south: box.south - dLat,
+    west: box.west - dLng,
+    north: box.north + dLat,
+    east: box.east + dLng,
+  );
+}
+
+/// [outer]가 [inner]를 통째로 품는가.
+bool boxContains(
+  ({double south, double west, double north, double east}) outer,
+  ({double south, double west, double north, double east}) inner,
+) =>
+    inner.south >= outer.south &&
+    inner.north <= outer.north &&
+    inner.west >= outer.west &&
+    inner.east <= outer.east;
 
 /// 장소 계열(플레이스/장소대여)이 특정 **날짜**에 문을 여는지.
 ///

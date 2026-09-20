@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:party_app/models/listing_price_match.dart';
 import 'package:table_calendar/table_calendar.dart';
 import 'package:party_app/models/party_filter.dart';
 import 'package:party_app/utils/party_scale_filter.dart';
@@ -91,15 +92,8 @@ class _DetailSearchSheetState extends State<DetailSearchSheet> {
   // 새로 둔다. 옛 값('40대 이상')은 고르는 자리에서만 빠지고 **판정에서는
   // 계속 받는다**(_matchesAgeGroups) — 저장된 필터가 있어도 깨지지 않게.
   static const _ageGroups = ['20대', '30대', '40대', '50대+'];
-  static const _feeRanges = [
-    '무료',
-    '1만원 이하',
-    '1~3만원',
-    '3~5만원',
-    '5~10만원',
-    '10~20만원',
-    '20만원 이상',
-  ];
+  // 참가비 칸은 판정 함수와 **같은 목록**을 쓴다([partyFeeRanges]).
+  static const _feeRanges = partyFeeRanges;
   static const _dateOptions = ['오늘', '내일', '이번주', '이번주말'];
 
   @override

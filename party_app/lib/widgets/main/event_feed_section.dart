@@ -39,6 +39,23 @@
 // 그대로이고, 이벤트 내용은 상세에 이미 있는 이벤트 영역
 // ([PlacePromotionListSection])이 보여준다 — 이벤트만 따로 떼어낸 상세를
 // 만들지 않는다.
+//
+// ── 🎊 공공 축제(publicEvents) ──────────────────────────────────────────────
+// 한국관광공사 TourAPI에서 서버가 가져온 축제도 이 구획에 함께 선다
+// ([PublicEventService.watchOpen]). 매장/공간 이벤트와 달리 원본 장소가 없어
+// 자기 카드([PublicEventCompactCard])로 그리고, 편 목록에 나중에 합친다
+// ([EventFeed.withPublicEvents]) — 순서는 같은 "곧 볼 수 있는 것부터"다.
+// 📅 날짜 조건은 축제 기간으로 거르고, 🕐 시간 조건으로는 거르지 않는다(진행
+// 시각이 없는 행사는 전시간으로 보는 이벤트 규칙과 같다).
+//
+// 공공 축제 카드를 누르면 공공 축제 전용 상세로 간다(카드가 가진 객체를 그대로
+// 넘긴다 — 매장/공간 상세로는 가지 않는다). 공공 축제를 못 읽어도 이 구획
+// 전체를 오류로 덮지 않는다(그 경우 파티츄 이벤트만 보인다).
+//
+// ── 한 번에 다 그리지 않는다 ─────────────────────────────────────────────────
+// 이 구획은 부모의 SingleChildScrollView 안 Column이라 자식이 **전부 한꺼번에**
+// 만들어진다. 공공 축제만 수백 건이라 [_pageSize]장씩 그리고 '더보기'로 늘린다.
+// 조건(📅🕐)이 바뀌면 처음 [_pageSize]장으로 돌아간다.
 // ─────────────────────────────────────────────────────────────────────────────
 
 import 'dart:async';
@@ -52,10 +69,13 @@ import 'package:party_app/models/place_event_index.dart';
 import 'package:party_app/models/place_event_time.dart';
 import 'package:party_app/models/place_promotion.dart';
 import 'package:party_app/models/place_weekly_hours.dart';
+import 'package:party_app/models/public_event.dart';
 import 'package:party_app/services/listing_sources.dart';
 import 'package:party_app/services/place_promotion_service.dart';
+import 'package:party_app/services/public_event_service.dart';
 import 'package:party_app/utils/firestore_error_log.dart';
 import 'package:party_app/widgets/place_card_widget.dart';
+import 'package:party_app/widgets/public_event_card.dart';
 
 const Color _kPink = Color(0xFFFF6FA0);
 
@@ -92,6 +112,11 @@ class _EventFeedSectionState extends State<EventFeedSection> {
   StreamSubscription<QuerySnapshot<Map<String, dynamic>>>? _venueSub;
   StreamSubscription<QuerySnapshot<Map<String, dynamic>>>? _rentalSub;
   StreamSubscription<List<PlacePromotion>>? _promoSub;
+  StreamSubscription<List<PublicEvent>>? _publicSub;
+
+  /// 한 번에 그리는 카드 수 — '더보기'를 누를 때마다 이만큼 늘어난다.
+  static const int _pageSize = 20;
+  int _shown = _pageSize;
 
   /// null은 "아직 못 읽었다" — 빈 맵("없다")과 구분해야 첫 프레임에 "이벤트가
   /// 없어요"가 잠깐 스쳤다 사라지지 않는다.
@@ -99,13 +124,20 @@ class _EventFeedSectionState extends State<EventFeedSection> {
   Map<String, Map<String, dynamic>>? _rentals;
   List<PlacePromotion>? _promotions;
 
+  /// 🎊 공공 축제 — null은 "아직 못 읽었다". 읽다가 실패하면 빈 목록으로 두고
+  /// 파티츄 이벤트만 보여준다([_error]로 구획 전체를 덮지 않는다).
+  List<PublicEvent>? _publicEvents;
+
   Object? _error;
 
   List<EventFeedItem> _items = const [];
 
   bool get _loading =>
       _error == null &&
-      (_venues == null || _rentals == null || _promotions == null);
+      (_venues == null ||
+          _rentals == null ||
+          _promotions == null ||
+          _publicEvents == null);
 
   @override
   void didUpdateWidget(covariant EventFeedSection old) {
@@ -113,7 +145,11 @@ class _EventFeedSectionState extends State<EventFeedSection> {
     // 스냅샷은 그대로인데 **조건만** 바뀌는 경우가 대부분이다(사용자가 날짜를
     // 고른 순간). _apply는 스냅샷이 올 때만 도는 자리라, 여기서 한 번 더
     // 세워 주지 않으면 필터를 바꿔도 목록이 그대로 남는다.
-    if (!_sameFilter(old)) _rebuild();
+    if (!_sameFilter(old)) {
+      // 조건이 바뀌면 목록이 새로 서므로 처음 몇 장부터 다시 보여준다.
+      _shown = _pageSize;
+      _rebuild();
+    }
   }
 
   bool _sameFilter(EventFeedSection old) =>
@@ -154,6 +190,15 @@ class _EventFeedSectionState extends State<EventFeedSection> {
       (list) => _apply(() => _promotions = list),
       onError: _onError('EventFeedSection.promotions'),
     );
+    // 🎊 공공 축제 — 노출(isVisible)만 서버에서 거르고, 끝난 것은 서비스가
+    // 거른다.
+    _publicSub = PublicEventService.watchOpen().listen(
+      (list) => _apply(() => _publicEvents = list),
+      onError: (Object e, StackTrace s) {
+        logFirestoreStreamError('EventFeedSection.publicEvents', e, s);
+        _apply(() => _publicEvents = const []);
+      },
+    );
   }
 
   Map<String, Map<String, dynamic>> _visible(
@@ -185,7 +230,12 @@ class _EventFeedSectionState extends State<EventFeedSection> {
   }
 
   void _buildItems() {
-    if (_venues == null || _rentals == null || _promotions == null) return;
+    if (_venues == null ||
+        _rentals == null ||
+        _promotions == null ||
+        _publicEvents == null) {
+      return;
+    }
     final grouped = EventFeed.build(
       // 파티는 이 구획이 그리지 않는다 — 파티 목록이 예전 그대로 그린다.
       parties: const {},
@@ -199,6 +249,21 @@ class _EventFeedSectionState extends State<EventFeedSection> {
     // 이벤트가 전체 칸과 이벤트 칸에서 다른 카드로 보인다
     // ([EventFeed.expandEvents]의 주석).
     _items = EventFeed.expandEvents(grouped);
+    // 🎊 공공 축제를 같은 순서 규칙으로 합친다 — 원본 장소가 없어 묶거나 펼
+    // 것이 없으므로 편 목록에 바로 얹는다.
+    _items = EventFeed.withPublicEvents(_items, _filteredPublicEvents());
+  }
+
+  /// 📅 조건을 통과한 공공 축제만 — 고른 날 중 하루라도 기간이 걸치면 남는다.
+  /// 🕐 시간 조건은 보지 않는다(진행 시각이 없는 행사 = 전시간).
+  List<PublicEvent> _filteredPublicEvents() {
+    final all = _publicEvents!;
+    final dates = widget.dates.toList();
+    if (dates.isEmpty) return all;
+    return [
+      for (final e in all)
+        if (dates.any(e.overlapsDay)) e,
+    ];
   }
 
   /// 📅🕐 조건을 통과한 이벤트만.
@@ -248,6 +313,7 @@ class _EventFeedSectionState extends State<EventFeedSection> {
     _venueSub?.cancel();
     _rentalSub?.cancel();
     _promoSub?.cancel();
+    _publicSub?.cancel();
     super.dispose();
   }
 
@@ -283,13 +349,37 @@ class _EventFeedSectionState extends State<EventFeedSection> {
             ),
           ),
         ],
-        // 이 구획이 그리는 것은 🎪 이벤트뿐이다(파티는 파티 목록이 그린다).
-        // `cast`가 아니라 `whereType`인 이유: 언젠가 파티가 섞여 들어와도
-        // 화면이 죽는 대신 이벤트만 그리고 지나간다.
-        for (final item in _items.whereType<VenueEventFeedItem>()) _row(item),
+        // 이 구획이 그리는 것은 이벤트뿐이다(파티는 파티 목록이 그린다) —
+        // 매장/공간 이벤트와 🎊 공공 축제. 파티 칸이 섞여 들어와도 화면이
+        // 죽는 대신 건너뛴다([_card]). 처음 [_shown]장만 만든다.
+        for (final item in _items.take(_shown)) _card(item),
+        if (_items.length > _shown) _moreButton(_items.length - _shown),
       ],
     );
   }
+
+  Widget _card(EventFeedItem item) => switch (item) {
+    VenueEventFeedItem() => _row(item),
+    PublicEventFeedItem() => PublicEventCompactCard(
+      key: ValueKey(item.key),
+      event: item.event,
+      badge: item.kind.badge,
+      // 누르면 공공 축제 상세 — 카드의 기본 동작([openPublicEventDetail]).
+    ),
+    PartyFeedItem() => const SizedBox.shrink(),
+  };
+
+  /// '이벤트 N개 더보기' — 누를 때마다 [_pageSize]장씩 더 그린다.
+  Widget _moreButton(int hidden) => Center(
+    child: TextButton(
+      onPressed: () => setState(() => _shown += _pageSize),
+      style: TextButton.styleFrom(foregroundColor: _kPink),
+      child: Text(
+        '이벤트 $hidden개 더보기',
+        style: const TextStyle(fontSize: 13.5, fontWeight: FontWeight.w600),
+      ),
+    ),
+  );
 
   /// 카드 하나 — 어느 칸에서든 **같은 이벤트 카드**
   /// ([PlaceEventCompactCard]) 하나다. 카드 위에 덧붙는 보조 줄도, 칸에 따른

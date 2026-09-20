@@ -447,11 +447,14 @@ void main() {
     test('이벤트 구획은 파티를 읽지도 그리지도 않는다', () {
       // 파티 맵을 빈 채로 넘긴다 — 파티 칸은 파티 목록이 예전 그대로 그린다.
       expect(section.contains('parties: const {},'), isTrue);
-      // 이 구획이 그리는 것은 이벤트 칸뿐이다.
+      // 이 구획이 그리는 것은 이벤트 칸뿐이다 — 매장/공간 이벤트와 🎊 공공
+      // 축제. 파티 칸이 섞여 들어와도 빈 칸으로 건너뛴다.
       expect(
-        section.contains(
-          'for (final item in _items.whereType<VenueEventFeedItem>()) _row(item),',
-        ),
+        section.contains('VenueEventFeedItem() => _row(item),'),
+        isTrue,
+      );
+      expect(
+        section.contains('PartyFeedItem() => const SizedBox.shrink(),'),
         isTrue,
       );
     });

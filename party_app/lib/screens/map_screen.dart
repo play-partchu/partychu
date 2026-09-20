@@ -1,7 +1,7 @@
 import 'dart:async';
 import 'dart:math' as math;
 import 'dart:ui' as ui;
-import 'package:flutter/foundation.dart' show kIsWeb;
+import 'package:flutter/foundation.dart' show kIsWeb, setEquals;
 import 'package:flutter/material.dart';
 import 'package:flutter_naver_map/flutter_naver_map.dart';
 import 'package:geolocator/geolocator.dart';
@@ -11,6 +11,21 @@ import 'package:party_app/screens/event_detail_screen.dart';
 import 'package:party_app/screens/party_detail_screen.dart';
 import 'package:party_app/screens/party_register_entry_choice_screen.dart';
 import 'package:party_app/screens/place_detail_screen.dart';
+import 'package:party_app/screens/public_event_detail_screen.dart';
+import 'package:party_app/models/event_feed.dart';
+import 'package:party_app/models/public_event.dart';
+import 'package:party_app/services/public_event_service.dart';
+import 'package:party_app/widgets/public_event_card.dart';
+import 'package:party_app/models/listing_price_match.dart';
+import 'package:party_app/models/map_quick_filter_row.dart';
+import 'package:party_app/models/place_filter.dart';
+import 'package:party_app/widgets/map_price_filter_sheet.dart';
+import 'package:party_app/widgets/map_quick_filter_button.dart';
+import 'package:party_app/models/date_time_filter_label.dart';
+import 'package:party_app/models/korean_holidays.dart';
+import 'package:party_app/widgets/main/korean_calendar_sheet.dart';
+import 'package:party_app/widgets/main/quick_date_pane.dart';
+import 'package:party_app/widgets/main/visit_time_picker_sheet.dart';
 import 'package:party_app/services/listing_sources.dart';
 import 'package:party_app/models/place_party_index.dart';
 import 'package:party_app/models/place_event_index.dart';
@@ -27,8 +42,12 @@ import 'package:party_app/utils/firestore_error_log.dart';
 import 'package:party_app/utils/party_utils.dart';
 import 'package:party_app/widgets/party_card_widget.dart';
 import 'package:party_app/models/party_age_restriction.dart';
+import 'package:party_app/models/listing_text_search.dart';
+import 'package:party_app/models/map_home_category.dart';
 import 'package:party_app/models/map_listing.dart';
-import 'package:party_app/models/party_pricing.dart';
+import 'package:party_app/models/map_marker_tap.dart';
+import 'package:party_app/models/party_search.dart';
+import 'package:party_app/widgets/main/search_entry_sheet.dart';
 import 'package:party_app/models/party_date_focus.dart';
 import 'package:party_app/models/event_filter.dart';
 import 'package:party_app/models/party_filter.dart';
@@ -77,7 +96,18 @@ class _MarkerGroup {
 }
 
 class MapScreen extends StatefulWidget {
-  const MapScreen({super.key});
+  /// 앱 **홈**(하단 네비 첫 칸)으로 쓰일 때 true.
+  ///
+  /// 지도가 화면 대부분을 차지한다 — 아래 목록 시트가 없고, 위에는 검색창과
+  /// 가로 카테고리 한 줄만 떠 있다. 마커를 누르면 그 콘텐츠 하나의 작은
+  /// 미리보기 카드만 뜬다. 데이터·필터·마커·상세 이동은 지도 화면과
+  /// **같은 코드**를 그대로 쓴다(그리는 껍데기만 다르다).
+  final bool home;
+
+  /// 홈 모드에서 지도를 쓸 수 없는 웹의 '목록으로 보기' — 목록 탭으로 보낸다.
+  final VoidCallback? onOpenList;
+
+  const MapScreen({super.key, this.home = false, this.onOpenList});
 
   @override
   State<MapScreen> createState() => _MapScreenState();
@@ -112,6 +142,10 @@ class _MapScreenState extends State<MapScreen> {
   /// (기존 [_matchesSharedFilter]가 참가비·성별을 장소 계열에 걸지 않는
   /// 것과 같은 이유).
   final EventFilter _placeDiscovery = EventFilter();
+
+  /// 🏠 장소대여 가격 칸 — 목록 탭과 **같은 모델**([PlaceFilter])의 priceRanges
+  /// 하나만 쓴다. 지도에는 장소대여 상세검색이 없어 이 칸만 들고 있는다.
+  final PlaceFilter _rentalDiscovery = PlaceFilter();
   Set<DateTime> _partyDates = {};
 
   // ── 종류 선택 ─────────────────────────────────────────────────────
@@ -119,7 +153,8 @@ class _MapScreenState extends State<MapScreen> {
   // 처음 들어오면 세 종류가 모두 켜져 있다(= 상단 칩의 '전체'). 이 집합은
   // 상세검색 필터([_filter])와 **완전히 독립**이다 — 종류를 바꿔도 지역·날짜
   // 조건은 그대로 남고, 두 조건은 AND로 함께 걸린다([_matchesFilter]).
-  Set<MapListingKind> _kinds = MapListingKind.values.toSet();
+  // 홈은 '전체'(🎊 공공 축제 포함)로, 지도 화면은 파티츄 세 종류로 시작한다.
+  late Set<MapListingKind> _kinds = mapInitialKinds(home: widget.home);
 
   // ── 데이터 ────────────────────────────────────────────────────────
   //
@@ -161,6 +196,38 @@ class _MapScreenState extends State<MapScreen> {
   /// 마커 하나만 눌렀을 때 지도 위에 뜨는 미리보기 카드.
   MapListing? _tapped;
 
+  // ── 홈 모드 전용 ──────────────────────────────────────────────────
+  bool get _home => widget.home;
+
+  /// 검색창의 검색어 — 목록 탭과 **같은 매칭**을 쓴다(파티는
+  /// [partySearchMatches], 장소 계열은 [listingTextMatches]).
+  String _query = '';
+  final _queryCtrl = TextEditingController();
+
+  /// 지금 고른 가로 카테고리([mapHomeCategories]의 번호).
+  ///
+  /// 멀티선택이다 — [mapHomeCategories]에서 켜 둔 **개별 카테고리 번호**
+  /// (파티·이벤트·플레이스·장소대여)의 집합. **비어 있으면 '전체'** 다.
+  /// '전체'를 따로 저장하지 않으므로 '전체'와 개별 칸이 동시에 켜진
+  /// 상태는 만들어질 수 없고, 마지막 하나를 끄면 저절로 '전체'가 된다.
+  Set<int> _homeSelected = {};
+
+  /// 선택해서 강조 중인 마커의 항목 키([MapListing.key]).
+  String? _selectedKey;
+
+  /// 마커 id → 그 마커가 대표하는 묶음(선택 강조 때 아이콘만 다시 굽는다).
+  final Map<String, _MarkerGroup> _groupsById = {};
+
+  /// 마지막으로 확인한 내 위치 — 미리보기 카드의 거리 표시에 쓴다.
+  NLatLng? _myLatLng;
+
+  /// 앱이 카메라를 옮긴 직후의 idle 한 번은 "사용자가 지도를 움직였다"가
+  /// 아니다('이 지역에서 다시 찾기'를 띄우지 않는다).
+  bool _ignoreNextIdle = false;
+
+  /// 📅 날짜·시간 알약을 눌러 그 아래 빠른선택 판이 펼쳐져 있는가.
+  bool _dateTimePaneOpen = false;
+
   // 하단 파티 목록 시트 — 사용자가 드래그해 접어둔 채로 "이 지도에서 파티
   // 보기"를 누르면(예: minChildSize=0.15까지 내려간 상태) 헤더(제목/개수)는
   // 보이지만 그 아래 Expanded 안의 ListView가 표시될 공간이 거의 남지 않아
@@ -199,13 +266,33 @@ class _MapScreenState extends State<MapScreen> {
   PlaceEventIndex? _rentalEventIndex;
   StreamSubscription<List<PlacePromotion>>? _placeEventSub;
 
+  /// 🎊 공공 축제(publicEvents) 구독 — **지도 홈에서 공공 축제를 올리는
+  /// 카테고리(전체·이벤트)가 켜진 동안에만** 건다([_syncPublicEventSub]).
+  /// 받은 것 중 좌표가 있는 것만 [_byKind]의 공공 축제 칸에 담긴다.
+  StreamSubscription<List<PublicEvent>>? _publicEventSub;
+
+  /// 공공 축제 마커를 만든 **넓힌 화면 영역** — 화면이 이 상자를 벗어날 때만
+  /// 마커를 다시 그린다([_onCameraIdle]). 공공 축제가 마커 후보에 없으면 null.
+  ({double south, double west, double north, double east})? _festivalSyncBox;
+
+  /// 공공 축제 마커를 만들 때 화면 영역을 사방으로 넓히는 비율 — 조금씩
+  /// 움직일 때마다 마커를 다시 그리지 않게 한다.
+  static const double _festivalBoxMargin = 0.5;
+
   @override
   void initState() {
     super.initState();
     // 지도 화면은 들어올 때마다 항상 음소거로 시작한다(마커 카드가 한 화면에
     // 여러 개 걸릴 수 있어 소리가 켜진 채 진입하면 시끄럽다) — 사용자가 직접
     // 스피커 버튼으로 켜면 그 뒤로는 다른 화면과 동일하게 전역 설정을 따른다.
-    FeedVideoManager.instance.setMuted(true);
+    //
+    // 홈 모드는 앱을 켜자마자 만들어지는 화면이라 여기서 전역 음소거를 바꾸면
+    // 목록 탭의 소리 설정까지 덮어쓴다 — 홈에는 동영상이 없으므로 건드리지
+    // 않는다.
+    if (!widget.home) FeedVideoManager.instance.setMuted(true);
+    // 웹 홈은 지도 대신 안내만 그린다 — 올릴 마커가 없으니 읽지도 않는다
+    // (목록 탭이 같은 데이터를 이미 읽고 있다).
+    if (widget.home && kIsWeb) return;
     // 세 컬렉션을 각각 구독한다 — 지도 전용 사본을 만들지 않고 목록 화면과
     // **같은 쿼리**([ListingSources])를 그대로 쓴다.
     _subscriptions.addAll([
@@ -241,7 +328,9 @@ class _MapScreenState extends State<MapScreen> {
       sub.cancel();
     }
     _placeEventSub?.cancel();
+    _publicEventSub?.cancel();
     _sheetController.dispose();
+    _queryCtrl.dispose();
     super.dispose();
   }
 
@@ -314,6 +403,38 @@ class _MapScreenState extends State<MapScreen> {
     _syncMarkers();
   }
 
+  /// 🎊 공공 축제를 올리는 칸(전체·이벤트)이 지도 홈에서 켜진 동안에만
+  /// `publicEvents`를 구독한다. 지도 화면(하단 목록 시트)은 공공 축제를
+  /// 다루지 않는다 — 종류 칩이 파티츄 세 종류뿐이다([MapListingKind.listingKinds]).
+  ///
+  /// 조회·끝난 행사 거르기는 이벤트 피드와 같은 [PublicEventService.watchOpen]
+  /// 이고, 여기서는 **좌표가 있는 것만** 지도 후보로 남긴다.
+  void _syncPublicEventSub() {
+    final want =
+        _home && !kIsWeb && _kinds.contains(MapListingKind.festival);
+    if (want == (_publicEventSub != null)) return;
+    if (!want) {
+      _publicEventSub?.cancel();
+      _publicEventSub = null;
+      _byKind[MapListingKind.festival] = <MapListing>[];
+      return;
+    }
+    _publicEventSub = PublicEventService.watchOpen().listen(
+      (events) {
+        if (!mounted) return;
+        setState(() {
+          _byKind[MapListingKind.festival] = [
+            for (final e in events) ?MapListing.fromPublicEvent(e),
+          ];
+          _recomputeVisible();
+        });
+        _syncMarkers();
+      },
+      onError: (Object e, StackTrace s) =>
+          logFirestoreStreamError('MapPublicEvents', e, s),
+    );
+  }
+
   /// 🎪 이벤트 칸이 켜져 있는 동안에만 `placePromotions`를 구독한다.
   ///
   /// 조건이 바뀌는 입구는 여럿이지만 전부 [_recomputeVisible]로 끝나므로,
@@ -323,7 +444,7 @@ class _MapScreenState extends State<MapScreen> {
   /// 매장 이벤트를, 장소대여 마커는 공간 이벤트를 본다. 한 집합에 담으면 id가
   /// 우연히 겹칠 때 남의 종류가 새어 들어온다([PlaceEventIndex] 상단 주석).
   void _syncPlaceEventIndexSub() {
-    final want = _placeDiscovery.eventOnly;
+    final want = _placeDiscovery.eventOnly || _homeWantsEvents;
     if (want == (_placeEventSub != null)) return;
 
     if (!want) {
@@ -355,6 +476,8 @@ class _MapScreenState extends State<MapScreen> {
           _rentalEventIndex = nextRental;
           _recomputeVisible();
         });
+        // 이벤트 색인이 바뀌면 이벤트 조건에 걸린 마커도 다시 그린다.
+        _syncMarkers();
       },
       onError: (Object e, StackTrace s) =>
           logFirestoreStreamError('MapPlaceEventIndex', e, s),
@@ -366,6 +489,8 @@ class _MapScreenState extends State<MapScreen> {
   void _recomputeVisible() {
     // 🎪 이벤트를 켠 동안에만 이벤트 정본을 구독한다(위 주석).
     _syncPlaceEventIndexSub();
+    // 🎊 공공 축제도 그 칸이 켜진 동안에만.
+    _syncPublicEventSub();
     _mapItems = [
       for (final kind in MapListingKind.values)
         if (_kinds.contains(kind)) ..._byKind[kind]!.where(_matchesFilter),
@@ -393,9 +518,12 @@ class _MapScreenState extends State<MapScreen> {
     };
 
     // 지금 미리보기 중인 항목이 조건에서 빠졌으면 카드도 함께 내린다.
+    // (홈은 마커 자체가 영역 검색 결과를 따르므로 그 목록으로 본다.)
     final tapped = _tapped;
-    if (tapped != null && !_mapItems.any((i) => i.key == tapped.key)) {
+    final pool = _home ? _displayed : _mapItems;
+    if (tapped != null && !pool.any((i) => i.key == tapped.key)) {
       _tapped = null;
+      _selectedKey = null;
     }
   }
 
@@ -420,15 +548,49 @@ class _MapScreenState extends State<MapScreen> {
     if (_mapController == null) return;
     final generation = ++_syncGeneration;
 
+    // 홈에는 아래 목록이 없다 — '이 지역에서 다시 찾기'가 좁힌 결과를 마커가
+    // 그대로 보여준다(영역 검색 전에는 [_mapItems]와 같다).
+    var pool = _home ? _displayed : _mapItems;
+    // 🎊 공공 축제는 전국 수백 건이라 **화면 근처 것만** 마커 후보로 만든다.
+    // 걸러 내는 함수는 영역 검색과 같은 [_filterByBounds]이고, 영역은 지금
+    // 화면을 사방으로 넓힌 상자다([_festivalBoxMargin]). 파티츄 콘텐츠 셋은
+    // 예전 그대로 전부 후보다.
+    if (pool.any((i) => i.kind == MapListingKind.festival)) {
+      final view = await _mapController!.getContentBounds();
+      if (!mounted || generation != _syncGeneration) return;
+      final box = expandBox(_boxOf(view), _festivalBoxMargin);
+      _festivalSyncBox = box;
+      final nearby = _filterByBounds(
+        [
+          for (final i in pool)
+            if (i.kind == MapListingKind.festival) i,
+        ],
+        NLatLngBounds(
+          southWest: NLatLng(box.south, box.west),
+          northEast: NLatLng(box.north, box.east),
+        ),
+      );
+      pool = [
+        for (final i in pool)
+          if (i.kind != MapListingKind.festival) i,
+        ...nearby,
+      ];
+    } else {
+      _festivalSyncBox = null;
+    }
+
     for (final marker in _markers.values) {
       await _mapController!.deleteOverlay(marker.info);
     }
     _markers.clear();
     if (!mounted || generation != _syncGeneration) return;
 
-    final tier = _tierForZoom(_currentZoom);
+    final tier = _markerTierForZoom(_currentZoom);
     _syncedZoomStep = _currentZoom.floor();
-    final groups = _clusterListings(_mapItems, tier);
+    final groups = _clusterListings(pool, tier);
+    _groupsById
+      ..clear()
+      ..addEntries(groups.map((g) => MapEntry(g.id, g)));
     final pending = <String, NMarker>{};
 
     Future<void> rollback() async {
@@ -439,7 +601,10 @@ class _MapScreenState extends State<MapScreen> {
 
     for (final group in groups) {
       if (!mounted || generation != _syncGeneration) return rollback();
-      final built = await _buildMarkerIcon(group, tier);
+      final selected = _isSelectedGroup(group);
+      final built = selected
+          ? await _buildSelectedMarkerIcon(group.first)
+          : await _buildMarkerIcon(group, tier);
       if (built == null) return rollback();
       if (!mounted || generation != _syncGeneration) return rollback();
 
@@ -450,6 +615,7 @@ class _MapScreenState extends State<MapScreen> {
       marker.setIcon(built.icon);
       marker.setSize(built.size);
       marker.setAnchor(built.anchor);
+      if (selected) marker.setZIndex(1000);
       marker.setOnTapListener((_) => _onMarkerTap(group));
       await _mapController?.addOverlay(marker);
       pending[group.id] = marker;
@@ -570,14 +736,30 @@ class _MapScreenState extends State<MapScreen> {
 
     // 대표 미디어 판정은 세 종류가 같은 함수를 쓴다 — 동영상이 대표인
     // 게시물도 정지 썸네일 URL만 골라 준다(동영상 URL을 Image로 그리지 않음).
-    final cover = getPartyCoverMedia(item.data, tag: 'MapMarker');
+    // 🎊 공공 축제는 호스트 문서가 아니라 자기 작은 이미지를 쓴다.
+    final festival = item.publicEvent;
+    final cover = festival == null
+        ? getPartyCoverMedia(item.data, tag: 'MapMarker')
+        : null;
     final isVideo = cover?.isVideo ?? false;
-    final thumbUrl = cover?.thumbnailUrl;
+    final thumbUrl = festival == null
+        ? cover?.thumbnailUrl
+        : (festival.thumbnailUrl ?? festival.imageUrl);
     ui.Image? image;
     if (thumbUrl != null && thumbUrl.isNotEmpty) {
       image = await _fetchDecodedImage(thumbUrl);
     }
     if (!mounted) return null;
+
+    if (tier == _MarkerTier.circle && festival != null) {
+      const size = Size(46, 46);
+      final icon = await NOverlayImage.fromWidget(
+        widget: _buildFestivalCircleMarkerWidget(image),
+        size: size,
+        context: context,
+      );
+      return (icon: icon, size: size, anchor: const NPoint(0.5, 0.5));
+    }
 
     if (tier == _MarkerTier.circle) {
       const size = Size(46, 46);
@@ -654,6 +836,64 @@ class _MapScreenState extends State<MapScreen> {
                   size: 18,
                 ),
               ),
+      ),
+    );
+  }
+
+  // 🎊 공공 축제 원형 마커 — 파티츄 원형 썸네일([_buildCircleThumbMarkerWidget])과
+  // 크기·모양은 같고, 청록 테두리에 오른쪽 아래 🎊 배지가 붙는다. 사진이
+  // 무엇이든 "공공 축제"가 먼저 읽히게 하려는 것이다. 파티츄 마커 위젯은
+  // 건드리지 않고 따로 둔다.
+  static Widget _buildFestivalCircleMarkerWidget(ui.Image? image) {
+    const kind = MapListingKind.festival;
+    return SizedBox(
+      width: 46,
+      height: 46,
+      child: Stack(
+        children: [
+          Positioned.fill(
+            child: Container(
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                color: Colors.white,
+                border: Border.all(color: kind.color, width: 3),
+                boxShadow: const [
+                  BoxShadow(
+                    color: Color(0x55000000),
+                    blurRadius: 5,
+                    offset: Offset(0, 2),
+                  ),
+                ],
+              ),
+              child: ClipOval(
+                child: image != null
+                    ? RawImage(image: image, fit: BoxFit.cover)
+                    : Container(
+                        color: kind.color.withValues(alpha: 0.14),
+                        child: Icon(kind.icon, color: kind.color, size: 18),
+                      ),
+              ),
+            ),
+          ),
+          Positioned(
+            right: 0,
+            bottom: 0,
+            child: Container(
+              width: 17,
+              height: 17,
+              alignment: Alignment.center,
+              decoration: BoxDecoration(
+                color: kind.color,
+                shape: BoxShape.circle,
+                border: Border.all(color: Colors.white, width: 1.5),
+              ),
+              child: Text(
+                kind.emoji,
+                style: const TextStyle(fontSize: 8.5, height: 1),
+              ),
+            ),
+          ),
+        ],
       ),
     );
   }
@@ -798,17 +1038,30 @@ class _MapScreenState extends State<MapScreen> {
   //
   // 하나짜리 마커는 예전처럼 지도 위 미리보기 카드를 띄우고, 겹친 자리는
   // **그 자리의 목록을 통째로 펼친다** — 어느 것도 다른 것에 가려 못 고르는
-  // 일이 없어야 하기 때문이다.
+  // 일이 없어야 하기 때문이다. 무엇을 열지·카메라를 옮길지는
+  // [mapMarkerTapPlan] 하나가 정한다(묶음은 줌과 무관하게 바로 목록, 카메라
+  // 이동 없음).
   void _onMarkerTap(_MarkerGroup group) {
-    _mapController?.updateCamera(
-      NCameraUpdate.withParams(target: NLatLng(group.lat, group.lng)),
-    );
-    if (group.items.length == 1) {
-      setState(() => _tapped = group.first);
+    if (_home) {
+      _onHomeMarkerTap(group);
       return;
     }
-    setState(() => _tapped = null);
-    _openGroupSheet(group);
+    final plan = mapMarkerTapPlan(group.items);
+    if (plan.action == MapMarkerTapAction.openGroupList) {
+      setState(() => _tapped = null);
+      _openGroupSheet(group);
+      return;
+    }
+    if (plan.centerCamera) {
+      _mapController?.updateCamera(
+        NCameraUpdate.withParams(target: NLatLng(group.lat, group.lng)),
+      );
+    }
+    if (plan.action == MapMarkerTapAction.openFestivalDetail) {
+      _openDetail(group.first);
+      return;
+    }
+    setState(() => _tapped = group.first);
   }
 
   /// 같은 자리에 겹친 항목들을 고르는 시트 — 카드는 하단 목록과 **같은 것**을
@@ -903,6 +1156,11 @@ class _MapScreenState extends State<MapScreen> {
   }
 
   void _dismissTappedCard() {
+    if (_home) {
+      if (_dateTimePaneOpen) setState(() => _dateTimePaneOpen = false);
+      _selectHomeItem(null);
+      return;
+    }
     if (_tapped != null) {
       setState(() => _tapped = null);
     }
@@ -921,17 +1179,39 @@ class _MapScreenState extends State<MapScreen> {
     // 3단계(점/원형/카드) 전환뿐 아니라 **줌 한 칸**이 바뀌어도 다시 그린다 —
     // 겹침 묶음의 크기가 줌에 따라 정해지므로(마커 픽셀 폭 → 좌표 폭),
     // 단계 안에서 확대만 해도 묶여 있던 것이 풀려야 한다.
+    // (홈은 선택하지 않은 마커를 원형 썸네일까지만 키운다 — [_markerTierForZoom].)
     if (wasTier != isTier || newZoom.floor() != _syncedZoomStep) {
       _syncMarkers();
+    } else if (_festivalSyncBox != null) {
+      // 🎊 공공 축제는 화면 근처 것만 마커로 만들어 두었다 — 화면이 그 넓힌
+      // 상자를 벗어났을 때만 다시 그린다(조금 움직이는 것으로는 그리지 않는다).
+      final view = await _mapController?.getContentBounds();
+      if (!mounted) return;
+      if (view != null && !boxContains(_festivalSyncBox!, _boxOf(view))) {
+        _syncMarkers();
+      }
     }
 
     if (_pendingAreaSearch) {
       _pendingAreaSearch = false;
+      _ignoreNextIdle = false;
       _searchThisArea();
+    } else if (_ignoreNextIdle) {
+      // 앱이 옮긴 카메라(내 위치 자동 이동·마커 가운데 맞춤)다.
+      _ignoreNextIdle = false;
     } else {
       setState(() => _mapMoved = true);
     }
   }
+
+  static ({double south, double west, double north, double east}) _boxOf(
+    NLatLngBounds b,
+  ) => (
+    south: b.southWest.latitude,
+    west: b.southWest.longitude,
+    north: b.northEast.latitude,
+    east: b.northEast.longitude,
+  );
 
   // ── 지도 영역 기준 필터 ───────────────────────────────────────────
   List<MapListing> _filterByBounds(
@@ -1057,6 +1337,17 @@ class _MapScreenState extends State<MapScreen> {
   }
 
   bool _matchesFilter(MapListing item) {
+    // 홈 카테고리(멀티선택) — 켜 둔 칸 중 **하나라도** 받아 주면 남는다.
+    if (!_homeCategoryAccepts(item)) return false;
+    // 🎊 공공 축제는 자기 판정 하나로 끝난다(아래 파티츄 조건은 그 값이 없다).
+    if (item.kind == MapListingKind.festival) return _matchesFestival(item);
+    // 검색어(홈 검색창) — 목록 탭과 같은 매칭 함수다.
+    if (_query.isNotEmpty) {
+      final hit = item.kind == MapListingKind.party
+          ? partySearchMatches(item.data, _query)
+          : listingTextMatches(item.data, _query);
+      if (!hit) return false;
+    }
     // 플레이스 조건은 플레이스에만. 목록 화면과 **같은 함수**를 부르므로
     // 지도와 플레이스 탭의 결과가 갈릴 수 없다.
     if (item.kind == MapListingKind.place &&
@@ -1068,6 +1359,17 @@ class _MapScreenState extends State<MapScreen> {
           // 🎪 이벤트도 같다 — 판정은 `placePromotions` 쪽에 있다.
           eventIndex: _placeEventIndex,
         )) {
+      return false;
+    }
+    // 💳 플레이스 가격대 — 목록 탭과 같은 라벨 비교([eventPriceMatches]).
+    if (item.kind == MapListingKind.place &&
+        !eventPriceMatches(item.data, _placeDiscovery.priceRanges)) {
+      return false;
+    }
+    // 💳 장소대여 시간당 요금 — 목록 탭과 같은 판정. 가격 문의 공간은 금액을
+    // 모르므로 조건을 켜면 빠진다([rentalPriceMatches]).
+    if (item.kind == MapListingKind.rental &&
+        !rentalPriceMatches(item.data, _rentalDiscovery.priceRanges)) {
       return false;
     }
     // 🎪 이벤트는 **장소대여에도** 걸린다 — 조건을 켜면 이벤트를 하는 곳만
@@ -1101,6 +1403,42 @@ class _MapScreenState extends State<MapScreen> {
       return _matchesDetailFilter(item.data);
     }
     return _matchesSharedFilter(item);
+  }
+
+  /// 🎊 공공 축제에 걸 수 있는 조건만 — 검색어·지역·날짜.
+  ///
+  /// 날짜는 **행사 기간이 그날과 겹치면** 통과다([PublicEvent.overlapsDay]:
+  /// 시작 ≤ 그날 끝 && 종료 ≥ 그날 시작). 여러 날은 OR(하루라도 겹치면)이다.
+  /// 🕐 시간 조건·참가비·성별·플레이스 특징은 걸지 않는다 — 공공 축제에는 그
+  /// 값이 없어서, 걸면 조건을 켜는 순간 통째로 사라진다([_matchesSharedFilter]
+  /// 주석과 같은 이유).
+  bool _matchesFestival(MapListing item) {
+    final e = item.publicEvent;
+    if (e == null) return false;
+    if (_query.isNotEmpty && !listingTextMatches(item.data, _query)) {
+      return false;
+    }
+    if (_filter.districts.isNotEmpty &&
+        !RegionData.addressMatchesDistrictFilter(
+          item.addressText,
+          _filter.districts,
+        )) {
+      return false;
+    }
+    if (_filter.dateOptions.isNotEmpty) {
+      final now = DateTime.now();
+      final days = _filter.dateOptions.expand((o) => _daysOfDateOption(o, now));
+      if (!days.any(e.overlapsDay)) return false;
+    }
+    if (_filter.selectedDates.isNotEmpty &&
+        !_filter.selectedDates.any(e.overlapsDay)) {
+      return false;
+    }
+    if (_placeDiscovery.visitDates.isNotEmpty &&
+        !_placeDiscovery.visitDates.any(e.overlapsDay)) {
+      return false;
+    }
+    return true;
   }
 
   /// 장소 계열(플레이스/장소대여)에 걸 수 있는 조건만 추린 판정.
@@ -1227,11 +1565,8 @@ class _MapScreenState extends State<MapScreen> {
           : '남녀무관';
       if (!_filter.genderConditions.contains(label)) return false;
     }
-    if (_filter.feeRanges.isNotEmpty) {
-      // 목록과 동일하게 최소 참가비 기준(PartyPricing이 옛 필드도 흡수한다).
-      final fee = PartyPricing.fromMap(p).displayPrice;
-      if (!_filter.feeRanges.any((r) => _matchesFeeRange(fee, r))) return false;
-    }
+    // 목록과 **같은 함수**로 판정한다(최소 참가비 기준, [partyFeeMatches]).
+    if (!partyFeeMatches(p, _filter.feeRanges)) return false;
     if (_filter.ageGroups.isNotEmpty) {
       if (!_matchesAgeGroups(p, _filter.ageGroups)) return false;
     }
@@ -1313,26 +1648,6 @@ class _MapScreenState extends State<MapScreen> {
     return true;
   }
 
-  static bool _matchesFeeRange(int fee, String range) {
-    switch (range) {
-      case '무료':
-        return fee <= 0;
-      case '1만원 이하':
-        return fee > 0 && fee <= 10000;
-      case '1~3만원':
-        return fee > 10000 && fee <= 30000;
-      case '3~5만원':
-        return fee > 30000 && fee <= 50000;
-      case '5~10만원':
-        return fee > 50000 && fee <= 100000;
-      case '10~20만원':
-        return fee > 100000 && fee <= 200000;
-      case '20만원 이상':
-        return fee > 200000;
-      default:
-        return true;
-    }
-  }
 
   static bool _matchesDateOption(DateTime dt, String option, DateTime now) {
     final today = DateTime(now.year, now.month, now.day);
@@ -1369,8 +1684,19 @@ class _MapScreenState extends State<MapScreen> {
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
       ),
-      builder: (_) =>
-          DetailSearchSheet(initialFilter: _filter, partyDates: _partyDates),
+      builder: (_) => DetailSearchSheet(
+        initialFilter: _filter,
+        partyDates: _partyDates,
+        // 홈은 검색창과 상세필터가 한 시트다(목록 탭의 검색 시트와 같은 구성).
+        search: _home
+            ? SearchEntryConfig(
+                title: '검색',
+                hintText: '파티·플레이스·장소 이름, 지역, 키워드',
+                controller: _queryCtrl,
+                onQueryChanged: _onQueryChanged,
+              )
+            : null,
+      ),
     );
     if (result != null) {
       setState(() {
@@ -1410,6 +1736,8 @@ class _MapScreenState extends State<MapScreen> {
       _recomputeVisible();
       _mapMoved = false;
     });
+    // 홈은 마커가 곧 결과다 — 좁힌 영역으로 마커를 다시 그린다.
+    if (_home) _syncMarkers();
     _ensureSheetExpanded();
   }
 
@@ -1428,7 +1756,8 @@ class _MapScreenState extends State<MapScreen> {
   }
 
   // ── 현재 위치 이동 ─────────────────────────────────────────────────
-  Future<void> _goToCurrentLocation() async {
+  /// [areaSearch]가 false면 카메라만 옮긴다(홈 첫 진입의 자동 이동).
+  Future<void> _goToCurrentLocation({bool areaSearch = true}) async {
     setState(() => _isLoadingLocation = true);
     try {
       LocationPermission permission = await Geolocator.checkPermission();
@@ -1452,9 +1781,11 @@ class _MapScreenState extends State<MapScreen> {
       );
 
       final latLng = NLatLng(position.latitude, position.longitude);
+      _myLatLng = latLng;
 
       // onCameraIdle 발생 시 자동 영역 검색 실행
-      _pendingAreaSearch = true;
+      _pendingAreaSearch = areaSearch;
+      _ignoreNextIdle = !areaSearch;
 
       await _mapController?.updateCamera(
         NCameraUpdate.withParams(target: latLng, zoom: 15),
@@ -1480,6 +1811,7 @@ class _MapScreenState extends State<MapScreen> {
   // ── build ──────────────────────────────────────────────────────────
   @override
   Widget build(BuildContext context) {
+    if (_home) return _buildHome(context);
     final screenHeight = MediaQuery.of(context).size.height;
     const sheetSize = 0.35;
 
@@ -1512,31 +1844,7 @@ class _MapScreenState extends State<MapScreen> {
           // init을 건너뛴다. 그 상태로 NaverMap을 그리면 이 화면이 통째로
           // 예외로 죽는다 — 웹에서는 지도 자리만 안내로 대신한다. 아래 목록
           // 시트(플레이스·파티 카드)는 지도 없이도 그대로 동작한다.
-          if (kIsWeb)
-            const _WebMapUnavailable()
-          else
-            NaverMap(
-              options: const NaverMapViewOptions(
-                initialCameraPosition: NCameraPosition(
-                  target: NLatLng(37.5665, 126.9780),
-                  zoom: 12,
-                ),
-              ),
-              onMapReady: (controller) {
-                _mapController = controller;
-                if (_mapItems.isNotEmpty) {
-                  _syncMarkers();
-                }
-                // 초기 onCameraIdle 무시를 위해 한 프레임 후 초기화 완료 표시
-                WidgetsBinding.instance.addPostFrameCallback((_) {
-                  if (mounted) setState(() => _mapInitialized = true);
-                });
-              },
-              onMapTapped: (point, coord) => _dismissTappedCard(),
-              onCameraIdle: () {
-                _onCameraIdle();
-              },
-            ),
+          if (kIsWeb) const _WebMapUnavailable() else _buildNaverMap(),
 
           // (종류 선택 칩은 지도 위에 없다 — 아래 목록 시트의 머리줄 한 곳에서만
           //  고른다. 같은 선택이 두 곳에 있으면 어느 쪽이 정본인지 알 수 없고,
@@ -1719,12 +2027,1035 @@ class _MapScreenState extends State<MapScreen> {
     );
   }
 
+  // ── 네이버 지도 본체 — 지도 화면과 홈이 같은 위젯을 쓴다 ─────────────
+  Widget _buildNaverMap() => NaverMap(
+    options: const NaverMapViewOptions(
+      initialCameraPosition: NCameraPosition(
+        target: NLatLng(37.5665, 126.9780),
+        zoom: 12,
+      ),
+    ),
+    onMapReady: (controller) {
+      _mapController = controller;
+      if (_mapItems.isNotEmpty) {
+        _syncMarkers();
+      }
+      // 초기 onCameraIdle 무시를 위해 한 프레임 후 초기화 완료 표시
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) setState(() => _mapInitialized = true);
+      });
+      // 홈은 "열자마자 내 주변"이다 — 위치 권한이 **이미 있을 때만** 조용히
+      // 내 위치로 옮긴다(앱을 켜자마자 권한 팝업을 띄우지 않는다).
+      if (_home) _locateIfPermitted();
+    },
+    onMapTapped: (point, coord) => _dismissTappedCard(),
+    onCameraIdle: () {
+      _onCameraIdle();
+    },
+  );
+
+  // ══════════════════════════════════════════════════════════════════
+  // 홈 모드 — 지도 중심 탐색
+  // ══════════════════════════════════════════════════════════════════
+
+  /// 마커를 그릴 단계 — 홈은 **선택하지 않은 마커**를 원형 썸네일까지만
+  /// 키운다(모든 콘텐츠의 큰 사진 핀이 지도를 덮지 않게). 선택한 마커만
+  /// 사진 핀으로 강조한다([_buildSelectedMarkerIcon]).
+  _MarkerTier _markerTierForZoom(double zoom) {
+    final tier = _tierForZoom(zoom);
+    if (_home && tier == _MarkerTier.card) return _MarkerTier.circle;
+    return tier;
+  }
+
+  bool _isSelectedGroup(_MarkerGroup group) =>
+      _home && group.items.length == 1 && group.first.key == _selectedKey;
+
+  /// 선택한 마커 — 대표 사진을 담은 핀(지도 화면의 확대 단계 핀과 같은 모양).
+  Future<({NOverlayImage icon, Size size, NPoint anchor})?>
+  _buildSelectedMarkerIcon(MapListing item) async {
+    if (!mounted) return null;
+    final cover = getPartyCoverMedia(item.data, tag: 'MapHomeSelected');
+    final isVideo = cover?.isVideo ?? false;
+    final thumbUrl = cover?.thumbnailUrl;
+    ui.Image? image;
+    if (thumbUrl != null && thumbUrl.isNotEmpty) {
+      image = await _fetchDecodedImage(thumbUrl);
+    }
+    if (!mounted) return null;
+    const size = Size(70, 86);
+    final icon = await NOverlayImage.fromWidget(
+      widget: _buildThumbMarkerWidget(item.kind, image, isVideo: isVideo),
+      size: size,
+      context: context,
+    );
+    return (icon: icon, size: size, anchor: const NPoint(0.5, 1.0));
+  }
+
+  /// 마커 하나의 아이콘만 다시 굽는다 — 선택이 바뀔 때 전체 마커를 지웠다
+  /// 다시 올리지 않는다(깜빡임 없이 그 두 개만 바뀐다).
+  Future<void> _refreshMarker(String? key) async {
+    if (key == null) return;
+    final id = 'grp_$key';
+    final marker = _markers[id];
+    final group = _groupsById[id];
+    if (marker == null || group == null || group.items.length != 1) return;
+    final selected = _isSelectedGroup(group);
+    final built = selected
+        ? await _buildSelectedMarkerIcon(group.first)
+        : await _buildMarkerIcon(group, _markerTierForZoom(_currentZoom));
+    if (built == null || !mounted || _markers[id] != marker) return;
+    marker
+      ..setIcon(built.icon)
+      ..setSize(built.size)
+      ..setAnchor(built.anchor)
+      ..setZIndex(selected ? 1000 : 0);
+  }
+
+  /// 미리보기 카드와 강조 마커를 함께 바꾼다(null이면 둘 다 내린다).
+  void _selectHomeItem(MapListing? item) {
+    final previous = _selectedKey;
+    if (previous == item?.key && _tapped?.key == item?.key) return;
+    setState(() {
+      _tapped = item;
+      _selectedKey = item?.key;
+    });
+    if (previous != item?.key) {
+      _refreshMarker(previous);
+      _refreshMarker(item?.key);
+    }
+  }
+
+  /// 앱이 카메라를 옮긴다 — 그 뒤의 idle 한 번은 '다시 찾기'를 띄우지 않는다.
+  /// 제자리라 idle이 오지 않는 경우에 대비해 잠시 뒤 스스로 풀린다.
+  void _moveCameraQuietly(NCameraUpdate update) {
+    _ignoreNextIdle = true;
+    _mapController?.updateCamera(update);
+    Future.delayed(const Duration(milliseconds: 1500), () {
+      _ignoreNextIdle = false;
+    });
+  }
+
+  /// 홈의 마커 탭 — 하나짜리는 그 콘텐츠의 작은 미리보기 카드만 띄운다.
+  /// 겹친 묶음은 **한 번에** 그 자리의 목록을 연다(지도 화면과 같은 시트) —
+  /// 확대도 카메라 이동도 하지 않는다. 예전에는 줌 17 전까지 누를 때마다
+  /// 두 칸씩 확대만 해서, 묶음을 풀려면 여러 번 눌러야 했다.
+  void _onHomeMarkerTap(_MarkerGroup group) {
+    final plan = mapMarkerTapPlan(group.items);
+    switch (plan.action) {
+      case MapMarkerTapAction.openGroupList:
+        _selectHomeItem(null);
+        _openGroupSheet(group);
+      case MapMarkerTapAction.openFestivalDetail:
+        // 🎊 공공 축제 하나짜리는 미리보기 카드 없이 곧장 공공 축제 상세로
+        // 간다(들고 있는 [PublicEvent]를 그대로 넘긴다 — 다시 읽지 않는다).
+        _selectHomeItem(null);
+        _openDetail(group.first);
+      case MapMarkerTapAction.previewSingle:
+        if (plan.centerCamera) {
+          _moveCameraQuietly(
+            NCameraUpdate.withParams(target: NLatLng(group.lat, group.lng)),
+          );
+        }
+        _selectHomeItem(group.first);
+    }
+  }
+
+  void _onQueryChanged(String value) {
+    setState(() {
+      _query = value.trim();
+      _recomputeVisible();
+    });
+    _syncMarkers();
+  }
+
+  /// 홈 카테고리 칸을 눌렀다.
+  ///
+  ///   · '전체'(0) → 개별 선택을 모두 푼다(= 전체).
+  ///   · 개별 칸 → 켜고 끄는 토글. 전체 상태에서 누르면 그 칸만 켜지고,
+  ///     마지막 하나를 끄면 빈 집합 = 다시 '전체'.
+  void _selectHomeCategory(int index) {
+    final next = index == 0
+        ? <int>{}
+        : (_homeSelected.contains(index)
+              ? ({..._homeSelected}..remove(index))
+              : {..._homeSelected, index});
+    if (setEquals(next, _homeSelected)) return;
+    setState(() {
+      _homeSelected = next;
+      // 올릴 종류는 켜 둔 칸들의 합집합이다. 칸 안의 세부 조건(이벤트 하는
+      // 곳만)은 [_homeCategoryAccepts]가 항목마다 본다 — 전역 🎪 조건
+      // ([EventFilter.eventOnly])으로 걸면 '파티 + 이벤트'에서 플레이스·
+      // 장소대여 전체가 아니라 이벤트 하는 곳만 남기는 것을 표현할 수 없다.
+      _kinds = mapHomeKindsFor(_homeSelected);
+      _recomputeVisible();
+    });
+    _syncMarkers();
+  }
+
+  /// '이벤트' 칸이 켜져 있어 🎪 이벤트 정본을 읽어야 하는가.
+  bool get _homeWantsEvents =>
+      _home && _homeSelected.any((i) => mapHomeCategories[i].eventOnly);
+
+  /// 켜 둔 홈 카테고리 중 하나라도 이 항목을 받아 주는가('전체'면 항상).
+  bool _homeCategoryAccepts(MapListing item) {
+    if (!_home || _homeSelected.isEmpty) return true;
+    for (final i in _homeSelected) {
+      final category = mapHomeCategories[i];
+      if (!category.kinds.contains(item.kind)) continue;
+      if (!category.eventOnly || _hasRunningEvent(item)) return true;
+    }
+    return false;
+  }
+
+  /// 🎪 지금 보여줄 이벤트가 있는가 — 목록 탭·기존 지도와 **같은 판정**이다
+  /// (플레이스는 [EventFilter.matchesDiscovery]의 이벤트 갈래, 장소대여는
+  /// [PlaceEventIndex.allows]). 방문 날짜·시간 조건도 그대로 함께 넘긴다.
+  bool _hasRunningEvent(MapListing item) {
+    final index = switch (item.kind) {
+      MapListingKind.place => _placeEventIndex,
+      MapListingKind.rental => _rentalEventIndex,
+      MapListingKind.party => null,
+      MapListingKind.festival => null,
+    };
+    if (item.kind == MapListingKind.party) return false;
+    // 🎊 공공 축제는 그 자체가 행사다(끝난 것은 조회 단계에서 빠진다).
+    if (item.kind == MapListingKind.festival) return true;
+    // 플레이스는 색인을 아직 못 읽었으면 본체 미러로 본다(기존 규칙).
+    if (index == null && item.kind == MapListingKind.place) {
+      return PlaceEventTaxonomy.isRunningAt(item.data, DateTime.now());
+    }
+    return PlaceEventIndex.allows(
+      eventOnly: true,
+      docId: item.docId,
+      index: index,
+      doc: item.data,
+      dates: _placeDiscovery.visitDates,
+      start: _placeDiscovery.startTime,
+      end: _placeDiscovery.endTime,
+    );
+  }
+
+  Future<void> _locateIfPermitted() async {
+    try {
+      final permission = await Geolocator.checkPermission();
+      if (!mounted) return;
+      if (permission == LocationPermission.always ||
+          permission == LocationPermission.whileInUse) {
+        await _goToCurrentLocation(areaSearch: false);
+      }
+    } catch (e) {
+      debugPrint('[MapHome] 현재 위치 자동 이동 건너뜀: $e');
+    }
+  }
+
+  Widget _buildHome(BuildContext context) {
+    final bottomGap = _tapped != null ? 128.0 : 16.0;
+    return Scaffold(
+      backgroundColor: const Color(0xFFEEF8FF),
+      body: Stack(
+        children: [
+          if (kIsWeb)
+            Positioned.fill(
+              child: _WebMapUnavailable(onOpenList: widget.onOpenList),
+            )
+          else
+            _buildNaverMap(),
+
+          // ── 위: 검색창 + 가로 카테고리(지도 위에 얇게 떠 있다) ──────
+          // (웹은 지도가 없어 검색·카테고리가 걸 대상이 없다 — 안내만 둔다.)
+          if (!kIsWeb)
+            Positioned(top: 0, left: 0, right: 0, child: _buildHomeTopBar()),
+
+          // ── 이 지역에서 다시 찾기 ──────────────────────────────────
+          if (_mapMoved && !kIsWeb)
+            Positioned(
+              left: 0,
+              right: 0,
+              bottom: bottomGap,
+              child: Center(child: _buildHomeReSearchButton()),
+            )
+          else if (_isAreaSearch && _displayed.isEmpty && !kIsWeb)
+            Positioned(
+              left: 0,
+              right: 0,
+              bottom: bottomGap,
+              child: Center(
+                child: _homePill(
+                  child: Text(
+                    '이 지역에는 아직 ${_kindsLabel()}가 없어요',
+                    style: const TextStyle(
+                      fontSize: 13,
+                      fontWeight: FontWeight.w600,
+                      color: Colors.black54,
+                    ),
+                  ),
+                ),
+              ),
+            ),
+
+          // ── 현재 위치 ──────────────────────────────────────────────
+          if (!kIsWeb)
+            Positioned(
+              right: 14,
+              bottom: bottomGap + (_mapMoved ? 52 : 0),
+              child: FloatingActionButton.small(
+                heroTag: 'map_home_location_fab',
+                onPressed: _isLoadingLocation ? null : _goToCurrentLocation,
+                backgroundColor: Colors.white,
+                foregroundColor: Colors.black87,
+                elevation: 3,
+                child: _isLoadingLocation
+                    ? const SizedBox(
+                        width: 18,
+                        height: 18,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      )
+                    : const Icon(Icons.my_location, size: 20),
+              ),
+            ),
+
+          // ── 선택한 콘텐츠 하나의 미리보기 ──────────────────────────
+          if (_tapped != null)
+            Positioned(
+              left: 12,
+              right: 12,
+              bottom: 12,
+              child: _buildHomePreviewCard(_tapped!),
+            ),
+        ],
+      ),
+    );
+  }
+
+  /// 흰 알약 — 지도 위에 뜨는 작은 요소들이 같은 모양을 쓴다.
+  Widget _homePill({required Widget child, EdgeInsetsGeometry? padding}) =>
+      Container(
+        padding:
+            padding ?? const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(30),
+          boxShadow: const [
+            BoxShadow(
+              color: Color(0x26000000),
+              blurRadius: 10,
+              offset: Offset(0, 3),
+            ),
+          ],
+        ),
+        child: child,
+      );
+
+  Widget _buildHomeTopBar() {
+    final top = MediaQuery.paddingOf(context).top;
+    const pink = Color(0xFFFF6FA0);
+    final filterOn = _filter.isActive;
+    return Padding(
+      padding: EdgeInsets.only(top: top + 8),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 12),
+            child: Row(
+              children: [
+                Expanded(
+                  child: GestureDetector(
+                    onTap: _openDetailSearch,
+                    child: _homePill(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 16,
+                        vertical: 12,
+                      ),
+                      child: Row(
+                        children: [
+                          const Icon(
+                            Icons.search_rounded,
+                            size: 20,
+                            color: pink,
+                          ),
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: Text(
+                              _query.isEmpty ? '지금, 어디서 놀까요?' : _query,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: TextStyle(
+                                fontSize: 14.5,
+                                fontWeight: _query.isEmpty
+                                    ? FontWeight.w500
+                                    : FontWeight.w700,
+                                color: _query.isEmpty
+                                    ? Colors.black45
+                                    : Colors.black87,
+                              ),
+                            ),
+                          ),
+                          if (_query.isNotEmpty)
+                            GestureDetector(
+                              onTap: () {
+                                _queryCtrl.clear();
+                                _onQueryChanged('');
+                              },
+                              child: const Icon(
+                                Icons.close_rounded,
+                                size: 18,
+                                color: Colors.black38,
+                              ),
+                            ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 8),
+                // 세부 필터 — 지도를 가리지 않도록 버튼을 눌렀을 때만 열린다.
+                GestureDetector(
+                  onTap: _openDetailSearch,
+                  child: Container(
+                    width: 44,
+                    height: 44,
+                    decoration: BoxDecoration(
+                      color: filterOn ? pink : Colors.white,
+                      shape: BoxShape.circle,
+                      boxShadow: const [
+                        BoxShadow(
+                          color: Color(0x26000000),
+                          blurRadius: 10,
+                          offset: Offset(0, 3),
+                        ),
+                      ],
+                    ),
+                    child: Icon(
+                      Icons.tune_rounded,
+                      size: 20,
+                      color: filterOn ? Colors.white : pink,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 8),
+          _buildHomeCategoryRow(),
+          // 🕐 날짜·시간 판 — 빠른 필터 줄의 🕐 버튼을 누르면 그 아래로
+          // 펼쳐진다. 이 줄은 지도 위 겹침층(Stack의 Positioned) 안이라
+          // 카테고리 줄도 지도도 밀어내지 않고, 판 밖의 빈 자리는 누름을
+          // 받지 않아 지도 조작이 그대로 지나간다.
+          if (_dateTimePaneOpen)
+            Padding(
+              padding: const EdgeInsets.fromLTRB(12, 6, 12, 0),
+              child: Align(
+                alignment: Alignment.centerRight,
+                child: _buildHomeDateTimePane(),
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+
+  // ── 📅 날짜·시간 ─────────────────────────────────────────────────
+  //
+  // 새 필터가 아니다 — 목록 탭 빠른필터와 **같은 칸**([PartyFilter]의
+  // selectedDates · timeOfDayStart/End)을 **같은 위젯**으로 고친다:
+  // 날짜 빠른선택 줄([QuickDatePane]) · 한국식 달력([showKoreanCalendarSheet])
+  // · 시간 휠([showVisitTimePicker]). 판정도 지도가 이미 이 칸들로 하던 그대로다
+  // (파티는 회차 일정, 플레이스·장소대여는 그날 영업, 공공 축제는 기간 겹침).
+
+  /// 버튼 아래 펼쳐지는 판 — 날짜 빠른선택 줄 + 시간 한 줄.
+  Widget _buildHomeDateTimePane() {
+    final timeLabel = dateTimeFilterLabel(
+      PartyFilter()
+        ..timeOfDayStart = _filter.timeOfDayStart
+        ..timeOfDayEnd = _filter.timeOfDayEnd,
+    );
+    final timeOn = timeLabel != null;
+    return ConstrainedBox(
+      constraints: const BoxConstraints(maxWidth: 320),
+      child: Container(
+        padding: const EdgeInsets.all(10),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(16),
+          boxShadow: const [
+            BoxShadow(
+              color: Color(0x26000000),
+              blurRadius: 10,
+              offset: Offset(0, 3),
+            ),
+          ],
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.end,
+          children: [
+            QuickDatePane(
+              selected: _filter.selectedDates,
+              onToggleDate: _toggleHomeDate,
+              onPickCalendar: _pickHomeDate,
+              onClear: _clearHomeDates,
+              alignment: WrapAlignment.end,
+            ),
+            const SizedBox(height: 6),
+            Wrap(
+              spacing: 6,
+              runSpacing: 6,
+              alignment: WrapAlignment.end,
+              children: [
+                QuickFilterChip(
+                  label: timeLabel ?? '시간 선택',
+                  icon: Icons.schedule_rounded,
+                  selected: timeOn,
+                  onTap: _pickHomeTime,
+                ),
+                if (timeOn)
+                  QuickFilterChip(
+                    label: '초기화',
+                    icon: Icons.close_rounded,
+                    selected: false,
+                    onTap: () => _changeHomeFilter(() {
+                      _filter.timeOfDayStart = null;
+                      _filter.timeOfDayEnd = null;
+                    }),
+                  ),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  /// 날짜·시간 칸을 고치고 목록·마커를 함께 다시 센다(상세검색 적용과 같은 길).
+  void _changeHomeFilter(VoidCallback change) {
+    setState(() {
+      change();
+      _recomputeVisible();
+    });
+    _syncMarkers();
+  }
+
+  /// 목록 탭과 같은 규칙 — 최대 개수를 넘기면 바꾸지 않고 안내한다.
+  void _toggleHomeDate(DateTime date) {
+    var changed = false;
+    _changeHomeFilter(() => changed = _filter.toggleDate(date));
+    if (changed) return;
+    ScaffoldMessenger.of(context)
+      ..hideCurrentSnackBar()
+      ..showSnackBar(
+        const SnackBar(
+          content: Text(
+            '날짜는 최대 ${PartyFilter.maxSelectedDates}일까지 고를 수 있어요.',
+          ),
+          duration: Duration(seconds: 2),
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+  }
+
+  /// '초기화' — 날짜만 비운다. 날짜에 딸린 시간 범위도 함께(목록 탭과 같은 규칙).
+  void _clearHomeDates() => _changeHomeFilter(() {
+    _filter.selectedDates.clear();
+    _filter.startTime = null;
+    _filter.endTime = null;
+  });
+
+  /// '날짜 선택' — 목록 탭과 같은 한국식 달력.
+  Future<void> _pickHomeDate() async {
+    final today = PartyFilter.dateOnly(DateTime.now());
+    final picked = await showKoreanCalendarSheet(
+      context,
+      selected: _filter.selectedDates,
+      firstDate: today,
+      lastDate: KoreanHolidays.clampToSupported(
+        DateTime(today.year + 1, today.month, today.day),
+        notBefore: today,
+      ),
+      maxCount: PartyFilter.maxSelectedDates,
+    );
+    if (picked == null || !mounted) return;
+    _changeHomeFilter(() {
+      _filter.selectedDates = {...picked};
+      if (_filter.selectedDates.isEmpty) {
+        _filter.startTime = null;
+        _filter.endTime = null;
+      }
+    });
+  }
+
+  /// 시간 — 목록 탭과 같은 30분 휠 시트(지정 시간 / 지정 구간).
+  Future<void> _pickHomeTime() async {
+    final picked = await showVisitTimePicker(
+      context,
+      start: _filter.timeOfDayStart,
+      end: _filter.timeOfDayEnd,
+    );
+    if (picked == null || !mounted) return;
+    _changeHomeFilter(() {
+      _filter.timeOfDayStart = picked.start;
+      _filter.timeOfDayEnd = picked.end;
+    });
+  }
+
+  // ── 가로 카테고리 줄 ─────────────────────────────────────────────
+  //
+  // [전체][✨특징][파티][이벤트][플레이스][장소대여][🕐][₩] 여덟 칸이 **한
+  // 줄**에 선다. 칸은 자기 글자에 필요한 최소 폭만 가진다 — 남는 폭을 나눠
+  // 갖지 않는다(그래야 오른쪽 두 버튼 자리가 난다). 폭 계산은
+  // [quickRowLayout]이 하고, 어떤 기기 폭도 숫자로 박지 않는다.
+  // 치수는 [map_quick_filter_row.dart]에 있다 — 폭 계산과 테스트가 같은 값을 본다.
+  static const double _chipHeight = kQuickChipHeight;
+  static const double _chipFontSize = kQuickChipFontSize;
+  static const double _chipGap = kQuickChipGap;
+  static const double _chipSidePad = kQuickRowSidePad;
+  static const double _chipBasePad = kQuickChipBasePad;
+  static const double _chipMinPad = kQuickChipMinPad;
+  static const double _chipIconSize = kQuickChipIconSize;
+  static const double _chipIconGap = kQuickChipIconGap;
+  static const double _quickLabelGap = kQuickLabelGap;
+
+  static const TextStyle _chipTextStyle = TextStyle(
+    fontSize: _chipFontSize,
+    fontWeight: FontWeight.w700,
+  );
+
+  Widget _buildHomeCategoryRow() {
+    final featureOn = _placeDiscovery.features.isNotEmpty;
+    final dateLabel = dateTimeFilterLabel(_filter);
+    final priceSelection = _priceSelection;
+    final priceLabel = mapPriceFilterLabel(priceSelection);
+    // (라벨, 아이콘, 선택됨, 누르면) — 앞 여섯은 글자 칩, 뒤 둘은 아이콘 버튼.
+    final chips =
+        <({String label, IconData? icon, bool selected, VoidCallback onTap})>[
+          (
+            label: mapHomeCategories[0].label,
+            icon: null,
+            selected: _homeSelected.isEmpty,
+            onTap: () => _selectHomeCategory(0),
+          ),
+          // 특징 — 종류 선택이 아니라 **추가 필터**다. 어떤 칸을 골랐든 항상
+          // 두 번째에 있고, 기존 특징 시트를 연다. 조건은 특징 값을 실제로
+          // 갖는 플레이스에만 걸리고(다른 종류에는 없는 값이라 걸지 않는다 —
+          // [_matchesFilter]), 조건이 하나라도 있으면 활성으로 보인다.
+          (
+            label: '특징',
+            icon: Icons.auto_awesome_outlined,
+            selected: featureOn,
+            onTap: () async {
+              await _openPlaceFeatureSheet();
+              if (mounted) _syncMarkers();
+            },
+          ),
+          for (var i = 1; i < mapHomeCategories.length; i++)
+            (
+              label: mapHomeCategories[i].label,
+              icon: null,
+              selected: _homeSelected.contains(i),
+              onTap: () => _selectHomeCategory(i),
+            ),
+        ];
+
+    final scaler = MediaQuery.textScalerOf(context);
+    final direction = Directionality.of(context);
+    double textWidth(String? text, TextStyle style) {
+      if (text == null || text.isEmpty) return 0;
+      final painter = TextPainter(
+        text: TextSpan(text: text, style: style),
+        textDirection: direction,
+        textScaler: scaler,
+        maxLines: 1,
+      )..layout();
+      final width = painter.width;
+      painter.dispose();
+      // 반올림 오차로 글자가 잘리지 않게 1px 여유.
+      return width + 1;
+    }
+
+    const quickLabelStyle = TextStyle(fontSize: 13, fontWeight: FontWeight.w700);
+    final chipTexts = [for (final c in chips) textWidth(c.label, _chipTextStyle)];
+    final chipIcons = [
+      for (final c in chips)
+        c.icon == null ? 0.0 : scaler.scale(_chipIconSize) + _chipIconGap,
+    ];
+    final quickIcon = scaler.scale(MapQuickFilterButton.iconSize);
+    final dateTextWidth = textWidth(dateLabel, quickLabelStyle) + _quickLabelGap;
+    final priceTextWidth = textWidth(priceLabel, quickLabelStyle) + _quickLabelGap;
+
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        // 실제 가용 폭에서 줄 좌우 여백과 칸 사이 간격을 뺀 만큼을 여덟 칸이
+        // 나눠 쓴다. 기기 폭을 숫자로 박지 않는다.
+        const count = 8;
+        final available =
+            constraints.maxWidth -
+            _chipSidePad * 2 -
+            _chipGap * (count - 1);
+
+        // 🕐·₩의 짧은 값은 **자리가 남을 때만** 붙인다. 값을 붙여 글자를
+        // 줄여야 하거나 가로로 넘겨야 하면 값을 떼고 아이콘만 분홍으로 둔다.
+        QuickRowLayout layoutFor({required bool withLabels}) => quickRowLayout(
+          texts: [
+            ...chipTexts,
+            withLabels ? dateTextWidth : 0,
+            withLabels ? priceTextWidth : 0,
+          ],
+          icons: [...chipIcons, quickIcon, quickIcon],
+          available: available,
+          basePad: _chipBasePad,
+          minPad: _chipMinPad,
+        );
+
+        final wantLabels = dateLabel != null || priceLabel != null;
+        var layout = wantLabels ? layoutFor(withLabels: true) : layoutFor(withLabels: false);
+        var showLabels = wantLabels;
+        if (wantLabels && (layout.scale < 1 || layout.scroll)) {
+          showLabels = false;
+          layout = layoutFor(withLabels: false);
+        }
+        final widths = layout.widths;
+        final chipStyle = _chipTextStyle.copyWith(
+          fontSize: _chipFontSize * layout.scale,
+        );
+
+        final row = Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            for (var i = 0; i < chips.length; i++) ...[
+              if (i > 0) const SizedBox(width: _chipGap),
+              SizedBox(
+                width: widths[i],
+                height: _chipHeight,
+                child: _homeChip(
+                  chips[i].label,
+                  icon: chips[i].icon,
+                  selected: chips[i].selected,
+                  onTap: chips[i].onTap,
+                  style: chipStyle,
+                ),
+              ),
+            ],
+            const SizedBox(width: _chipGap),
+            SizedBox(
+              width: widths[chips.length],
+              child: MapQuickFilterButton(
+                key: const ValueKey('mapHomeDateTimeButton'),
+                icon: Icons.schedule_rounded,
+                semanticLabel: '날짜·시간 필터',
+                active: dateLabel != null,
+                label: showLabels ? dateLabel : null,
+                textScale: layout.scale,
+                height: _chipHeight,
+                onTap: () =>
+                    setState(() => _dateTimePaneOpen = !_dateTimePaneOpen),
+              ),
+            ),
+            const SizedBox(width: _chipGap),
+            SizedBox(
+              width: widths[chips.length + 1],
+              child: MapQuickFilterButton(
+                key: const ValueKey('mapHomePriceButton'),
+                icon: Icons.payments_outlined,
+                glyph: '₩',
+                semanticLabel: '가격 필터',
+                active: priceSelection.isActive,
+                label: showLabels ? priceLabel : null,
+                textScale: layout.scale,
+                height: _chipHeight,
+                onTap: _openPriceFilter,
+              ),
+            ),
+          ],
+        );
+        const padding = EdgeInsets.symmetric(horizontal: _chipSidePad);
+        return SizedBox(
+          height: _chipHeight + 6, // 그림자 자리
+          child: layout.scroll
+              ? SingleChildScrollView(
+                  scrollDirection: Axis.horizontal,
+                  padding: padding,
+                  child: row,
+                )
+              : Padding(padding: padding, child: row),
+        );
+      },
+    );
+  }
+
+  /// 💳 지금 걸린 가격 칸 — 종류마다 쓰던 칸을 그대로 모아 본다.
+  MapPriceSelection get _priceSelection => MapPriceSelection(
+    partyFees: _filter.feeRanges,
+    placeRanges: _placeDiscovery.priceRanges,
+    rentalRanges: _rentalDiscovery.priceRanges,
+  );
+
+  /// ₩ 버튼 — 기존 가격 칸·칩 위젯을 그대로 쓰는 시트를 연다. 적용하면 목록과
+  /// 마커를 함께 다시 센다(상세검색 적용과 같은 길).
+  Future<void> _openPriceFilter() async {
+    final picked = await showMapPriceFilterSheet(
+      context,
+      initial: _priceSelection,
+      kinds: _kinds,
+    );
+    if (picked == null || !mounted) return;
+    setState(() {
+      _filter.feeRanges
+        ..clear()
+        ..addAll(picked.partyFees);
+      _placeDiscovery.priceRanges
+        ..clear()
+        ..addAll(picked.placeRanges);
+      _rentalDiscovery.priceRanges
+        ..clear()
+        ..addAll(picked.rentalRanges);
+      _recomputeVisible();
+    });
+    _syncMarkers();
+  }
+
+  Widget _homeChip(
+    String label, {
+    required bool selected,
+    required VoidCallback onTap,
+    IconData? icon,
+    TextStyle? style,
+  }) {
+    const pink = Color(0xFFFF6FA0);
+    return GestureDetector(
+      onTap: onTap,
+      child: Container(
+        alignment: Alignment.center,
+        decoration: BoxDecoration(
+          color: selected ? pink : Colors.white,
+          borderRadius: BorderRadius.circular(_chipHeight / 2),
+          boxShadow: const [
+            BoxShadow(
+              color: Color(0x1F000000),
+              blurRadius: 6,
+              offset: Offset(0, 2),
+            ),
+          ],
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            if (icon != null) ...[
+              Icon(
+                icon,
+                size: _chipIconSize,
+                color: selected ? Colors.white : pink,
+              ),
+              const SizedBox(width: _chipIconGap),
+            ],
+            Text(
+              label,
+              maxLines: 1,
+              softWrap: false,
+              style: (style ?? _chipTextStyle).copyWith(
+                color: selected ? Colors.white : const Color(0xFF3A2E39),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildHomeReSearchButton() => GestureDetector(
+    onTap: _searchThisArea,
+    child: _homePill(
+      child: const Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(Icons.refresh_rounded, size: 16, color: Color(0xFFFF6FA0)),
+          SizedBox(width: 6),
+          Text(
+            '이 지역에서 다시 찾기',
+            style: TextStyle(
+              fontSize: 13.5,
+              fontWeight: FontWeight.w700,
+              color: Colors.black87,
+            ),
+          ),
+        ],
+      ),
+    ),
+  );
+
+  /// 내 위치에서의 거리('300m', '1.2km') — 위치를 모르면 null.
+  String? _distanceLabel(MapListing item) {
+    final me = _myLatLng;
+    if (me == null) return null;
+    final meters = Geolocator.distanceBetween(
+      me.latitude,
+      me.longitude,
+      item.lat,
+      item.lng,
+    );
+    if (meters < 1000) return '${(meters / 10).round() * 10}m';
+    return '${(meters / 1000).toStringAsFixed(1)}km';
+  }
+
+  /// 일정 한 줄 — 파티는 다음 회차 날짜·시간, 장소 계열은 영업시간.
+  /// 카드들이 쓰는 **같은 계산**을 그대로 빌린다.
+  String _homeScheduleLabel(MapListing item) {
+    final festival = item.publicEvent;
+    if (festival != null) return publicEventPeriodLabel(festival);
+    if (item.kind == MapListingKind.party) {
+      final date = PartyCard.formatDateOnly(item.data);
+      final time = PartyCard.formatTimeOnly(item.data);
+      return [date, time].where((s) => s.isNotEmpty).join(' ');
+    }
+    return PlaceCardInfo.from(
+      item.data,
+      source: item.kind.cardSource!,
+      tag: 'MapHomePreview',
+    ).hoursLabel;
+  }
+
+  /// 핵심 상태 한 가지 — 파티는 모집 상태, 장소대여는 요금(가격 문의 포함).
+  String? _homeStatusLabel(MapListing item) {
+    switch (item.kind) {
+      case MapListingKind.party:
+        final status = PartyCard.effectiveStatusFor(
+          item.data,
+          UserSession.gender,
+        );
+        return status.isEmpty ? null : status;
+      case MapListingKind.place:
+        return null;
+      case MapListingKind.rental:
+        return PlaceCardInfo.from(
+          item.data,
+          source: PlaceCardSource.rental,
+          tag: 'MapHomePreview',
+        ).priceLabel;
+      case MapListingKind.festival:
+        return null;
+    }
+  }
+
+  /// 선택한 콘텐츠 하나의 작은 카드 — 사진 · 이름 · 일정 · 거리/지역 · 상태.
+  /// 누르면 기존 상세 화면으로 간다(지도는 그대로 남는다).
+  Widget _buildHomePreviewCard(MapListing item) {
+    final cover = getPartyCoverMedia(item.data, tag: 'MapHomePreview');
+    final schedule = _homeScheduleLabel(item);
+    final status = _homeStatusLabel(item);
+    final where = [
+      ?_distanceLabel(item),
+      if (item.shortAddress.isNotEmpty) item.shortAddress,
+    ].join(' · ');
+    const muted = TextStyle(fontSize: 12.5, color: Colors.black54);
+
+    return Material(
+      elevation: 8,
+      borderRadius: BorderRadius.circular(16),
+      color: Colors.white,
+      child: InkWell(
+        borderRadius: BorderRadius.circular(16),
+        onTap: () {
+          _openDetail(item);
+        },
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(12, 12, 8, 12),
+          child: Row(
+            children: [
+              SizedBox(
+                width: 76,
+                height: 76,
+                child: PartyThumbnailWidget(
+                  imageUrl: cover?.thumbnailUrl,
+                  borderRadius: BorderRadius.circular(12),
+                  placeholder: ColoredBox(
+                    color: item.kind.color.withValues(alpha: 0.14),
+                    child: Center(
+                      child: Icon(
+                        (cover?.isVideo ?? false)
+                            ? Icons.videocam_outlined
+                            : item.kind.icon,
+                        size: 24,
+                        color: item.kind.color,
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Row(
+                      children: [
+                        _kindBadge(item.kind),
+                        if (status != null) ...[
+                          const SizedBox(width: 6),
+                          Flexible(
+                            child: Text(
+                              status,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: const TextStyle(
+                                fontSize: 11.5,
+                                fontWeight: FontWeight.w800,
+                                color: Color(0xFFFF4F8B),
+                              ),
+                            ),
+                          ),
+                        ],
+                      ],
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      item.title,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                        fontSize: 15,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                    if (schedule.isNotEmpty) ...[
+                      const SizedBox(height: 3),
+                      Text(
+                        schedule,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: muted,
+                      ),
+                    ],
+                    if (where.isNotEmpty) ...[
+                      const SizedBox(height: 2),
+                      Text(
+                        where,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: muted,
+                      ),
+                    ],
+                  ],
+                ),
+              ),
+              IconButton(
+                onPressed: _dismissTappedCard,
+                visualDensity: VisualDensity.compact,
+                icon: const Icon(Icons.close, size: 18, color: Colors.black38),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
   /// 목록 머리말에 쓰는 종류 이름 — 셋 다 켜져 있으면 '전체', 아니면 켜 둔
   /// 것들을 이어 붙인다('파티·플레이스'). 지금 무엇을 세고 있는 개수인지가
   /// 숫자 옆에서 바로 읽혀야 한다.
   String _kindsLabel() {
-    if (_kinds.length == MapListingKind.values.length) return '전체';
-    return MapListingKind.values
+    if (MapListingKind.listingKinds.every(_kinds.contains)) return '전체';
+    return MapListingKind.listingKinds
         .where(_kinds.contains)
         .map((k) => k.label)
         .join('·');
@@ -2143,6 +3474,10 @@ class _MapScreenState extends State<MapScreen> {
             placeId: item.docId,
             data: item.data,
           ),
+          // 🎊 공공 축제 — 전용 상세. 지도가 들고 있는 객체를 그대로 넘긴다.
+          MapListingKind.festival => PublicEventDetailScreen(
+            event: item.publicEvent!,
+          ),
         },
       ),
     );
@@ -2157,6 +3492,15 @@ class _MapScreenState extends State<MapScreen> {
   /// [onTap]은 겹침 시트에서만 넘긴다 — 시트를 닫고 나서 상세로 가야 해서다.
   /// 넘기지 않으면 카드가 **원래 하던 대로** 자기 상세 화면을 연다.
   Widget _buildListCard(MapListing item, {VoidCallback? onTap}) {
+    // 🎊 공공 축제 — 이벤트 피드와 같은 카드. 누르면 공공 축제 상세.
+    final festival = item.publicEvent;
+    if (festival != null) {
+      return PublicEventCompactCard(
+        event: festival,
+        badge: EventFeedKind.publicFestival.badge,
+        onTap: onTap,
+      );
+    }
     if (item.kind == MapListingKind.party) {
       return PartyCard(
         party: item.data,
@@ -2188,19 +3532,22 @@ class _MapScreenState extends State<MapScreen> {
 /// 지도 자체를 웹에 구현하지 않기로 한 결정의 결과다(등록·목록 어느 경로도
 /// 지도를 필요로 하지 않는다). 여기 없으면 웹에서 이 화면이 예외로 죽는다.
 class _WebMapUnavailable extends StatelessWidget {
-  const _WebMapUnavailable();
+  /// 홈 모드에서만 — 지도 대신 목록 탭으로 보내는 버튼.
+  final VoidCallback? onOpenList;
+
+  const _WebMapUnavailable({this.onOpenList});
 
   @override
   Widget build(BuildContext context) => Container(
     color: const Color(0xFFF2F3F7),
     alignment: Alignment.center,
     padding: const EdgeInsets.symmetric(horizontal: 28),
-    child: const Column(
+    child: Column(
       mainAxisSize: MainAxisSize.min,
       children: [
-        Icon(Icons.map_outlined, size: 40, color: Color(0xFFB9BECC)),
-        SizedBox(height: 12),
-        Text(
+        const Icon(Icons.map_outlined, size: 40, color: Color(0xFFB9BECC)),
+        const SizedBox(height: 12),
+        const Text(
           '지도는 파티츄 앱에서 볼 수 있어요',
           style: TextStyle(
             fontSize: 14,
@@ -2208,12 +3555,30 @@ class _WebMapUnavailable extends StatelessWidget {
             color: Color(0xFF6B7280),
           ),
         ),
-        SizedBox(height: 6),
+        const SizedBox(height: 6),
         Text(
-          '아래 목록에서 파티·플레이스를 그대로 둘러볼 수 있어요.',
+          onOpenList == null
+              ? '아래 목록에서 파티·플레이스를 그대로 둘러볼 수 있어요.'
+              : '목록에서 파티·플레이스를 그대로 둘러볼 수 있어요.',
           textAlign: TextAlign.center,
-          style: TextStyle(fontSize: 12.5, color: Color(0xFF9AA1AE)),
+          style: const TextStyle(fontSize: 12.5, color: Color(0xFF9AA1AE)),
         ),
+        if (onOpenList != null) ...[
+          const SizedBox(height: 16),
+          ElevatedButton.icon(
+            onPressed: onOpenList,
+            icon: const Icon(Icons.view_agenda_outlined, size: 18),
+            label: const Text('목록으로 보기'),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: const Color(0xFFFF6FA0),
+              foregroundColor: Colors.white,
+              elevation: 0,
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(14),
+              ),
+            ),
+          ),
+        ],
       ],
     ),
   );
