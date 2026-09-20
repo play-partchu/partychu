@@ -212,9 +212,9 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(find.text('내 플레이스에서 여는 파티'), findsOneWidget);
-      expect(find.text('등록한 플레이스 또는 대여 공간에서 여는 파티예요.'), findsOneWidget);
-      expect(find.text('독립적인 파티 만들기'), findsOneWidget);
-      expect(find.text('내 플레이스와 연결하지 않고 다른 장소에서 여는 파티예요.'), findsOneWidget);
+      expect(find.text('등록한 플레이스 또는 대여 공간과 연결해서 파티를 등록해요.'), findsOneWidget);
+      expect(find.text('새 파티 만들기'), findsOneWidget);
+      expect(find.text('내 플레이스와 연결하지 않고 새로운 파티를 등록해요.'), findsOneWidget);
     });
 
     testWidgets('공간이 하나뿐이어도 자동 연결하지 않고 목록을 한 번 보여준다', (tester) async {

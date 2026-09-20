@@ -276,7 +276,7 @@ void main() {
     testWidgets('수정 화면을 열어도 연결/독립 선택지가 보이지 않는다', (tester) async {
       await pumpEdit(tester, _party(linkedPlaceId: 'P1'));
       expect(find.text('내 플레이스에서 여는 파티'), findsNothing);
-      expect(find.text('독립적인 파티 만들기'), findsNothing);
+      expect(find.text('새 파티 만들기'), findsNothing);
     });
   });
 }

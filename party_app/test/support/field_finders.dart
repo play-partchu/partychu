@@ -38,8 +38,8 @@ String textInField(WidgetTester tester, String hint) =>
 // 되고, 고치지 않으면 `fieldWithHint`가 아무것도 못 찾아 **그 자리에서**
 // 실패한다("이름이 ''"처럼 엉뚱한 곳에서 터지지 않는다).
 
-/// 플레이스 등록(`events`) — 플레이스 제목.
-const kEventNameHint = '예: 키워드 1호점 여성 무료입장';
+/// 플레이스 등록(`events`) — 플레이스 제목(매장 이름).
+const kEventNameHint = '예: 파티츄 2호 혼술바';
 
 /// 장소대여 등록(`places`) — 장소명.
 const kPlaceNameHint = '예: 한강뷰 루프탑 파티룸';
