@@ -116,13 +116,16 @@ class PublicEventDetailScreen extends StatelessWidget {
             ),
           ),
           // 사진 — 다른 상세와 같이 화면 폭 전체, 원본 비율. 여러 장이면
-          // 좌우로 넘긴다(자동 넘김은 켜지 않는다).
+          // 좌우로 넘기고, 가만히 두면 4초마다 저절로 넘어간다
+          // (파티·플레이스·장소대여 상세와 **같은 규칙**: MediaAutoAdvancer).
+          // 축제는 영상이 없어 사진끼리 순환한다. 한 장뿐이면 넘기지 않는다.
           SliverToBoxAdapter(
             child: images.isNotEmpty
                 ? MediaGallery(
                     key: const ValueKey('publicEventGallery'),
                     images: images,
                     counterAccentColor: _kAccent,
+                    autoAdvance: true,
                   )
                 : Container(
                     key: const ValueKey('publicEventImagePlaceholder'),

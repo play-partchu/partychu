@@ -446,11 +446,37 @@ void main() {
 
     // 임시저장을 복원했는데 파일이 사라졌으면, 저장을 눌러 실패하기 전에
     // 먼저 알려줘야 한다.
+    //
+    // 존재 확인은 **[LocalMedia.exists]로만** 한다. 예전에는 등록 화면마다
+    // `File(path).existsSync()`를 직접 불렀는데, 웹에서는 경로가 `blob:...`
+    // 오브젝트 URL이라 그 검사가 늘 false가 되어 멀쩡히 고른 사진까지 "사라진
+    // 파일"로 몰았다. 지금은 공용 헬퍼가 앱에서는 파일을, 웹에서는 기억해 둔
+    // 원본을 본다(local_media.dart) — 그래서 여기서 다시 existsSync를 요구하면
+    // 웹을 깨는 코드를 되살리게 된다.
     test('임시저장 복원 후 파일이 없으면 재선택 안내를 켠다', () {
       final src = _src('lib/screens/crew_register_screen.dart');
-      expect(src, contains('existsSync()'));
+      expect(src, contains('LocalMedia.exists('));
       expect(src, contains('draftMediaNeedsReselect = true'));
       expect(src, contains('buildMediaReselectBanner()'));
+      // 복원 도중에 부르는 자리라 동기 검사여야 한다 — await를 붙이면 값이
+      // 다 세워지기 전에 화면이 그려진다.
+      expect(src, isNot(contains('await LocalMedia.exists(')));
+    });
+
+    test('로컬 파일 존재 확인을 화면이 직접 하지 않는다 — 웹에서 깨진다', () {
+      for (final path in [
+        'lib/screens/crew_register_screen.dart',
+        'lib/screens/party_register_screen.dart',
+        'lib/screens/place_register_screen.dart',
+        'lib/screens/event_register_screen.dart',
+      ]) {
+        final src = _src(path);
+        expect(
+          src.contains('existsSync()'),
+          isFalse,
+          reason: '$path가 공용 헬퍼를 지나치고 파일을 직접 본다',
+        );
+      }
     });
   });
 

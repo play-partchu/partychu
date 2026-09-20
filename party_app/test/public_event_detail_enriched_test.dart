@@ -8,6 +8,7 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:visibility_detector/visibility_detector.dart';
 import 'package:party_app/models/public_event.dart';
 import 'package:party_app/screens/public_event_detail_screen.dart';
 import 'package:party_app/widgets/media_gallery.dart';
@@ -105,6 +106,12 @@ List<String> _galleryImages(WidgetTester tester) =>
     tester.widget<MediaGallery>(find.byType(MediaGallery)).images;
 
 void main() {
+  // 갤러리 자동 넘김이 켜져 있어 화면 노출 감지가 붙는다 — 기본 간격(0.5초)이
+  // 타이머로 남으면 위젯을 내린 뒤에도 테스트가 실패한다.
+  setUpAll(() {
+    VisibilityDetectorController.instance.updateInterval = Duration.zero;
+  });
+
   group('모델', () {
     test('보강 완료 문서 — 보강 필드를 모두 읽는다(detailFetchedModifiedTime은 담지 않는다)', () {
       final e = _from(_enrichedDoc());

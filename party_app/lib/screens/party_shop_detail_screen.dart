@@ -170,6 +170,9 @@ class PartyShopDetailScreen extends StatelessWidget {
                     // 톤으로 — 검은 띠가 생기지 않는다.
                     videoBackgroundColor: const Color(0xFFFFF4F8),
                     counterAccentColor: const Color(0xFFFF6FA0),
+                    // 파티 상세와 같은 사진·영상 자동 넘김. 자동 넘김을 켜면
+                    // 영상이 대표 여부와 관계없이 첫 칸이 된다(공통 규칙).
+                    autoAdvance: true,
                   )
                 : Container(
                     width: double.infinity,

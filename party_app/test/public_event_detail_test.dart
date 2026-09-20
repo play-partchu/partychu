@@ -3,6 +3,7 @@
 
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:visibility_detector/visibility_detector.dart';
 import 'package:party_app/models/event_feed.dart';
 import 'package:party_app/models/public_event.dart';
 import 'package:party_app/screens/event_detail_screen.dart';
@@ -39,6 +40,12 @@ Widget host(Widget child) => MaterialApp(
 );
 
 void main() {
+  // 갤러리 자동 넘김이 켜져 있어 화면 노출 감지가 붙는다 — 기본 간격(0.5초)이
+  // 타이머로 남으면 위젯을 내린 뒤에도 테스트가 실패한다.
+  setUpAll(() {
+    VisibilityDetectorController.instance.updateInterval = Duration.zero;
+  });
+
   testWidgets('카드를 누르면 공공 축제 상세로 간다(매장/공간 상세가 아니다)', (
     tester,
   ) async {
