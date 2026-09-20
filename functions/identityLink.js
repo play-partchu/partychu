@@ -50,8 +50,108 @@ const DUPLICATE_CODE = 'IDENTITY_ALREADY_LINKED';
 /// 되기까지의 유예 기간. 탈퇴 직후 재가입으로 제재를 세탁하는 것을 막는다.
 const RELEASE_COOLDOWN_DAYS = 30;
 
+// ── 다중계정 예외 (테스트 계정용) ──────────────────────────────────────────
+//
+// 특정 CI 해시에 한해 여러 uid에서 본인확인을 허용한다. 소셜 로그인
+// (구글·카카오·네이버·Apple)을 계정마다 실제로 끝까지 태워 봐야 하는데,
+// 1인 1계정 정책이 두 번째 계정부터 막기 때문이다.
+//
+// **허용 목록은 코드가 아니라 Firestore에 둔다.**
+//   serverConfig/identityMultiAccount = {
+//     enabled: true,                 // false면 목록이 있어도 전부 차단
+//     allowedCiHashes: ['<sha256 hex 64자>', ...],
+//   }
+//
+// 왜 코드가 아닌가 — 예전에는 이 목록이 배포된 identityLink.js 안에만 있었고
+// 저장소에는 없었다. 그래서 누가 Functions를 배포하면 예외가 조용히 사라지고,
+// 테스터는 갑자기 IDENTITY_ALREADY_LINKED로 막히면서 원인을 찾기 어려웠다.
+// 설정이 코드 밖 DB에 있으면 무엇을 배포하든 남고, 끌 때도 배포가 필요 없다.
+//
+// 값은 저장소에 두지 않는다. CI 해시는 실사용자 1명을 가리키는 식별자라
+// 코드·로그·테스트에 원문을 남기지 않는다(문서 경로만 남긴다).
+//
+// 클라이언트는 이 문서를 읽을 수 없다 — firestore.rules에 serverConfig match가
+// 없어 기본 거부이고, 서버는 Admin SDK로 규칙을 우회해 읽는다
+// (tourApiUsage와 같은 방식).
+const SERVER_CONFIG = 'serverConfig';
+const MULTI_ACCOUNT_DOC = 'identityMultiAccount';
+
+/// 인스턴스 안에서 설정을 붙들고 있는 시간. 본인확인 1건마다 문서를 읽지
+/// 않으려는 것뿐이라 짧게 둔다 — 목록을 비우면 1분 안에 반영된다.
+const MULTI_ACCOUNT_CACHE_MS = 60 * 1000;
+
+let multiAccountCache = null;
+let multiAccountWarned = false;
+
 function ciHash(ci) {
   return crypto.createHash('sha256').update(ci, 'utf8').digest('hex');
+}
+
+/// 설정 문서 → 허용 해시 집합. 순수 함수라 셀프체크가 그대로 부른다.
+///
+/// 읽을 수 없는 모양이면 **빈 집합**을 준다. 빈 집합은 곧 "예외 없음"이고
+/// 기존 1인 1계정 동작이다(fail-closed).
+function parseMultiAccountAllowlist(data) {
+  const out = new Set();
+  if (!data || typeof data !== 'object') return out;
+  // enabled를 명시적으로 끄면 목록이 남아 있어도 전부 차단한다.
+  if (data.enabled === false) return out;
+  const raw = Array.isArray(data.allowedCiHashes) ? data.allowedCiHashes : [];
+  for (const entry of raw) {
+    if (typeof entry !== 'string') continue;
+    const hash = entry.trim().toLowerCase();
+    // sha256 hex가 아닌 값은 버린다 — CI 원문을 실수로 넣는 사고를 막는다.
+    if (/^[0-9a-f]{64}$/.test(hash)) out.add(hash);
+  }
+  return out;
+}
+
+/// 예외가 하나도 없을 때 한 번만 알린다. 이게 정상 상태일 수도 있으므로
+/// 오류가 아니라 경고이고, 본인확인마다 찍히지 않게 인스턴스당 1회로 묶는다.
+function warnNoMultiAccountConfig(reason) {
+  if (multiAccountWarned) return;
+  multiAccountWarned = true;
+  console.warn('[IdentityLink] 다중계정 예외 없음 — 1인 1계정으로 동작', {
+    path: `${SERVER_CONFIG}/${MULTI_ACCOUNT_DOC}`,
+    reason,
+  });
+}
+
+/// 테스트·재설정용. 다음 호출에서 설정을 다시 읽는다.
+function resetMultiAccountCache() {
+  multiAccountCache = null;
+  multiAccountWarned = false;
+}
+
+async function loadMultiAccountAllowlist(db, { nowMs = Date.now(), cacheMs = MULTI_ACCOUNT_CACHE_MS } = {}) {
+  if (multiAccountCache && nowMs - multiAccountCache.at < cacheMs) {
+    return multiAccountCache.hashes;
+  }
+  let hashes = new Set();
+  try {
+    const snap = await db.collection(SERVER_CONFIG).doc(MULTI_ACCOUNT_DOC).get();
+    if (!snap || !snap.exists) {
+      warnNoMultiAccountConfig('문서 없음');
+    } else {
+      hashes = parseMultiAccountAllowlist(snap.data());
+      if (hashes.size === 0) warnNoMultiAccountConfig('허용 목록이 비어 있음');
+    }
+  } catch (err) {
+    // 설정을 못 읽는 상태가 곧 정책 우회가 되면 안 된다 — 막는 쪽으로 넘어간다.
+    console.warn('[IdentityLink] 다중계정 예외 설정을 읽지 못해 차단으로 처리', {
+      path: `${SERVER_CONFIG}/${MULTI_ACCOUNT_DOC}`,
+      message: err && err.message,
+    });
+    hashes = new Set();
+  }
+  multiAccountCache = { hashes, at: nowMs };
+  return hashes;
+}
+
+/// 이 CI 해시가 다중계정 예외 대상인가.
+async function isMultiAccountAllowed(db, hash, options) {
+  const hashes = await loadMultiAccountAllowlist(db, options);
+  return hashes.has(hash);
 }
 
 function duplicateError() {
@@ -85,6 +185,15 @@ async function linkIdentityAndSaveVerification(db, { uid, ci, userPatch, provide
   }
 
   const hash     = ciHash(ci);
+  // 설정 문서 읽기 — 트랜잭션 밖에서 한 번만. 경합하는 상태가 아니라 설정이다.
+  const allowMultiAccount = await isMultiAccountAllowed(db, hash);
+  if (allowMultiAccount) {
+    // 감사 로그: 누가 예외로 통과했는지 남긴다. 해시는 남기지 않는다 —
+    // uid만으로 나중에 identityLinks/users에서 역추적할 수 있다.
+    console.warn('[IdentityLink] 다중계정 예외 적용 — 중복 차단을 건너뛴다', {
+      uid, provider: provider || null,
+    });
+  }
   const linkRef  = db.collection(IDENTITY_LINKS).doc(hash);
   const userRef  = db.collection('users').doc(uid);
   // 기존 가입자(링크 문서가 아직 없는 회원) 탐지용 — 트랜잭션 안에서 읽어야
@@ -99,14 +208,14 @@ async function linkIdentityAndSaveVerification(db, { uid, ci, userPatch, provide
     const nowMs = Date.now();
     const link  = linkSnap.exists ? linkSnap.data() : null;
 
-    if (link && link.uid !== uid && isLinkBlocking(link, nowMs)) {
+    if (!allowMultiAccount && link && link.uid !== uid && isLinkBlocking(link, nowMs)) {
       console.warn('[IdentityLink] 중복 본인확인 차단(링크 존재)', {
         uid, linkedUid: link.uid, status: link.status,
       });
       throw duplicateError();
     }
 
-    if (!link) {
+    if (!allowMultiAccount && !link) {
       const other = legacySnap.docs.find((d) => d.id !== uid);
       if (other) {
         console.warn('[IdentityLink] 중복 본인확인 차단(기존 가입자)', {
@@ -304,5 +413,12 @@ exports.resolveCiHash = resolveCiHash;
 exports.ciHashOfUserData = ciHashOfUserData;
 exports.DUPLICATE_MESSAGE = DUPLICATE_MESSAGE;
 exports.DUPLICATE_CODE = DUPLICATE_CODE;
+exports.SERVER_CONFIG = SERVER_CONFIG;
+exports.MULTI_ACCOUNT_DOC = MULTI_ACCOUNT_DOC;
+exports.MULTI_ACCOUNT_CACHE_MS = MULTI_ACCOUNT_CACHE_MS;
+exports.parseMultiAccountAllowlist = parseMultiAccountAllowlist;
+exports.loadMultiAccountAllowlist = loadMultiAccountAllowlist;
+exports.isMultiAccountAllowed = isMultiAccountAllowed;
+exports.resetMultiAccountCache = resetMultiAccountCache;
 exports.RELEASE_COOLDOWN_DAYS = RELEASE_COOLDOWN_DAYS;
 exports.IDENTITY_LINKS = IDENTITY_LINKS;
