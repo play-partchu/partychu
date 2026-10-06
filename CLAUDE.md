@@ -70,30 +70,37 @@ Claude Code가 같은 규칙으로 움직이게 하려고 둔다.
 ## 커밋하지 않는 것
 
 생성·캐시·임시·시크릿 파일은 담지 않는다. 루트 `.gitignore`와 각 앱의
-`.gitignore`가 대부분 막아 주지만, **이미 추적 중인 파일은 `.gitignore`가
-막지 못한다** — 아래 지뢰를 보고 손으로 가린다.
+`.gitignore`가 막는다. **이미 추적 중인 파일은 `.gitignore`가 막지 못한다**는
+것만 기억한다 — 새로 추적을 끊어야 할 것이 보이면 `git rm --cached`가
+필요하고, 그건 사용자 승인을 받는다(다른 기기의 작업 트리에서 그 파일이
+사라지기 때문이다).
 
 ```
 node_modules/            **/build/            **/.dart_tool/
-.DS_Store  Thumbs.db     *.log                .firebase/*.cache
-functions/.env*          key.properties  *.jks  *.keystore
+platform-tools/          **/.claude/settings.local.json
+.DS_Store  Thumbs.db     *.log                *.bak
+functions/.env*          key.properties  *.jks  *.keystore  *.p8
 functions/scripts/.demo-out/     (운영 Firestore 원문이 들어간다)
 party_app/assets/fonts/WIN_seoul_font2/   (개인 보관용 48MB 설치 파일)
 ```
+
+`.firebase/*.cache` 5개는 **일부러 추적한다** — 호스팅 배포가 갱신하는 값이다.
 
 ---
 
 ## 지뢰 — 두 기기 모두 알아야 하는 것
 
-**`functions/node_modules/`가 Git에 추적되고 있다(약 9,600개 파일).**
-최초 커밋에 들어가 버려서 `functions/.gitignore`의 `node_modules/` 규칙이
-무력하다. 그래서 `functions/node_modules/.package-lock.json`이 `npm` 명령마다
-수정 상태로 뜬다. **커밋에 담지 말고 그대로 둔다.** 정리는 사용자 승인이
-필요한 별도 작업이다.
+**`functions/node_modules/`는 한때 Git에 추적됐다(9,611개 파일, 최초 커밋에
+들어가 있었다).** 추적을 끊었으므로 **pull한 뒤에는 `cd functions && npm ci`를
+돌려야 한다** — 안 돌리면 Functions 로컬 실행·배포가 의존성 없이 깨진다.
+기록은 재작성하지 않았으므로 `.git` 용량은 그대로다.
 
-**`platform-tools/`는 Windows 전용 바이너리(adb.exe 등 16MB)가 추적된 것이다.**
-Mac에서는 쓸 수 없다. Mac에서는 Homebrew 등으로 따로 설치하고 이 디렉터리는
-건드리지 않는다.
+**`platform-tools/`(adb 등)도 추적을 끊었다.** Windows 전용 바이너리였다.
+각 기기에서 그 OS용으로 따로 설치한다(Mac은 Homebrew 또는 Android SDK).
+
+**`.claude/settings.local.json`은 기기 전용이라 추적하지 않는다.** 그 기기의
+권한 허용 목록이고 문자열 안에 API 키가 섞인다. **공용인
+`.claude/settings.json`·`.claude/skills/`·`CLAUDE.md`는 계속 추적한다.**
 
 **`website/app/`은 Git에 없다.** `website/.gitignore`가 `/app/`을 막는다.
 새로 clone한 기기에는 이 디렉터리가 아예 없으므로, 호스팅 `website` 타깃을

@@ -23,16 +23,17 @@ git diff --stat --cached
 ## 2. 담을 것과 뺄 것을 가른다
 
 **생성·캐시·임시 파일은 담지 않는다.** 경로를 **하나씩 지정해서** `git add`
-한다 — `git add -A`나 `git add .`는 쓰지 않는다. 이 저장소에는 아래처럼 이미
-추적 중이면서 끊임없이 변하는 파일이 있어서, 일괄 추가하면 매 커밋에
-섞여 들어간다.
+한다 — `git add -A`나 `git add .`는 쓰지 않는다. 루트 `.gitignore`가 대부분을
+막지만, 규칙이 없는 새 생성물이 조용히 섞여 들어가는 것을 막으려면 담을 것을
+직접 고르는 편이 안전하다.
 
-담지 않는 것:
+담지 않는 것(대부분 `.gitignore`가 이미 막는다):
 
 | 경로 | 이유 |
 |---|---|
-| `functions/node_modules/**` | 이미 추적 중이지만 커밋 대상이 아니다. 특히 `functions/node_modules/.package-lock.json`은 `npm` 명령마다 바뀐다 |
+| `functions/node_modules/`, `platform-tools/` | 추적을 끊었다 — 다시 담지 않는다 |
 | `**/build/`, `**/.dart_tool/` | 빌드 산출물 |
+| `**/.claude/settings.local.json` | 기기 전용 권한 목록(API 키가 섞인다) |
 | `.firebase/*.cache` | Firebase 호스팅 배포 캐시(배포할 때만 갱신) |
 | `.DS_Store`, `Thumbs.db` | OS 파일 |
 | `*.log`, `hs_err_pid*.log`, `replay_pid*.log` | 로그·JVM 크래시 덤프 |

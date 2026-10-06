@@ -1,13 +1,21 @@
 # 저장소 루트 공용 ignore — Windows·macOS 두 기기에서 번갈아 작업하므로
 # 양쪽 OS가 만드는 파일을 모두 막는다.
 #
-# ⚠️ .gitignore는 **이미 추적 중인 파일을 막지 못한다.** 아래 규칙에
-#    해당하지만 이미 추적되고 있는 것이 있다(CLAUDE.md "지뢰" 참조):
-#      · functions/node_modules/   — 최초 커밋에 들어갔다. 약 9,600개 파일
-#      · platform-tools/           — Windows 전용 adb 바이너리 16MB
-#      · .firebase/*.cache         — 호스팅 배포 캐시 5개
-#    정리는 `git rm --cached`가 필요한 별도 작업이고 사용자 승인을 받는다.
-#    그때까지는 커밋에 담지 않도록 손으로 가린다.
+# ⚠️ .gitignore는 **이미 추적 중인 파일을 막지 못한다.** 그래서 아래 것들은
+#    규칙을 더하는 것만으로는 안 되고 `git rm --cached`로 추적을 끊었다
+#    (로컬 파일은 지우지 않았다 · 기록은 재작성하지 않았다):
+#      · functions/node_modules/   — 최초 커밋 265c979에 들어가 있었다(9,611개)
+#      · platform-tools/           — Windows 전용 adb 바이너리(16MB)
+#      · party_app/android/build/  — Gradle 리포트
+#      · *.local.json 설정 2개     — 기기별 권한 목록
+#      · 폰트 설치 exe·잡파일
+#
+#    **다른 기기는 pull할 때 이 파일들이 작업 트리에서 지워진다.** 필요한
+#    것은 각 기기에서 다시 만든다: `cd functions && npm ci`,
+#    platform-tools는 각 OS용으로 따로 설치.
+#
+#    `.firebase/*.cache` 5개는 **일부러 남겨 두었다** — 호스팅 배포가
+#    갱신하는 값이고 커밋 0480a23부터 함께 관리해 왔다.
 
 # ── OS ───────────────────────────────────────────────────────────────────
 # macOS — 루트·functions·website·docs·design·tool 등 앱 디렉터리 밖에는
@@ -52,6 +60,22 @@ replay_pid*
 node_modules/
 .pub-cache/
 .pub/
+
+# ── 기기별 SDK·툴 ────────────────────────────────────────────────────────
+#
+# Android SDK platform-tools(adb 등)는 OS별 바이너리다 — Windows의 adb.exe를
+# Mac에서 쓸 수 없다. 각 기기에서 따로 설치한다.
+/platform-tools/
+
+# ── 기기별 Claude Code 설정 ──────────────────────────────────────────────
+#
+# settings.local.json은 그 기기에서만 뜻이 있는 권한 허용 목록이고, 실제로
+# API 키가 문자열 안에 섞여 들어간다. 공유하지 않는다.
+#
+# ⚠️ 공용으로 필요한 .claude/settings.json · .claude/skills/ · CLAUDE.md는
+#    계속 추적한다 — 아래 규칙은 settings.local.json만 가린다.
+settings.local.json
+**/.claude/settings.local.json
 
 # ── 빌드 산출물 ──────────────────────────────────────────────────────────
 #
@@ -105,3 +129,15 @@ functions/scripts/.demo-out/
 *.bak
 *.orig
 *.rej
+
+# ── 사용자 개인 보관 파일 ────────────────────────────────────────────────
+#
+# 폰트 설치 프로그램(약 48MB). 사용자가 직접 넣어 둔 개인 보관용이고 Git
+# 작업과 무관하다 — 지우지 말고 추적만 하지 않는다.
+party_app/assets/fonts/WIN_seoul_font2/
+
+# ── 잡파일 ───────────────────────────────────────────────────────────────
+#
+# 셸 리다이렉션 사고로 생긴 빈 파일과 메모. 실수로 다시 담기지 않게 적어 둔다.
+/party_app/=
+/party_app/k.txt
