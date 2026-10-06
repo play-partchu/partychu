@@ -23,6 +23,8 @@ import 'package:party_app/models/product_refund_feature.dart';
 import 'package:party_app/screens/event_register_screen.dart';
 import 'package:party_app/utils/user_session.dart';
 
+import 'support/field_finders.dart';
+
 void main() {
   setUp(() {
     dotenv.testLoad(fileInput: '');
@@ -41,12 +43,10 @@ void main() {
 
     // 제목만 채우면 상품 검사 앞의 관문(제목·기간·시간)을 모두 통과한다
     // (기간은 기본이 '상시 진행', 시간 지정은 기본 꺼짐).
+    // 힌트 문구는 support/field_finders.dart 한 곳이 정본이다 — 여기 박아 두면
+    // 화면 문구가 바뀌었을 때 이 파일만 남아 조용히 깨진다(실제로 그랬다).
     await tester.enterText(
-      find.byWidgetPredicate(
-        (w) =>
-            w is TextField &&
-            (w.decoration?.hintText ?? '') == '예: 키워드 1호점 여성 무료입장',
-      ),
+      fieldWithHint(kEventNameHint),
       '테스트 플레이스',
     );
     await tester.pumpAndSettle();

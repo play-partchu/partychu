@@ -136,13 +136,28 @@ void main() {
       expect(map.contains('?MapListing.fromPublicEvent(e)'), isTrue);
     });
 
-    test('공공 축제 마커는 영역 필터로 화면 근처 것만 만든다', () {
-      expect(map.contains('final nearby = _filterByBounds('), isTrue);
-      expect(map.contains('final groups = _clusterListings(pool, tier);'), isTrue);
+    // 예전에는 공공 축제에만 '화면을 사방으로 넓힌 상자'가 하나 더 걸려
+    // 있었다. 전국 수백 건을 한 번에 굽지 않으려던 것인데, 화면 영역과 따로
+    // 노는 두 번째 자가 되어 **전국으로 축소해도 카메라 주변 것만** 남겼다
+    // (기본 줌 12에서 그 상자는 반경 20km쯤 — 전국 273건 중 몇 개만 남는다).
+    test('공공 축제에만 걸리는 별도 영역 상자가 없다', () {
+      expect(map.contains('_festivalSyncBox'), isFalse);
+      expect(map.contains('_festivalBoxMargin'), isFalse);
+    });
+
+    test('마커 후보는 종류와 무관하게 같은 영역 하나만 본다', () {
+      // 홈은 영역 조회 결과(_displayed)가 곧 마커 후보다.
       expect(
-        map.contains('!boxContains(_festivalSyncBox!, _boxOf(view))'),
+        map.contains('final pool = _home ? _displayed : _mapItems;'),
         isTrue,
       );
+      expect(map.contains('final groups = _clusterListings(pool, tier);'), isTrue);
+      // 낮은 줌에서 개수가 늘어나는 것은 겹침 묶음이 받는다.
+      expect(map.contains('_clusterListings('), isTrue);
+    });
+
+    test('첫 화면도 보이는 영역으로 잡는다 — 전국을 한 번에 굽지 않는다', () {
+      expect(map.contains('if (_home) { _runAreaSearch(force: true); }'), isTrue);
     });
 
     test('마커 탭·목록 카드는 공공 축제 상세로, 기존 상세 이동은 그대로', () {

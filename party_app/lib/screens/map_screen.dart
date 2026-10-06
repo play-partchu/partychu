@@ -289,14 +289,6 @@ class _MapScreenState extends State<MapScreen> {
   /// 받은 것 중 좌표가 있는 것만 [_byKind]의 공공 축제 칸에 담긴다.
   StreamSubscription<List<PublicEvent>>? _publicEventSub;
 
-  /// 공공 축제 마커를 만든 **넓힌 화면 영역** — 화면이 이 상자를 벗어날 때만
-  /// 마커를 다시 그린다([_onCameraIdle]). 공공 축제가 마커 후보에 없으면 null.
-  ({double south, double west, double north, double east})? _festivalSyncBox;
-
-  /// 공공 축제 마커를 만들 때 화면 영역을 사방으로 넓히는 비율 — 조금씩
-  /// 움직일 때마다 마커를 다시 그리지 않게 한다.
-  static const double _festivalBoxMargin = 0.5;
-
   @override
   void initState() {
     super.initState();
@@ -567,36 +559,18 @@ class _MapScreenState extends State<MapScreen> {
     if (_mapController == null) return;
     final generation = ++_syncGeneration;
 
-    // 홈에는 아래 목록이 없다 — 영역 조회가 좁힌 결과를 마커가
-    // 그대로 보여준다(영역 검색 전에는 [_mapItems]와 같다).
-    var pool = _home ? _displayed : _mapItems;
-    // 🎊 공공 축제는 전국 수백 건이라 **화면 근처 것만** 마커 후보로 만든다.
-    // 걸러 내는 함수는 영역 검색과 같은 [_filterByBounds]이고, 영역은 지금
-    // 화면을 사방으로 넓힌 상자다([_festivalBoxMargin]). 파티츄 콘텐츠 셋은
-    // 예전 그대로 전부 후보다.
-    if (pool.any((i) => i.kind == MapListingKind.festival)) {
-      final view = await _mapController!.getContentBounds();
-      if (!mounted || generation != _syncGeneration) return;
-      final box = expandBox(_boxOf(view), _festivalBoxMargin);
-      _festivalSyncBox = box;
-      final nearby = _filterByBounds(
-        [
-          for (final i in pool)
-            if (i.kind == MapListingKind.festival) i,
-        ],
-        NLatLngBounds(
-          southWest: NLatLng(box.south, box.west),
-          northEast: NLatLng(box.north, box.east),
-        ),
-      );
-      pool = [
-        for (final i in pool)
-          if (i.kind != MapListingKind.festival) i,
-        ...nearby,
-      ];
-    } else {
-      _festivalSyncBox = null;
-    }
+    // 홈에는 아래 목록이 없다 — 영역 조회가 좁힌 결과를 마커가 그대로
+    // 보여준다. 영역은 지금 보이는 화면이고, 카메라가 멈출 때마다 새로
+    // 잡힌다([_runAreaSearch]).
+    //
+    // 🎊 공공 축제에만 걸려 있던 **별도의 좁은 상자를 없앴다.** 전국 수백
+    // 건을 한 번에 굽지 않으려던 것인데, 화면 영역과 따로 노는 두 번째
+    // 자가 되어 전국으로 축소했을 때도 카메라 주변 것만 남겼다(기본 줌 12
+    // 에서 그 상자는 반경 20km쯤이다 — 전국 273건 중 서울 도심 몇 개만
+    // 남는다). 지금은 모든 종류가 같은 영역 하나만 본다. 낮은 줌에서 개수가
+    // 늘어나는 것은 겹침 묶음이 받아 준다([_clusterListings] — 묶음 수는
+    // 화면 픽셀 기준이라 줌을 당겨도 크게 늘지 않는다).
+    final pool = _home ? _displayed : _mapItems;
 
     final tier = _markerTierForZoom(_currentZoom);
     _syncedZoomStep = _currentZoom.floor();
@@ -1242,15 +1216,9 @@ class _MapScreenState extends State<MapScreen> {
     // (홈은 선택하지 않은 마커를 원형 썸네일까지만 키운다 — [_markerTierForZoom].)
     if (wasTier != isTier || newZoom.floor() != _syncedZoomStep) {
       _syncMarkers();
-    } else if (_festivalSyncBox != null) {
-      // 🎊 공공 축제는 화면 근처 것만 마커로 만들어 두었다 — 화면이 그 넓힌
-      // 상자를 벗어났을 때만 다시 그린다(조금 움직이는 것으로는 그리지 않는다).
-      final view = await _mapController?.getContentBounds();
-      if (!mounted) return;
-      if (view != null && !boxContains(_festivalSyncBox!, _boxOf(view))) {
-        _syncMarkers();
-      }
     }
+    // 같은 줌에서 옆으로 민 경우는 여기서 다시 그리지 않는다 — 아래
+    // 자동 조회가 영역을 새로 잡으면서 마커까지 함께 맞춘다.
 
     if (_pendingAreaSearch) {
       // '현재 위치'로 옮긴 직후 — 기다릴 이유가 없다(사용자가 방금 누른
@@ -1890,6 +1858,11 @@ class _MapScreenState extends State<MapScreen> {
         NCameraUpdate.withParams(target: latLng, zoom: 15),
       );
 
+      // 홈 첫 진입의 조용한 이동([_locateIfPermitted])은 idle을 건너뛰게 해
+      // 뒀다 — 그래도 카메라가 옮겨졌으니 영역은 새로 잡아야 한다. 시트는
+      // 건드리지 않으므로 사용자가 누른 것처럼 화면이 올라오지 않는다.
+      if (!areaSearch) await _runAreaSearch(force: true);
+
       if (_currentLocationMarker != null) {
         await _mapController?.deleteOverlay(_currentLocationMarker!.info);
       }
@@ -2084,7 +2057,12 @@ class _MapScreenState extends State<MapScreen> {
     ),
     onMapReady: (controller) {
       _mapController = controller;
-      if (_mapItems.isNotEmpty) {
+      // 첫 화면도 지금 보이는 영역으로 잡아 둔다 — 이게 없으면 영역이 정해질
+      // 때까지 전국 것이 전부 마커 후보가 되어, 첫 그리기가 수백 개를 굽는다.
+      // (홈만. 지도 화면은 아래 목록이 있어 예전처럼 전체를 들고 있는다.)
+      if (_home) {
+        _runAreaSearch(force: true);
+      } else if (_mapItems.isNotEmpty) {
         _syncMarkers();
       }
       // 초기 onCameraIdle 무시를 위해 한 프레임 후 초기화 완료 표시

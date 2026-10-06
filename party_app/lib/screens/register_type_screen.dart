@@ -833,7 +833,7 @@ void _showRegisterHelpSheet(BuildContext context) {
                       '카페',
                       '술집·혼술바',
                       '클럽·댄스',
-                      '라이브',
+                      '라이브클럽',
                       '놀거리',
                       '체험/클래스',
                       '파티룸·대관 공간',

@@ -24,7 +24,7 @@ class PlaceScopeNotice extends StatelessWidget {
   static const List<({String emoji, String text})> lines = [
     (
       emoji: '🏪',
-      text: '음식점·카페·술집부터 클럽·라이브·놀거리·체험/클래스, 공간대여·숙박까지 '
+      text: '음식점·카페·술집부터 클럽·라이브클럽·놀거리·체험/클래스, 공간대여·숙박까지 '
           '다양한 플레이스를 등록할 수 있어요.',
     ),
     (

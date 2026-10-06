@@ -204,7 +204,7 @@ class PlaceAttributeCatalog {
     title: '음악 장르',
     emoji: '🎧',
     hint: '주로 트는 장르를 모두 골라주세요.',
-    categories: ['클럽', '라이브·공연'],
+    categories: ['클럽', '라이브클럽', '라이브·공연'],
     // featureKeys 없음 — 장르만으로는 아무 특징도 안 켜진다. 🎧 DJ가 켜지는
     // 것은 '클럽 대분류 + 장르'가 함께일 때뿐이라([PlaceFeatures.of] ⑤),
     // 이 그룹 하나로 켤 수 있는 조건이 아니다.
@@ -226,7 +226,7 @@ class PlaceAttributeCatalog {
     emoji: '🎧',
     // 클럽·라이브·BAR에서 먼저 묻지만, DJ를 부르는 날이 있는 카페·맛집도
     // 게스트가 🎧로 찾는다 — 그래서 다른 업종에서도 켤 자리가 있어야 한다.
-    categories: ['클럽', '라이브·공연', 'BAR'],
+    categories: ['클럽', '라이브클럽', '라이브·공연', 'BAR'],
     featureKeys: ['DJ'],
     options: [PlaceAttributeOption('DJ 있음', emoji: '🎧')],
     detailsOn: {'DJ 있음'},
@@ -243,7 +243,7 @@ class PlaceAttributeCatalog {
     key: clubEntryKey,
     title: '입장 정보',
     emoji: '🎟',
-    categories: ['클럽'],
+    categories: ['클럽', '라이브클럽'],
     // '🪑 테이블 예약'을 켜기는 하지만, 같은 조건이 **방문 예약 설정**으로도
     // 켜진다([PlaceFeatures.of] ⑦-1). 다른 길이 이미 모든 업종에 열려 있으므로
     // 클럽 전용 여섯 칸을 카페 등록 화면까지 끌고 가지 않는다
@@ -318,6 +318,7 @@ class PlaceAttributeCatalog {
       '놀거리',
       '체험·클래스',
       '라이브·공연',
+      '라이브클럽',
     ],
     featureKeys: ['무제한'],
     options: [
@@ -466,7 +467,15 @@ class PlaceAttributeCatalog {
     //    여기 없는 대분류로 저장하면 [pruneAttributesFor]가 고른 값을 통째로
     //    지운다 — 새 대분류를 추가할 때 이 줄을 함께 보지 않으면 와인 리스트가
     //    말없이 사라진다. 다이닝이 그래서 여기 있다.
-    categories: ['술집', 'BAR', '혼술바', '맛집', '다이닝·파인다이닝', '클럽'],
+    categories: [
+      '술집',
+      'BAR',
+      '혼술바',
+      '맛집',
+      '다이닝·파인다이닝',
+      '클럽',
+      '라이브클럽',
+    ],
     options: [
       PlaceAttributeOption('와인'),
       PlaceAttributeOption('위스키'),
@@ -503,7 +512,15 @@ class PlaceAttributeCatalog {
     emoji: '🍶',
     hint: '술을 가져와도 되는지 하나만 골라주세요.',
     singleChoice: true,
-    categories: ['술집', 'BAR', '혼술바', '맛집', '다이닝·파인다이닝', '클럽'],
+    categories: [
+      '술집',
+      'BAR',
+      '혼술바',
+      '맛집',
+      '다이닝·파인다이닝',
+      '클럽',
+      '라이브클럽',
+    ],
     // 이 그룹에서 유도되는 빠른 특징 — 키는 옛 이름 그대로다(하위호환).
     // 무엇을 묻는지는 '무료인가'에서 '허용하는가'로 바뀌었다
     // ([PlaceFeatures.corkageAvailable], [PlaceCorkage.isAllowed]).
@@ -1174,6 +1191,16 @@ class PlaceDetailBlocks {
       'clubEntry',
       PlaceAttributeCatalog.smokingKey,
       PlaceAttributeCatalog.unlimitedKey,
+    ],
+    // 라이브클럽은 "오늘 누가 연주하나 / 얼마 내고 들어가나"가 먼저다 —
+    // 장르·라인업(dj의 상세)·입장 정보가 위로 오고 마시는 것이 그 뒤다.
+    '라이브클럽': [
+      'musicGenres',
+      'clubEntry',
+      'dj',
+      'alcoholTypes',
+      PlaceAttributeCatalog.purposesKey,
+      PlaceAttributeCatalog.smokingKey,
     ],
     '라이브·공연': [
       'musicGenres',

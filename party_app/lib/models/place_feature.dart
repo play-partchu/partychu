@@ -532,6 +532,10 @@ class PlaceFeatures {
     // ⑤ 대분류에서 유도 — 라이브·공연 가게는 '라이브'를 따로 켜지 않아도 된다.
     final category = PlaceTaxonomy.categoryOf(data);
     if (category == PlaceTaxonomy.live.label) result.add(live.key);
+    // 라이브클럽은 **정의상** 무대가 있는 곳이라 호스트가 따로 고르지 않아도
+    // 🎤 라이브로 찾혀야 한다. 🎧 DJ는 켜지 않는다 — 여기 장르는 '트는' 것이
+    // 아니라 '연주하는' 것이라, 클럽(⑤ 아래)과 같은 뜻이 아니다.
+    if (category == PlaceTaxonomy.liveClub.label) result.add(live.key);
     if (category == PlaceTaxonomy.play.label) result.add(play.key);
     if (category == PlaceTaxonomy.club.label &&
         attrs.selected('musicGenres').isNotEmpty) {

@@ -479,6 +479,7 @@ class PlaceQuickPicks {
     'BAR': ['alcohol', 'beer', 'drink'],
     '혼술바': ['alcohol', 'beer', 'drink'],
     '클럽': ['alcohol', 'beer', 'drink', 'time'],
+    '라이브클럽': ['alcohol', 'beer', 'drink', 'time'],
     // 놀거리 — 여기서 무제한은 먹는 것이 아니라 **시간과 이용**이다.
     '놀거리': ['karaoke', 'play', 'time'],
     '체험·클래스': ['time', 'play', 'buffet', 'meat'],
@@ -618,6 +619,19 @@ class PlaceQuickPicks {
       PlaceFeatures.smokeFree,
       PlaceFeatures.private,
       PlaceFeatures.bigScreen,
+      PlaceFeatures.hot,
+    ],
+    // 라이브클럽 — 🎤 라이브는 대분류만으로 켜지므로(PlaceFeatures.of ⑤)
+    // 여기 두면 아무도 안 걸러진다. 그래서 '무대가 있나'가 아니라 **그 무대를
+    // 어떤 자리에서 보나**를 묻는다 — 예약·단체석이 앞이다.
+    PlaceTaxonomy.liveClub.label: [
+      PlaceFeatures.tableReservation,
+      PlaceFeatures.lateNight,
+      PlaceFeatures.groupSeat,
+      PlaceFeatures.dj,
+      PlaceFeatures.private,
+      PlaceFeatures.smokeFree,
+      PlaceFeatures.smokingArea,
       PlaceFeatures.hot,
     ],
     PlaceTaxonomy.live.label: [
@@ -931,6 +945,16 @@ class PlaceQuickPicks {
       PlaceQuickPick.attribute(_clubEntry, ['신분증 필수'], label: '🪪 신분증'),
       PlaceQuickPick.attribute(_clubEntry, ['드레스코드 있음'], label: '👗 드레스코드'),
       amenityChip(PlaceTaxonomy.club.label),
+    ],
+    // 라이브클럽도 입장료를 받는 곳이라 '무료입장'이 클럽과 똑같이 뜻이 있다
+    // (입장 정보 그룹을 이 대분류에서도 묻는다 — clubEntry의 categories).
+    PlaceTaxonomy.liveClub.label: [
+      PlaceQuickPick.attribute(_clubEntry, [
+        PlaceAttributeCatalog.clubEntryFree,
+      ], label: '🆓 무료입장'),
+      PlaceQuickPick.attribute(_genres, ['K-POP']),
+      PlaceQuickPick.attribute(_genres, ['HIPHOP', 'R&B'], label: '🎧 힙합·R&B'),
+      amenityChip(PlaceTaxonomy.liveClub.label),
     ],
     PlaceTaxonomy.live.label: [
       PlaceQuickPick.attribute(_genres, ['K-POP']),

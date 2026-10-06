@@ -20,6 +20,7 @@ import 'package:party_app/utils/party_utils.dart';
 import 'package:party_app/utils/place_owner.dart' show isMyPlace;
 import 'package:party_app/utils/user_session.dart';
 import 'package:party_app/widgets/card_parts.dart';
+import 'package:party_app/widgets/place_feature_chips_view.dart';
 import 'package:party_app/widgets/favorite_star_button.dart';
 import 'package:party_app/widgets/list_card_shell.dart';
 import 'package:party_app/widgets/partychu_perk.dart';
@@ -102,6 +103,19 @@ class PlaceCardInfo {
   /// 좌석·공간/편의 옵션 대표 요약(전체는 상세페이지).
   final String facilitySummary;
 
+  /// **특징** 표기들 — 카드가 형광 라임 강조 칩으로 그린다
+  /// ([PlaceFeatureChipRow]). 순서는 [PlaceFeatures.highlightLabelsOf] 그대로고,
+  /// 한 줄에 안 들어가는 것은 카드가 '+N'으로 접는다.
+  ///
+  /// 예전에는 이 값들이 [facilitySummary] 안에 `' · '`로 이어 붙어 주소와 같은
+  /// 줄에 섞여 있었다 — 카드에서 가장 먼저 읽혀야 하는 것이 평범한 회색 글자로
+  /// 묻혀 있었다. 그래서 **글자에서 떼어내 따로 들고 있는다.** 갈라 두면 카드
+  /// 종류마다 이 값을 어디에 그릴지 따로 정할 수 있다(기본 카드는 정보 줄 한
+  /// 칸을 대신 쓰고, 작은 카드는 배지 아래 자기 줄을 갖는다).
+  ///
+  /// 장소대여(`places`)는 비어 있다 — 특징은 플레이스(`events`)의 축이다.
+  final List<String> highlightFeatures;
+
   final PartyCoverMedia? cover;
 
   /// 대표가가 없고 **가격 문의** 룸만 있는 장소대여인지 — 요금 줄을 '무료'가
@@ -121,6 +135,7 @@ class PlaceCardInfo {
     required this.isStayPartyCombo,
     required this.hasPartychuPerk,
     required this.facilitySummary,
+    required this.highlightFeatures,
     required this.cover,
     this.priceInquiry = false,
   });
@@ -220,17 +235,19 @@ class PlaceCardInfo {
       // 아니라 '왜 가볼 만한가'다(🎧 DJ · 🌙 심야영업 · 🚬 흡연실). 특징이
       // 하나도 유도되지 않는 플레이스는 예전처럼 좌석·공간 요약을 쓴다 —
       // 요약 줄이 통째로 비어 카드가 한 줄 줄어드는 일이 없다.
-      facilitySummary: source == PlaceCardSource.place
-          ? (() {
-              // 특징 이름이 아니라 **값**으로 적는다 — '♾ 무제한'만으로는 무엇이
-              // 무제한인지 모른다('♾ 하이볼 무제한', '♾ 노래방 시간 무제한').
-              final features = PlaceFeatures.highlightLabelsOf(
-                data,
-                max: 3,
-              ).join(' · ');
-              return features.isEmpty ? facilities.summaryText() : features;
-            })()
-          : facilities.summaryText(),
+      // 특징이 글자 줄에서 빠졌으므로, 이 줄은 예전의 좌석·공간 요약으로
+      // 돌아간다. 특징은 [highlightFeatures]가 들고 카드가 칩으로 그린다.
+      facilitySummary: facilities.summaryText(),
+      // 특징 이름이 아니라 **값**으로 적는다 — '♾ 무제한'만으로는 무엇이
+      // 무제한인지 모른다('♾ 하이볼 무제한', '♾ 노래방 시간 무제한').
+      //
+      // max를 넉넉히(6) 받아 온다 — 예전에는 한 줄 글자에 이어 붙였으므로 3에서
+      // 잘랐지만, 이제는 **칩이 몇 개 들어가는지를 실제 폭이 정하고** 나머지는
+      // '+N'으로 접힌다([PlaceFeatureChipRow]). 여기서 미리 3으로 자르면 넓은
+      // 카드에서 남는 자리를 못 쓰고, '+N'의 N도 실제보다 작게 나온다.
+      highlightFeatures: source == PlaceCardSource.place
+          ? PlaceFeatures.highlightLabelsOf(data, max: 6)
+          : const <String>[],
       cover: getPartyCoverMedia(data, tag: tag),
       priceInquiry:
           source == PlaceCardSource.rental &&
@@ -513,6 +530,17 @@ class PlaceCompactCard extends StatelessWidget {
           ListCardShell.badgeWrap(
             placeCardBadges(info, eventSourceBadge: eventSourceBadge),
           ),
+          // ①-2 특징 강조 칩 — 카테고리 배지 **바로 아래**, 장소명보다 위다.
+          //
+          // 예전에는 이 특징들이 ③ 주소 줄 안에 `' · '`로 이어 붙어 있었다.
+          // 카드에서 가장 먼저 읽혀야 하는 "왜 가볼 만한가"가 회색 글자로 주소와
+          // 섞여 있었던 셈이라, 글자에서 떼어내 자기 줄로 올렸다.
+          //
+          // 특징이 없는 플레이스에서는 줄을 **아예 넣지 않는다** — 빈 줄을
+          // 넘기면 [ListCardShell.infoColumn]이 줄 간격을 한 번 더 넣어,
+          // 특징 없는 카드만 이유 없이 길어진다.
+          if (info.highlightFeatures.isNotEmpty)
+            PlaceFeatureChipRow(labels: info.highlightFeatures),
           // ② 장소명
           _placeTitle(info.name),
           // ③ 지역 (+ 좌석·공간 요약)
@@ -520,8 +548,8 @@ class PlaceCompactCard extends StatelessWidget {
             _placeInfoLine(
               Icons.location_on,
               [
-                // 요약(플레이스는 특징)이 주소보다 앞이다 — 한 줄이 잘릴
-                // 때 살아남아야 하는 쪽은 '왜 가볼 만한가'다.
+                // 좌석·공간 요약이 주소보다 앞이다 — 한 줄이 잘릴 때 살아남아야
+                // 하는 쪽은 '어떤 자리인가'다(특징은 이제 위 칩 줄이 맡는다).
                 if (info.facilitySummary.isNotEmpty) info.facilitySummary,
                 if (info.shortAddress.isNotEmpty) info.shortAddress,
               ].join(' · '),
@@ -828,7 +856,23 @@ class PlaceStandardCard extends StatelessWidget {
                     const SizedBox(height: 3),
                     _placeInfoLine(Icons.location_on, info.shortAddress),
                     const SizedBox(height: 3),
-                    _placeInfoLine(Icons.chair_outlined, info.facilitySummary),
+                    // 세 번째 칸은 **특징 자리**다. 특징이 있으면 형광 칩 줄,
+                    // 없으면 예전처럼 좌석·공간 요약 글자다.
+                    //
+                    // 새 줄을 위에 더하지 않고 이 칸을 대신 쓰는 이유는 위 ★
+                    // 규칙 때문이다 — 줄을 하나 더 넣으면 특징이 있는 카드만
+                    // 길어져 2열 그리드에서 좌우 아래끝이 어긋난다. 이 칸에
+                    // 넣으면 두 경우의 높이가 [PlaceFeatureSlot]으로 같다.
+                    PlaceFeatureSlot(
+                      child: info.highlightFeatures.isEmpty
+                          ? _placeInfoLine(
+                              Icons.chair_outlined,
+                              info.facilitySummary,
+                            )
+                          : PlaceFeatureChipRow(
+                              labels: info.highlightFeatures,
+                            ),
+                    ),
                   ],
                 ),
               ),
@@ -1061,6 +1105,13 @@ class _PlaceLargeCardState extends State<PlaceLargeCard> {
               crossAxisAlignment: CrossAxisAlignment.start,
               mainAxisSize: MainAxisSize.min,
               children: [
+                // 특징 칩이 맨 위 — 큰 카드는 줄 수가 문서마다 달라도 되는
+                // 자리라(전부 조건부다) 자기 줄을 갖는다. 제목 바로 아래에서
+                // "왜 가볼 만한가"가 먼저 읽힌다.
+                if (info.highlightFeatures.isNotEmpty) ...[
+                  PlaceFeatureChipRow(labels: info.highlightFeatures),
+                  const SizedBox(height: 6),
+                ],
                 if (info.hoursLabel.isNotEmpty)
                   largeCardInfoLine(Icons.schedule, info.hoursLabel),
                 if (info.shortAddress.isNotEmpty) ...[
