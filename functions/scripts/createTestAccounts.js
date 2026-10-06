@@ -45,22 +45,53 @@ admin.initializeApp({
   projectId: PROJECT_ID,
 });
 
+// ⚠️ **비밀번호를 이 파일에 적지 않는다.** 예전에는 평문으로 들어 있었고,
+//    이 스크립트는 Git에 추적되므로 저장소 기록에 그대로 남았다. 이제
+//    환경변수로만 받는다 — 값이 없으면 [passwordOf]가 실행을 멈춘다(빈
+//    비밀번호로 심사 계정을 덮어쓰는 사고를 막는 fail-closed).
+//
+// 실행(값이 셸 기록에 남지 않게 입력하는 쪽이 안전하다):
+//   bash/zsh:
+//     read -rs TEST_HOST_PASSWORD  && export TEST_HOST_PASSWORD
+//     read -rs TEST_GUEST_PASSWORD && export TEST_GUEST_PASSWORD
+//     node scripts/createTestAccounts.js
+//   PowerShell:
+//     $env:TEST_HOST_PASSWORD  = (Read-Host -AsSecureString |
+//       ConvertFrom-SecureString -AsPlainText)
+//     $env:TEST_GUEST_PASSWORD = (Read-Host -AsSecureString |
+//       ConvertFrom-SecureString -AsPlainText)
+//     node scripts/createTestAccounts.js
 const TEST_ACCOUNTS = [
   {
     email: 'host@test.com',
-    password: 'Host1234!@',
+    passwordEnv: 'TEST_HOST_PASSWORD',
     displayName: '호스트테스트(TEST)',
     gender: 'male',
     birthYear: 1993,
   },
   {
     email: 'guest@test.com',
-    password: 'Guest1234!@',
+    passwordEnv: 'TEST_GUEST_PASSWORD',
     displayName: '참가자테스트(TEST)',
     gender: 'female',
     birthYear: 1996,
   },
 ];
+
+// 환경변수에서 비밀번호를 읽는다. 없으면 **아무것도 바꾸지 않고 멈춘다.**
+//
+// 빈 값으로 updateUser를 부르면 기존 심사 계정의 비밀번호가 망가져 심사관이
+// 로그인할 수 없게 된다. 그래서 여기서 끊는다.
+function passwordOf(account) {
+  const value = process.env[account.passwordEnv];
+  if (!value) {
+    throw new Error(
+      `환경변수 ${account.passwordEnv}가 비어 있습니다(${account.email}). ` +
+        '이 스크립트는 비밀번호를 파일에 담지 않습니다 — 실행 전에 설정하세요.',
+    );
+  }
+  return value;
+}
 
 // ── 1. Email/Password provider 활성화 (Identity Platform REST — updateMask로
 // signIn.email만 갱신, 다른 provider 설정은 건드리지 않는다) ─────────────────
@@ -91,10 +122,13 @@ async function enableEmailPasswordProvider() {
 // ── 2. Firebase Auth 계정 생성(재실행 안전 — 있으면 갱신만) ───────────────────
 
 async function upsertAuthUser(account) {
+  // 계정을 건드리기 **전에** 비밀번호를 확보한다 — 중간에 멈추면 한 계정만
+  // 갱신되고 다른 하나는 안 된 상태로 남는다.
+  const password = passwordOf(account);
   try {
     const existing = await admin.auth().getUserByEmail(account.email);
     await admin.auth().updateUser(existing.uid, {
-      password: account.password,
+      password,
       displayName: account.displayName,
       emailVerified: true,
       disabled: false,
@@ -105,7 +139,7 @@ async function upsertAuthUser(account) {
     if (e.code !== 'auth/user-not-found') throw e;
     const created = await admin.auth().createUser({
       email: account.email,
-      password: account.password,
+      password,
       displayName: account.displayName,
       emailVerified: true,
       disabled: false,
@@ -174,6 +208,9 @@ async function seedUserProfile(uid, account) {
 }
 
 async function main() {
+  // 환경변수를 **가장 먼저** 전부 확인한다 — provider 설정을 바꾼 뒤에
+  // 비밀번호가 없어서 멈추면 절반만 적용된 상태가 된다.
+  TEST_ACCOUNTS.forEach(passwordOf);
   await enableEmailPasswordProvider();
   for (const account of TEST_ACCOUNTS) {
     const uid = await upsertAuthUser(account);

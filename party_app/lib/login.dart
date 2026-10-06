@@ -14,6 +14,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:cloud_functions/cloud_functions.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:party_app/utils/user_session.dart';
+import 'package:party_app/utils/app_review_login.dart';
 import 'package:party_app/utils/apple_sign_in.dart';
 import 'package:party_app/utils/last_login_method.dart';
 import 'package:party_app/utils/social_session.dart';
@@ -466,9 +467,124 @@ class _LoginPageState extends State<LoginPage> {
     }
   }
 
+  // ─── App Review (iOS 전용 심사용 로그인) ─────────────────────────────────
+  // 심사관이 쓸 입구다. 허용된 주소가 아니면 Firebase를 부르지도 않는다 —
+  // 이 경로가 일반 이메일 로그인으로 자라지 않게 한다
+  // ([AppReviewLogin.allowedEmails]).
+  //
+  // 비밀번호는 앱에 없다. 심사관이 입력하고 Firebase Auth가 검증한다.
+  // 로그인 뒤 처리는 소셜 로그인과 **완전히 같은 경로**다([signInWithEmail]
+  // → [_onLoginSuccess]) — 본인확인 상태는 서버의 users/{uid}를 읽어 정해지고
+  // 화면은 루트 게이트가 고른다.
+  Future<void> signInForAppReview(
+    BuildContext context,
+    String email,
+    String password,
+  ) async {
+    if (!AppReviewLogin.isAvailable) return;
+    if (!AppReviewLogin.isAllowedEmail(email)) {
+      _showError(context, '심사용으로 등록된 계정이 아닙니다.');
+      return;
+    }
+    await signInWithEmail(
+      context,
+      AppReviewLogin.normalizeEmail(email),
+      password,
+    );
+  }
+
+  void _showAppReviewLoginSheet(BuildContext context) {
+    final emailCtrl = TextEditingController(
+      text: AppReviewLogin.allowedEmails.first,
+    );
+    final passwordCtrl = TextEditingController();
+
+    showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (ctx) => Padding(
+        padding: EdgeInsets.only(bottom: MediaQuery.of(ctx).viewInsets.bottom),
+        child: Container(
+          padding: const EdgeInsets.fromLTRB(20, 20, 20, 28),
+          decoration: const BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+          ),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Text(
+                'App Review Login',
+                style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+              ),
+              const SizedBox(height: 4),
+              const Text(
+                'For App Store review only. Sign in with the review account '
+                'provided in App Review Information.',
+                style: TextStyle(fontSize: 12, color: Colors.black45),
+              ),
+              const SizedBox(height: 16),
+              // 주소만 채워 준다 — 비밀번호는 심사관이 입력한다.
+              Row(
+                children: [
+                  for (final email in AppReviewLogin.allowedEmails) ...[
+                    Expanded(
+                      child: OutlinedButton(
+                        onPressed: () => emailCtrl.text = email,
+                        child: Text(
+                          email.split('@').first,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ),
+                    ),
+                    if (email != AppReviewLogin.allowedEmails.last)
+                      const SizedBox(width: 8),
+                  ],
+                ],
+              ),
+              const SizedBox(height: 12),
+              TextField(
+                controller: emailCtrl,
+                keyboardType: TextInputType.emailAddress,
+                autocorrect: false,
+                decoration: const InputDecoration(labelText: 'Email'),
+              ),
+              const SizedBox(height: 8),
+              TextField(
+                controller: passwordCtrl,
+                obscureText: true,
+                decoration: const InputDecoration(labelText: 'Password'),
+              ),
+              const SizedBox(height: 16),
+              SizedBox(
+                width: double.infinity,
+                child: ElevatedButton(
+                  onPressed: () {
+                    Navigator.pop(ctx);
+                    signInForAppReview(
+                      context,
+                      emailCtrl.text,
+                      passwordCtrl.text,
+                    );
+                  },
+                  child: const Text('Sign in'),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
   void _showDebugTestLoginSheet(BuildContext context) {
+    // 비밀번호는 채우지 않는다 — 앱 바이너리에 심사 계정 비밀번호가 문자열로
+    // 남지 않게 한다(Release에서 이 메서드가 트리셰이킹될지에 기대지 않는다).
     final emailCtrl = TextEditingController(text: 'host@test.com');
-    final passwordCtrl = TextEditingController(text: 'Host1234!@');
+    final passwordCtrl = TextEditingController();
 
     showModalBottomSheet<void>(
       context: context,
@@ -506,20 +622,15 @@ class _LoginPageState extends State<LoginPage> {
                 children: [
                   Expanded(
                     child: OutlinedButton(
-                      onPressed: () {
-                        emailCtrl.text = 'host@test.com';
-                        passwordCtrl.text = 'Host1234!@';
-                      },
+                      // 주소만 채운다 — 비밀번호를 앱에 박아 두지 않는다.
+                      onPressed: () => emailCtrl.text = 'host@test.com',
                       child: const Text('호스트 계정'),
                     ),
                   ),
                   const SizedBox(width: 8),
                   Expanded(
                     child: OutlinedButton(
-                      onPressed: () {
-                        emailCtrl.text = 'guest@test.com';
-                        passwordCtrl.text = 'Guest1234!@';
-                      },
+                      onPressed: () => emailCtrl.text = 'guest@test.com',
                       child: const Text('참가자 계정'),
                     ),
                   ),
@@ -867,6 +978,31 @@ class _LoginPageState extends State<LoginPage> {
                                 ),
                                 const SizedBox(height: 22),
                                 _termsFooter(),
+                                // App Review Login — **iOS Release에도 보인다.**
+                                //
+                                // 심사관이 받는 빌드는 App Store 빌드라
+                                // kDebugMode가 false다. 그래서 아래 Debug
+                                // 블록과 달리 이 입구는 플랫폼으로만 가린다
+                                // (iOS 전용 · Android·웹은 그대로).
+                                //
+                                // 일반 사용자에게도 보이지만, 주요 로그인처럼
+                                // 보이지 않게 약관 아래 작은 글자로 둔다 —
+                                // 허용된 심사 계정만 통과하므로 눌러도 다른
+                                // 사람에게는 쓸모가 없다.
+                                if (AppReviewLogin.isAvailable) ...[
+                                  const SizedBox(height: 10),
+                                  TextButton(
+                                    onPressed: () =>
+                                        _showAppReviewLoginSheet(context),
+                                    child: const Text(
+                                      'App Review Login',
+                                      style: TextStyle(
+                                        fontSize: 11,
+                                        color: Colors.black26,
+                                      ),
+                                    ),
+                                  ),
+                                ],
                                 // QA 테스트 로그인 — kDebugMode가 false인
                                 // release 빌드에는 이 블록 자체가 빌드되지
                                 // 않아 일반 사용자에게는 절대 노출되지 않는다.
