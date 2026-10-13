@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import 'package:party_app/models/mobile_place_schedule.dart';
 import 'package:party_app/models/place_weekly_hours.dart';
 import 'package:party_app/models/public_event.dart';
 import 'package:party_app/models/region_data.dart';
@@ -90,6 +91,13 @@ class MapListing {
   /// 않는다). 나머지 종류는 null.
   final PublicEvent? publicEvent;
 
+  /// 🚚 이동형 플레이스일 때만 — 이 핀이 **어느 영업 자리인지**([atStop]).
+  ///
+  /// 고정형은 언제나 null이고, 그때 이 클래스의 동작은 예전과 한 글자도
+  /// 다르지 않다. 한 업체가 하루에 여러 곳에서 영업하면 문서 하나에서
+  /// 자리마다 사본이 하나씩 나오는데, 그 사본을 가리는 것이 이 값이다.
+  final PlaceOpening? opening;
+
   const MapListing({
     required this.kind,
     required this.docId,
@@ -97,10 +105,93 @@ class MapListing {
     required this.lat,
     required this.lng,
     this.publicEvent,
+    this.opening,
   });
 
   /// 컬렉션이 달라도 겹치지 않는 키 — 마커 id와 중복 제거에 쓴다.
-  String get key => '${kind.name}:$docId';
+  ///
+  /// 이동형은 **날짜까지** 키에 넣는다. 사용자가 날짜를 여럿 고르면 한 업체가
+  /// 날짜마다 핀을 하나씩 갖는데, 날짜가 키에 없으면 마커 id가 겹쳐 **하나만
+  /// 남는다**. 고정형([opening]이 null)은 예전 형식 그대로다.
+  String get key {
+    final date = openingDate;
+    final base = '${kind.name}:$docId';
+    return date == null
+        ? base
+        : '$base@${ScheduleException.dateKeyOf(date)}';
+  }
+
+  /// 🚚 이 핀이 선 **영업 날짜**(자정을 넘기는 영업은 시작한 날). 고정형은 null.
+  DateTime? get openingDate {
+    final start = opening?.start;
+    return start == null
+        ? null
+        : DateTime(start.year, start.month, start.day);
+  }
+
+  /// 카드가 읽을 데이터 — 고정형은 [data] 그대로, 이동형은 **그 날 자리**로
+  /// 바꾼 사본.
+  ///
+  /// ⚠️ **원본 [data]를 변형하지 않는다.** 얕은 사본을 새로 만들어 돌려주므로
+  ///    상세 화면·다른 카드가 보는 문서는 그대로다(Firestore 스냅샷의 맵을
+  ///    고치면 그 문서를 보는 모든 화면이 함께 바뀐다).
+  ///
+  /// 왜 필요한가: 지도 하단 '이 근처' 카드는 공용
+  /// [PlaceCompactCard]를 쓰고 그 위젯은 `address`·`openTime`을 문서에서
+  /// 직접 읽는다. 이동형에 원본을 그대로 주면 **핀은 홍대에 서 있는데 카드는
+  /// '서울 중구'와 등록 운영시간**을 보여 준다.
+  /// [now]는 '오늘' 표기를 가리는 기준이다. 비우면 실제 시각을 쓴다 —
+  /// 테스트가 날짜에 따라 깨지지 않도록 넣을 수 있게 열어 둔다.
+  Map<String, dynamic> cardData({DateTime? now}) {
+    final stop = opening?.stop;
+    if (stop == null) return data;
+    final fullAddress = stop.roadAddress.isNotEmpty
+        ? stop.roadAddress
+        : stop.address;
+    final where = stop.placeName.isNotEmpty ? stop.placeName : fullAddress;
+    return {
+      ...data,
+      // **날짜 + 장소명.** 날짜를 여럿 고르면 같은 업체의 카드가 여러 장
+      // 뜨므로, 어느 날 것인지가 카드에서 바로 읽혀야 한다.
+      'address': '${_dateLabel(now)} · $where',
+      'location': fullAddress,
+      // 영업시간도 그 날 것으로 — 등록 운영시간을 보여 주면 핀·상세와 어긋난다.
+      'openTime': _hhmm(opening!.start),
+      'closeTime': _hhmm(opening!.end),
+      'isOpen24Hours': false,
+    };
+  }
+
+  /// 카드에 붙는 날짜 — 오늘이면 '오늘', 아니면 `10/13 (화)`.
+  ///
+  /// 짧게 두는 이유는 카드의 주소 한 줄에 장소명과 함께 들어가기 때문이다
+  /// (좁은 화면에서 줄이 끊기지 않게).
+  String _dateLabel(DateTime? now) {
+    final date = openingDate!;
+    final base = now ?? DateTime.now();
+    if (date == DateTime(base.year, base.month, base.day)) return '오늘';
+    return '${date.month}/${date.day} '
+        '(${PlaceWeeklyHours.weekdays[date.weekday - 1]})';
+  }
+
+  static String _hhmm(DateTime t) =>
+      '${t.hour.toString().padLeft(2, '0')}:'
+      '${t.minute.toString().padLeft(2, '0')}';
+
+  /// 같은 문서를 **다른 자리**에 올린 사본 — 이동형 전용.
+  ///
+  /// [docId]와 [data]는 그대로 둔다. 마커를 눌러 들어가는 상세 화면이 그
+  /// 두 값만 쓰므로([MapScreen._openDetail]), 위치가 바뀌어도 업체 ID·사진·
+  /// 리뷰·채팅이 전부 같은 곳으로 이어진다.
+  MapListing atStop(PlaceOpening stop) => MapListing(
+    kind: kind,
+    docId: docId,
+    data: data,
+    lat: stop.stop.latitude,
+    lng: stop.stop.longitude,
+    publicEvent: publicEvent,
+    opening: stop,
+  );
 
   /// 좌표가 없는(0,0) 문서는 지도에 올릴 수 없다.
   static MapListing? from(
@@ -151,6 +242,19 @@ class MapListing {
     // 공공 축제는 전국이라 시/도까지 — 이벤트 피드 카드와 같은 표기.
     if (kind == MapListingKind.festival) {
       return publicEventAreaLabel(publicEvent?.address);
+    }
+    // 🚚 이동형은 **그 핀의 영업 자리**를 쓴다. 문서의 주소는 업체가 등록할
+    // 때 적은 기준 주소라, 오늘 한강공원에 있는 트럭의 핀 카드에 '서울 중구'가
+    // 뜨는 일이 생긴다(핀과 글이 어긋나면 글이 틀린 것이 된다).
+    final stop = opening?.stop;
+    if (stop != null) {
+      final stopAddress = stop.roadAddress.isNotEmpty
+          ? stop.roadAddress
+          : stop.address;
+      if (stop.placeName.isNotEmpty) return stop.placeName;
+      if (stopAddress.isNotEmpty) {
+        return RegionData.shortDistrictDong(stopAddress);
+      }
     }
     final address =
         (data['address'] as String?) ?? (data['location'] as String?) ?? '';

@@ -46,6 +46,7 @@ import 'package:party_app/models/listing_text_search.dart';
 import 'package:party_app/models/map_auto_search.dart';
 import 'package:party_app/models/map_home_category.dart';
 import 'package:party_app/models/map_listing.dart';
+import 'package:party_app/models/mobile_place_pins.dart';
 import 'package:party_app/models/map_marker_tap.dart';
 import 'package:party_app/models/party_search.dart';
 import 'package:party_app/widgets/main/search_entry_sheet.dart';
@@ -504,7 +505,9 @@ class _MapScreenState extends State<MapScreen> {
     _syncPublicEventSub();
     _mapItems = [
       for (final kind in MapListingKind.values)
-        if (_kinds.contains(kind)) ..._byKind[kind]!.where(_matchesFilter),
+        if (_kinds.contains(kind))
+          for (final item in _byKind[kind]!.where(_matchesFilter))
+            ..._resolvePins(item),
     ];
     _displayed = _isAreaSearch && _lastSearchBounds != null
         ? _filterByBounds(_mapItems, _lastSearchBounds!)
@@ -521,10 +524,16 @@ class _MapScreenState extends State<MapScreen> {
         kind:
             (_isAreaSearch && _lastSearchBounds != null
                     ? _filterByBounds(
-                        _byKind[kind]!.where(_matchesFilter).toList(),
+                        _byKind[kind]!
+                            .where(_matchesFilter)
+                            .expand(_resolvePins)
+                            .toList(),
                         _lastSearchBounds!,
                       )
-                    : _byKind[kind]!.where(_matchesFilter).toList())
+                    : _byKind[kind]!
+                          .where(_matchesFilter)
+                          .expand(_resolvePins)
+                          .toList())
                 .length,
     };
 
@@ -536,6 +545,41 @@ class _MapScreenState extends State<MapScreen> {
       _tapped = null;
       _selectedKey = null;
     }
+  }
+
+  /// 🚚 **이동형 플레이스만** 고른 날짜·시간의 영업 자리로 푼다.
+  ///
+  /// 고정형은 받은 것을 그대로 하나 돌려준다 — `isMobilePlace`가 없는 기존
+  /// 문서는 전부 이 길이고, 좌표·키·개수가 예전과 한 글자도 다르지 않다
+  /// (기준선: test/map_fixed_place_baseline_test.dart).
+  ///
+  /// 일정 계산은 하지 않는다. 우선순위(하루 대체·일정 추가·휴무)와 자정
+  /// 넘김은 전부 [MobilePlacePins]가 모델에 넘긴다 — 지도에 사본을 두면
+  /// 등록 화면과 판정이 갈라진다.
+  ///
+  /// 그 시점에 영업하지 않으면 **빈 목록**이다. 일정이 없는 날에 아무 데나
+  /// 핀이 생기지 않는 지점이 여기다.
+  /// 이동형은 **고른 날짜마다 핀 하나**다(한 업체는 하루에 한 곳에서
+  /// 영업한다). 월+화를 고르면 홍대·강남 두 개, 목(휴무)만 고르면 없음.
+  ///
+  /// 고른 날짜 집합을 그대로 넘긴다 — 고정형은 예전처럼 그 집합 전체로
+  /// 판정되므로([EventFilter.visitDates]) 기존 날짜 복수 선택 UX가 그대로다.
+  ///
+  /// 일정 계산은 하지 않는다. 우선순위(하루 대체·휴무)와 자정 넘김은 전부
+  /// [MobilePlacePins]가 모델에 넘긴다 — 지도에 사본을 두면 등록 화면과
+  /// 판정이 갈라진다.
+  Iterable<MapListing> _resolvePins(MapListing item) {
+    // 플레이스(`events`)만 이동형일 수 있다. 파티·장소대여·공공 축제는 그대로.
+    if (item.kind != MapListingKind.place) return [item];
+    final resolved = MobilePlacePins.resolve(
+      item.data,
+      dates: _placeDiscovery.visitDates,
+      startTime: _placeDiscovery.startTime,
+      endTime: _placeDiscovery.endTime,
+    );
+    if (!resolved.isMobile) return [item]; // 고정형 — 예전 그대로.
+    // 고른 날짜에 전부 쉬면 빈 목록 → 핀을 올리지 않는다.
+    return [for (final opening in resolved.openings) item.atStop(opening)];
   }
 
   // 줌 값 하나를 3단계 중 하나로 분류 — 마커 동기화·전환 감지가 모두 이
@@ -3471,9 +3515,17 @@ class _MapScreenState extends State<MapScreen> {
       webFramedRoute(
         (_) => switch (item.kind) {
           MapListingKind.party => PartyDetailScreen(docId: item.docId),
+          // 🚚 이동형 플레이스에는 **그 핀이 선 날짜**를 함께 넘긴다 — 수요일
+          // 핀을 눌러 들어왔는데 상세가 오늘 일정을 보여 주면 핀과 글이
+          // 어긋난다. 고정형은 `opening`이 null이라 예전과 똑같이 열린다.
+          //
+          // (주석을 switch 가지 **밖**에 둔다 — map_public_festival_test가
+          //  이 네 줄의 소스 형태를 그대로 고정하고 있어, 가지 안에 주석이
+          //  들어가면 그 가드가 깨진다.)
           MapListingKind.place => EventDetailScreen(
             eventId: item.docId,
             eventData: item.data,
+            focusDate: item.opening?.start,
           ),
           MapListingKind.rental => PlaceDetailScreen(
             placeId: item.docId,
@@ -3520,7 +3572,9 @@ class _MapScreenState extends State<MapScreen> {
       );
     }
     return PlaceCompactCard(
-      place: item.data,
+      // 🚚 이동형은 **그 날 자리**로 바꾼 사본을 넘긴다([MapListing.cardData]).
+      // 원본 문서는 손대지 않으므로 상세 화면이 보는 값은 그대로다.
+      place: item.cardData(),
       placeId: item.docId,
       source: item.kind.cardSource!,
       onTap: onTap,

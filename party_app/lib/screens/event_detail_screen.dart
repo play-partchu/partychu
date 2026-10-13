@@ -6,6 +6,7 @@ import 'package:party_app/models/place_area.dart';
 import 'package:party_app/models/listing_inquiry.dart';
 import 'package:party_app/widgets/guest_inquiry_button.dart';
 import 'package:party_app/models/listing_constants.dart';
+import 'package:party_app/models/mobile_place_schedule.dart';
 import 'package:party_app/models/place_taxonomy.dart';
 import 'package:party_app/widgets/place_product/place_menu_list_section.dart';
 import 'package:party_app/widgets/place_product/place_product_list_section.dart';
@@ -26,6 +27,7 @@ import 'package:party_app/widgets/favorite_star_button.dart';
 import 'package:party_app/widgets/media_gallery.dart';
 import 'package:party_app/widgets/partychu_perk.dart';
 import 'package:party_app/widgets/partychu_ui.dart';
+import 'package:party_app/widgets/mobile_schedule_detail_card.dart';
 import 'package:party_app/widgets/place_address_row.dart';
 import 'package:party_app/widgets/custom_amenity_view.dart';
 import 'package:party_app/widgets/place_attributes_view.dart';
@@ -42,10 +44,18 @@ class EventDetailScreen extends StatefulWidget {
   final String eventId;
   final Map<String, dynamic> eventData;
 
+  /// 🚚 지도에서 넘어온 **선택 날짜** — 이동형 플레이스에서만 뜻이 있다.
+  ///
+  /// 지도에서 "수요일" 핀을 눌러 들어왔으면 상세도 그 날짜의 영업 정보를
+  /// 먼저 보여 준다. 없으면 오늘이 기본값이고, 고정형 장소에서는 쓰이지
+  /// 않으므로 기존 화면이 한 글자도 달라지지 않는다.
+  final DateTime? focusDate;
+
   const EventDetailScreen({
     super.key,
     required this.eventId,
     required this.eventData,
+    this.focusDate,
   });
 
   @override
@@ -356,6 +366,9 @@ class _EventDetailScreenState extends State<EventDetailScreen> {
             eventSubtypeRaw.isNotEmpty
         ? eventSubtypeRaw
         : null;
+    // 🚚 이동형 일정 — **없으면 null**이고, 그때 이 화면은 예전 그대로다
+    // (`isMobilePlace`가 없는 기존 문서는 전부 null).
+    final mobileSchedule = MobilePlaceSchedule.ofPlace(_data);
     // 대분류·소분류 — 새 필드가 없는 옛 문서는 업종에서 유추한다.
     final placeCategory = PlaceTaxonomy.categoryOf(_data);
     final placeSubcategories = PlaceTaxonomy.subcategoriesOf(_data);
@@ -591,7 +604,19 @@ class _EventDetailScreenState extends State<EventDetailScreen> {
                         bgColor: const Color(0xFFFFE6EF),
                       ),
                     ),
-                  if (location.isNotEmpty) ...[
+                  // 🚚 이동형 플레이스는 날짜마다 영업 장소가 달라지므로,
+                  // 등록한 기준 주소 한 줄 **대신** 날짜별 영업 카드를 둔다.
+                  //
+                  // 기준 주소를 그대로 보여 주면 "오늘 한강공원에 있는 트럭"의
+                  // 상세에 '서울 중구'가 떠서 손님을 없는 자리로 보낸다.
+                  // 고정형([mobileSchedule]이 null)은 아래 기존 줄 그대로다.
+                  if (mobileSchedule != null)
+                    MobileScheduleDetailCard(
+                      schedule: mobileSchedule,
+                      placeName: name,
+                      focusDate: widget.focusDate,
+                    )
+                  else if (location.isNotEmpty) ...[
                     const SizedBox(height: 10),
                     // 주소 + 복사/길찾기 — places 상세와 같은 공용 위젯.
                     PlaceAddressRow(

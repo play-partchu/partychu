@@ -35,6 +35,7 @@ import 'package:party_app/models/combo_place_type.dart';
 import 'package:party_app/widgets/space_type_selector.dart';
 import 'package:party_app/widgets/place_scope_notice.dart';
 import 'package:party_app/widgets/partychu_perk.dart';
+import 'package:party_app/models/mobile_place_schedule.dart';
 import 'package:party_app/models/pet_policy.dart';
 import 'package:party_app/models/place_facility_options.dart';
 import 'package:party_app/models/place_product.dart';
@@ -54,6 +55,7 @@ import 'package:party_app/widgets/place_form/custom_amenity_section.dart';
 import 'package:party_app/widgets/place_form/place_facility_options_section.dart';
 import 'package:party_app/widgets/place_form/place_attributes_section.dart';
 import 'package:party_app/widgets/place_form/place_category_section.dart';
+import 'package:party_app/widgets/place_form/mobile_schedule_section.dart';
 import 'package:party_app/widgets/place_form/place_hours_section.dart';
 import 'package:party_app/widgets/place_form/place_menu_section.dart';
 import 'package:party_app/widgets/place_form/place_promotion_section.dart';
@@ -222,6 +224,9 @@ class _EventRegisterScreenState extends State<EventRegisterScreen>
       'placeOpenTime': DraftableRegister.timeToMap(_placeOpenTime),
       'placeCloseTime': DraftableRegister.timeToMap(_placeCloseTime),
       'placeWeeklyHours': _placeWeeklyHours.toMap(),
+      // 🚚 이동형 장소 — 고정형이면 false 하나만 담긴다(일정은 빈 사본).
+      MobilePlaceSchedule.isMobileFieldName: _isMobilePlace,
+      MobilePlaceSchedule.fieldName: _mobileSchedule.toMap(),
       'visitReservation': _visitReservation.toMap(),
       ListingInquiry.field: _inquiryEnabled,
       ListingInquiry.guideField: _inquiryGuideCtrl.text,
@@ -340,6 +345,12 @@ class _EventRegisterScreenState extends State<EventRegisterScreen>
     final weeklyMap = p['placeWeeklyHours'];
     _placeWeeklyHours = PlaceWeeklyHours.fromMap(
       weeklyMap is Map ? Map<String, dynamic>.from(weeklyMap) : null,
+    );
+    // 🚚 이동형 장소 — 이 키가 없는 **옛 임시저장**은 고정형으로 열린다.
+    _isMobilePlace = p[MobilePlaceSchedule.isMobileFieldName] as bool? ?? false;
+    final mobileMap = p[MobilePlaceSchedule.fieldName];
+    _mobileSchedule = MobilePlaceSchedule.fromMap(
+      mobileMap is Map ? Map<String, dynamic>.from(mobileMap) : null,
     );
     final visitMap = p['visitReservation'];
     _visitReservation = PlaceVisitReservationConfig.fromMap(
@@ -545,6 +556,16 @@ class _EventRegisterScreenState extends State<EventRegisterScreen>
         Map<String, dynamic>.from(weekly),
       );
     }
+    // 🚚 이동형 장소 — 필드가 없으면 **고정형 그대로**다(옛 문서 전부 해당).
+    _isMobilePlace = d[MobilePlaceSchedule.isMobileFieldName] == true;
+    final mobile = d[MobilePlaceSchedule.fieldName];
+    if (mobile is Map) {
+      _mobileSchedule = MobilePlaceSchedule.fromMap(
+        Map<String, dynamic>.from(mobile),
+      );
+    }
+    _hadMobileSchedule =
+        mobile is Map || d.containsKey(MobilePlaceSchedule.isMobileFieldName);
     if (d['visitReservation'] is Map) {
       _visitReservation = PlaceVisitReservationConfig.fromMap(
         Map<String, dynamic>.from(d['visitReservation'] as Map),
@@ -853,6 +874,18 @@ class _EventRegisterScreenState extends State<EventRegisterScreen>
   /// 새로 만들지 않기 위한 기준. 등록 모드에서는 항상 저장하므로 쓰이지 않는다.
   bool _hadHours = false;
   bool _hadVisitReservation = false;
+
+  // ── 🚚 이동형 장소 ("장소가 매번 바뀌시나요?") ────────────────────────
+  //
+  // **기본값은 고정형**이다 — 이 두 값을 건드리지 않으면 저장 payload에
+  // 아무것도 더해지지 않고, 기존 등록 흐름이 한 걸음도 달라지지 않는다.
+  bool _isMobilePlace = false;
+  MobilePlaceSchedule _mobileSchedule = const MobilePlaceSchedule();
+
+  /// 수정으로 열었을 때 원래 문서에 이동형 일정이 있었는가 — 운영시간과 같은
+  /// 규칙으로, 없던 문서에 빈 일정을 새로 만들지 않기 위해 둔다.
+  bool _hadMobileSchedule = false;
+  bool _mobileScheduleTouched = false;
   bool _hadPetPolicy = false;
   bool _hadFacilityOptions = false;
   bool _hadContact = false;
@@ -1258,6 +1291,23 @@ class _EventRegisterScreenState extends State<EventRegisterScreen>
         }
         doc['placeWeeklyHours'] = _placeWeeklyHours.toMap();
         doc['weeklyOperatingHours'] = _placeWeeklyHours.toMap();
+      }
+      // 🚚 이동형 장소 — 운영시간과 **같은 규칙**이다. 옛 문서에 없던 필드를
+      // 새로 만들지 않도록, 등록이거나 실제로 손댄 경우에만 쓴다.
+      //
+      // 고정형(기본값)으로 등록하면 `isMobilePlace: false`만 적힌다 —
+      // 읽는 쪽은 그 값이 false거나 없으면 **예전과 똑같이** 문서의
+      // latitude/longitude를 쓴다([MobilePlaceSchedule.ofPlace]).
+      if (!_isEdit || _mobileScheduleTouched || _hadMobileSchedule) {
+        doc[MobilePlaceSchedule.isMobileFieldName] = _isMobilePlace;
+        if (_isMobilePlace) {
+          doc[MobilePlaceSchedule.fieldName] = _mobileSchedule.toMap();
+        } else if (_isEdit && _hadMobileSchedule) {
+          // 고정형으로 되돌렸다 — 일정을 **지우지 않고** 그대로 둔다.
+          // 다시 '네'로 바꾸면 등록해 둔 요일 일정이 살아난다. 읽는 쪽은
+          // isMobilePlace가 false면 일정을 보지 않으므로 지도 동작에는
+          // 영향이 없다.
+        }
       }
       // 방문 예약 설정 — 예약을 켠 적이 없는 옛 문서에 빈 설정을 새로 만들지
       // 않도록, 등록이거나 실제로 손댄 경우에만 쓴다(운영시간과 같은 규칙).
@@ -1830,6 +1880,23 @@ class _EventRegisterScreenState extends State<EventRegisterScreen>
               const SizedBox(height: 22),
 
               // ── 7-3. 운영시간 / 애견동반 / 좌석·공간 ──────────────────
+              //
+              // 🚚 이동형 여부를 운영시간 **바로 위**에 둔다 — "언제 여는가"를
+              // 묻기 전에 "어디서 여는가가 고정인가"를 정해야 뒤따르는 입력이
+              // 뜻을 갖는다. 기본값이 '아니요'라 고정형 등록자에게는 선택지
+              // 두 줄만 늘어난다.
+              MobileScheduleSection(
+                isMobile: _isMobilePlace,
+                schedule: _mobileSchedule,
+                onIsMobileChanged: (next) => setState(() {
+                  _isMobilePlace = next;
+                  _mobileScheduleTouched = true;
+                }),
+                onChanged: (next) => setState(() {
+                  _mobileSchedule = next;
+                  _mobileScheduleTouched = true;
+                }),
+              ),
               PlaceHoursSection(
                 title: '운영시간',
                 description: '플레이스 상세에 표시되는 기본 운영 시간이에요.',

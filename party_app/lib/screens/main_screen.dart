@@ -60,6 +60,7 @@ import 'package:party_app/models/capacity_filter.dart';
 import 'package:party_app/models/event_filter.dart';
 import 'package:party_app/models/place_filter.dart';
 import 'package:party_app/models/listing_price_match.dart';
+import 'package:party_app/models/mobile_place_schedule.dart';
 import 'package:party_app/models/place_weekly_hours.dart';
 import 'package:party_app/widgets/partychu_perk.dart' show partychuPerkFrom;
 import 'package:party_app/models/pet_policy.dart';
@@ -5143,11 +5144,17 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin {
     if (f.partychuPerkOnly && partychuPerkFrom(data) == null) return false;
 
     if (f.openNowOnly) {
-      final hours = _eventWeeklyHours(data);
-      if (hours == null) return false;
-      if (data['isOpen24Hours'] != true &&
-          hours.statusAt(now) != PlaceHoursStatus.open) {
-        return false;
+      // 🚚 이동형은 일정이 정본 — "지금 영업 중"도 그쪽에 묻는다.
+      final mobileNow = MobilePlaceSchedule.ofPlace(data);
+      if (mobileNow != null) {
+        if (mobileNow.openingAt(now) == null) return false;
+      } else {
+        final hours = _eventWeeklyHours(data);
+        if (hours == null) return false;
+        if (data['isOpen24Hours'] != true &&
+            hours.statusAt(now) != PlaceHoursStatus.open) {
+          return false;
+        }
       }
     }
 
@@ -5179,7 +5186,13 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin {
     EventFilter f,
     DateTime now,
   ) {
-    if (data['isOpen24Hours'] == true) return true;
+    // 🚚 이동형에는 `isOpen24Hours`가 뜻이 없다(등록 화면이 함께 저장할 뿐).
+    // 그 값으로 통과시키면 쉬는 트럭까지 걸린다 — 아래 요일 순회가
+    // [_opensOn]의 이동형 분기를 타게 둔다.
+    if (MobilePlaceSchedule.ofPlace(data) == null &&
+        data['isOpen24Hours'] == true) {
+      return true;
+    }
     final today = DateTime(now.year, now.month, now.day);
     for (var i = 0; i < DateTime.daysPerWeek; i++) {
       if (_opensOn(data, today.add(Duration(days: i)), f)) return true;
@@ -5189,6 +5202,28 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin {
 
   /// 그 날짜(그리고 골랐다면 그 시간대)에 문을 여는 곳인지.
   bool _opensOn(Map<String, dynamic> data, DateTime date, EventFilter f) {
+    // 🚚 이동형 플레이스는 **일정이 정본**이다([MobilePlaceSchedule]).
+    //
+    // 이 분기가 `isOpen24Hours`·`placeWeeklyHours`보다 **먼저** 와야 한다.
+    // 등록 화면은 이동형에도 운영시간을 함께 저장하므로, 아래로 내려가면
+    // 트럭이 실제 영업(11:00 홍대)이 아니라 저장된 운영시간(09:00)으로
+    // 걸러진다 — 지도와 목록이 다른 답을 내던 원인이다.
+    //
+    // 판정은 모델 한 곳이 한다 — 고정형과 같은 의미(시각/일부/전체)로 묻고,
+    // 시간 비교를 여기 복사하지 않는다.
+    final mobile = MobilePlaceSchedule.ofPlace(data);
+    if (mobile != null) {
+      final window = f.windowOn(date);
+      return mobile.openingMatching(
+            date: date,
+            moment: f.momentOn(date),
+            windowStart: window?.start,
+            windowEnd: window?.end,
+            requireFullWindow: f.openMode == PlaceAvailabilityMode.full,
+          ) !=
+          null;
+    }
+
     // 24시간 영업은 어떤 날짜·시간 조건에도 항상 걸린다.
     if (data['isOpen24Hours'] == true) return true;
 

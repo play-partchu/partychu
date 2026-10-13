@@ -173,9 +173,12 @@ void main() {
         ),
         isTrue,
       );
+      // 🚚 이동형 플레이스 때문에 `focusDate`가 하나 더 붙었다 — 어느 화면이
+      // 열리는지, 어떤 문서로 열리는지는 그대로다(고정형은 null이 넘어간다).
       expect(
         map.contains(
-          'MapListingKind.place => EventDetailScreen( eventId: item.docId, eventData: item.data, ),',
+          'MapListingKind.place => EventDetailScreen( eventId: item.docId, '
+          'eventData: item.data, focusDate: item.opening?.start, ),',
         ),
         isTrue,
       );
