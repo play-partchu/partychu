@@ -78,6 +78,11 @@ dependencies {
     // isCoreLibraryDesugaringEnabled의 짝. flutter_local_notifications 18.x가
     // 요구하는 최소 버전이 2.1.4다.
     coreLibraryDesugaring("com.android.tools:desugar_jdk_libs:2.1.4")
+
+    // SMS User Consent API(SmsConsentBridge) — 본인확인 인증번호 문자를
+    // 사용자 동의로 1건만 받는다. SMS 권한을 요구하지 않는 쪽이 이 패키지다
+    // (`play-services-auth`에는 SmsRetriever가 없다).
+    implementation("com.google.android.gms:play-services-auth-api-phone:18.1.0")
 }
 
 flutter {

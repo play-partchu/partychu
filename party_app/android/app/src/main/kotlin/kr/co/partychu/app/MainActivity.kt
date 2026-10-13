@@ -1,5 +1,6 @@
 package kr.co.partychu.app
 
+import android.content.Intent
 import android.content.pm.ApplicationInfo
 import android.content.pm.PackageManager
 import android.util.Log
@@ -31,10 +32,17 @@ import io.flutter.plugin.common.MethodChannel
 // 비워지므로, Android에는 iOS 쪽의 감지 이벤트에 해당하는 것이 없다 —
 // 이벤트 채널은 Dart가 플랫폼을 가리지 않고 붙을 수 있도록 자리만 만들어 둔다.
 class MainActivity : FlutterFragmentActivity() {
+
+    /// 본인확인 인증번호 문자를 사용자 동의로 받는 브리지([SmsConsentBridge]).
+    /// 화면이 살아 있는 동안만 쓰이고, onDestroy에서 리시버를 뗀다.
+    private var smsConsent: SmsConsentBridge? = null
+
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
 
         logNaverLoginSetup()
+
+        smsConsent = SmsConsentBridge(this, flutterEngine.dartExecutor.binaryMessenger)
 
         MethodChannel(flutterEngine.dartExecutor.binaryMessenger, CHANNEL)
             .setMethodCallHandler { call, result ->
@@ -60,6 +68,19 @@ class MainActivity : FlutterFragmentActivity() {
                     override fun onCancel(arguments: Any?) = Unit
                 }
             )
+    }
+
+    // 문자 동의 다이얼로그의 결과만 가로채고, 나머지는 평소대로 플러그인들에게
+    // 넘긴다(소셜 로그인이 모두 이 경로를 쓴다 — 삼키면 로그인이 끝나지 않는다).
+    override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
+        if (smsConsent?.onActivityResult(requestCode, resultCode, data) == true) return
+        super.onActivityResult(requestCode, resultCode, data)
+    }
+
+    override fun onDestroy() {
+        smsConsent?.dispose()
+        smsConsent = null
+        super.onDestroy()
     }
 
     /// 네이버 로그인 설정 진단 — **디버그 빌드에서만** 한 번 찍는다.

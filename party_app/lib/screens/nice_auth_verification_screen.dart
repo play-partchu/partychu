@@ -4,7 +4,10 @@ import 'package:cloud_functions/cloud_functions.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:party_app/services/nice_web_popup/nice_web_popup.dart';
+import 'package:party_app/services/sms_consent_service.dart';
+import 'package:party_app/services/webview_otp_autofill.dart';
 import 'package:party_app/utils/user_session.dart';
+import 'package:party_app/widgets/sms_code_copy_banner.dart';
 import 'package:webview_flutter/webview_flutter.dart';
 
 // NICE 통합인증 API 개발 가이드(v1.0.0) 기준 재구현.
@@ -115,16 +118,82 @@ class _NiceAuthVerificationScreenState
   /// 버튼 없이 이 문구만 보여준다(null이면 해당 상태가 아님).
   String? _blockedMessage;
 
+  /// 인증번호 문자를 사용자 동의로 받아 "복사" 버튼에 쓰는 경로 — **Android만.**
+  /// iOS는 WKWebView가 키보드에서 직접 제안하므로 만들지 않는다
+  /// ([WebViewOtpAutofill]). 지원하지 않는 플랫폼에서는 null로 남는다.
+  SmsConsentService? _smsConsent;
+
+  /// 인증번호가 **와 있는가**만 들고 있는다 — 값은 [SmsConsentService] 안에만
+  /// 둔다. 위젯 트리에 넣지 않으므로 화면·스크린샷에 숫자가 남지 않는다.
+  bool _smsCodeReady = false;
+  bool _smsCodeCopied = false;
+
   @override
   void initState() {
     super.initState();
     _requestAuthUrl();
+    _initSmsConsent();
   }
 
   @override
   void dispose() {
     _disposed = true;
+    // 수신 창을 닫고 들고 있던 인증번호를 비운다.
+    unawaited(_smsConsent?.dispose() ?? Future<void>.value());
+    _smsConsent = null;
     super.dispose();
+  }
+
+  // ── 인증번호 복사 배너 (Android) ──────────────────────────────────────
+  //
+  // 하는 일은 **복사를 쉽게 해 주는 것뿐**이다. 받은 번호를 WebView에 넣지
+  // 않는다 — NICE 인증 페이지의 입력값과 인증 로직에는 손대지 않는다.
+
+  void _initSmsConsent() {
+    if (!SmsConsentService.isSupported) return;
+    final service = SmsConsentService();
+    service.onCodeChanged = () {
+      // ⚠️ 값을 꺼내 오지 않는다 — 도착했다는 사실만 받는다.
+      _safeSetState(() {
+        _smsCodeReady = service.code != null;
+        _smsCodeCopied = false;
+      });
+    };
+    _smsConsent = service;
+    unawaited(service.start());
+  }
+
+  Future<void> _copySmsCode() async {
+    final copied = await (_smsConsent?.copyToClipboard() ?? Future.value(false));
+    if (!mounted) return;
+    _safeSetState(() => _smsCodeCopied = copied);
+    if (!copied) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        content: Text('인증번호를 복사했어요. 입력칸을 길게 눌러 붙여넣기 하세요.'),
+        duration: Duration(seconds: 3),
+      ),
+    );
+  }
+
+  /// 복사 줄을 띄울 때인가 — 표준창이 실제로 보이고, 인증번호가 와 있고,
+  /// 로딩 오버레이에 가려지지 않는 상태.
+  bool get _showSmsBanner =>
+      _smsCodeReady && _isWebViewVisible && !_loading && !_completing;
+
+  /// 표준창이 실제로 화면에 떠 있는가.
+  bool get _isWebViewVisible =>
+      _ctrl != null &&
+      _error == null &&
+      !_resultCheckFailed &&
+      _blockedMessage == null;
+
+  /// 배너만 닫는다 — 수신 창은 열어 둔다(재전송한 번호를 다시 받으려면 필요하다).
+  void _dismissSmsCode() {
+    _safeSetState(() {
+      _smsCodeReady = false;
+      _smsCodeCopied = false;
+    });
   }
 
   bool _disposed = false;
@@ -238,13 +307,26 @@ class _NiceAuthVerificationScreenState
     debugPrint('[NiceAuth] ▶ ${_step.label}');
     debugPrint('[NiceAuth] auth_url=$authUrl');
 
-    final ctrl = WebViewController()
+    // `onPageFinished`에서 자기 자신을 참조하므로 `late final`로 먼저 선언한다
+    // (nice_verification_screen.dart와 같은 패턴).
+    late final WebViewController ctrl;
+    ctrl = WebViewController()
       ..setJavaScriptMode(JavaScriptMode.unrestricted)
+      ..setOnConsoleMessage(WebViewOtpAutofill.logConsoleMessage)
       ..setNavigationDelegate(
         NavigationDelegate(
           onPageStarted: (url) => debugPrint('[NiceAuth] onPageStarted: $url'),
-          onPageFinished: (url) =>
-              debugPrint('[NiceAuth] onPageFinished: $url'),
+          onPageFinished: (url) {
+            debugPrint('[NiceAuth] onPageFinished: $url');
+            // 인증번호 입력칸에 OS 자동완성 힌트를 붙인다 — 표준창은 통신사
+            // 선택 → 정보 입력 → 인증번호 입력이 여러 페이지로 이어지므로
+            // 페이지마다 다시 건다. 실패해도 인증 흐름은 그대로다.
+            WebViewOtpAutofill.apply(ctrl);
+            // 문자 수신 창을 갱신한다(약 5분). 인증번호 문자는 사용자가
+            // 정보를 넣은 **뒤**에 오므로, 화면을 열 때 한 번만 열어 두면
+            // 창이 먼저 닫힐 수 있다.
+            unawaited(_smsConsent?.start() ?? Future<void>.value());
+          },
           onNavigationRequest: (NavigationRequest req) {
             debugPrint(
               '[NiceAuth] onNavigationRequest: ${req.url}'
@@ -520,17 +602,28 @@ class _NiceAuthVerificationScreenState
           onPressed: () => Navigator.pop(context, false),
         ),
       ),
-      body: Stack(
+      // 복사 줄은 WebView **위에 떠 있지 않다.** 자리를 따로 주고 남은
+      // 공간을 표준창에 주므로, NICE의 버튼·입력칸을 덮는 일이 구조적으로
+      // 없다(표준창이 그만큼 좁아진 영역에 맞춰 다시 레이아웃된다).
+      body: Column(
         children: [
-          if (_ctrl != null &&
-              _error == null &&
-              !_resultCheckFailed &&
-              _blockedMessage == null)
-            WebViewWidget(controller: _ctrl!),
-          if (_error != null) _buildUrlErrorView(),
-          if (_resultCheckFailed) _buildResultFailedView(),
-          if (_blockedMessage != null) _buildBlockedView(),
-          if (_loading || _completing) _buildLoadingOverlay(),
+          if (_showSmsBanner)
+            SmsCodeCopyBanner(
+              copied: _smsCodeCopied,
+              onCopy: _copySmsCode,
+              onDismiss: _dismissSmsCode,
+            ),
+          Expanded(
+            child: Stack(
+              children: [
+                if (_isWebViewVisible) WebViewWidget(controller: _ctrl!),
+                if (_error != null) _buildUrlErrorView(),
+                if (_resultCheckFailed) _buildResultFailedView(),
+                if (_blockedMessage != null) _buildBlockedView(),
+                if (_loading || _completing) _buildLoadingOverlay(),
+              ],
+            ),
+          ),
         ],
       ),
     );
