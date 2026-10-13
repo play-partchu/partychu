@@ -31,7 +31,12 @@ import 'package:url_launcher/url_launcher.dart';
 /// 반드시 틀린다 — 평소에는 아래 [MapDirectionsService._naverCallerName]이 실행
 /// 중인 앱에서 직접 읽어 쓰고, 이 상수는 그 조회가 실패했을 때만 쓰인다.
 const _kFallbackAndroidAppId = 'kr.co.partychu.app';
-const _kFallbackIosBundleId = 'com.example.partyApp';
+// 2026-10-07: 번들 ID가 `com.example.partyApp` → `com.partychu.app`으로 바뀐
+// 뒤에도 이 폴백만 옛 값으로 남아 있었다(PACKAGE_RENAME_CHECKLIST.md의 미완
+// 항목). 평소에는 [MapDirectionsService._naverCallerName]이 실행 중인 앱에서
+// 직접 읽으므로 드러나지 않지만, 그 조회가 실패하면 네이버 길찾기에 **존재하지
+// 않는 앱 이름**을 보내게 된다.
+const _kFallbackIosBundleId = 'com.partychu.app';
 
 enum MapAppId { naver, kakao, tmap, google, apple, web }
 
